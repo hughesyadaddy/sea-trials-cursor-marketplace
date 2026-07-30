@@ -1,0 +1,78 @@
+---
+description: Agent validation — scoped script during iteration; MCP full test only before merge.
+alwaysApply: true
+---
+
+# Agent validation tiers (Flutter)
+
+Three tiers. Use the **lightest tier that fits** — never default to
+whole-package MCP test during iteration.
+
+## Tier 1 — During edits (default)
+
+- **ReadLints** on changed files only.
+- No MCP `analyze_files`, no MCP `test`, no `packages_get`.
+
+## Tier 2 — End of chunk (`/build`, `/hotfix`, before summarizing)
+
+Run the scoped hook script while changes are uncommitted:
+
+```bash
+pnpm agent-validate
+```
+
+Or pass explicit paths when git diff is incomplete or clean (for example,
+right after committing):
+
+```bash
+pnpm agent-validate -- flutter/packages/foo/lib/a.dart flutter/packages/foo/test/a_test.dart
+```
+
+Flags: `--analyze-only`, `--tests-only`.
+
+Without explicit paths, `pnpm agent-validate` only inspects uncommitted
+changes (`git diff`, staged, and untracked files).
+
+This runs `dart analyze --fatal-infos` on changed **lib** files
+(same severity as pre-push/CI) and `flutter test` on changed **test**
+files only — typically seconds, not minutes.
+
+**Do not** use very-good-cli MCP `test` at Tier 2 — it runs the entire
+package test suite.
+
+## Tier 3 — Before merge / user explicitly asks
+
+- Full package: `cd flutter/packages/<pkg> && very_good test -j 4`
+- Or very-good-cli MCP `test` with package root as `directory`.
+- MCP `packages_get` **only** when `pubspec.yaml` changed.
+
+Tell the user to run Tier 3 locally when agent session time is limited.
+
+## Shell vs MCP
+
+| Command | When |
+| --- | --- |
+| `pnpm agent-validate` | Tier 2 — **preferred** for agents |
+| `ReadLints` | Tier 1 |
+| MCP `analyze_files` (scoped paths) | Tier 3 only, or when ReadLints is empty |
+| MCP `test` (whole package) | Tier 3 only |
+| Shell `dart test` / `flutter test` / `very_good test` | **Never** directly — use `pnpm agent-validate` or Tier 3 instructions |
+
+## Full-project gates (not agent iteration)
+
+Pre-push (`pnpm prepush`) runs format, analyze, and custom lint on changed
+packages. CI runs full test suites. Agents rely on these for full coverage.
+
+## MCP bootstrap
+
+`~/.cursor/mcp.json` must include `very-good-cli` for Tier 3 and scaffolding.
+Setup: `docs/runbooks/CURSOR_VGV_PLUGINS.md`.
+
+## MCP `test` exit code 66
+
+Known cwd bug — user runs Tier 3 locally:
+
+```bash
+cd flutter/packages/<package_name>
+very_good test -j 4
+```

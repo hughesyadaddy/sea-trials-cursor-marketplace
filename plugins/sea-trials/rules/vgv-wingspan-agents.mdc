@@ -1,0 +1,147 @@
+---
+description: >-
+  Map VGV Wingspan agent refs to Cursor-native Subagent calls with
+  self-contained prompts. Parallel fan-out for plan research and
+  build/review quality gates.
+alwaysApply: true
+---
+
+# Wingspan agents → Cursor Subagent
+
+Cursor-ported skills say `Cursor subagent vgv-review-agent`. Dispatch with
+Cursor's **Subagent** tool (called Task in older Cursor documentation).
+
+`cursor-link-vgv-skills` materializes each upstream brief as a flat Cursor
+plugin agent under `~/.cursor/plugins/local/vgv-*/agents/`, so the VGV names
+below are real `subagent_type` values. Cursor only discovers `agents/*.md` one
+level deep, which is why the nested upstream tree needs flattening.
+
+Pass the exact VGV `subagent_type` when it appears in the current tool schema.
+If it is missing, Cursor has not reloaded the stubs yet — re-run
+`./scripts/cursor-link-vgv-skills.sh`, restart Cursor, and only then fall back
+to `generalPurpose` with the full brief pasted into `prompt`.
+
+The subagent inherits every parent tool and MCP server but not the
+conversation, so its `prompt` must still be self-contained:
+
+- user goal and review scope
+- absolute repository and artifact paths
+- scope-specific constraints beyond the agent's own brief
+- report-writing paths, when the skill expects a raw report
+- exact output/report format
+- instruction to return only the requested result
+
+Do not rely on `@agent` syntax or merely name the agent in the prompt.
+
+## Tool scoping
+
+Cursor has no per-agent tool allowlist. Subagents inherit the parent's tools,
+and the only restriction is `readonly: true` in the agent file, which blocks
+file edits and state-changing shell commands. The port sets it on
+`flutter-reviewer` (whose upstream `tools:` list named no write tool) and
+leaves it off the Wingspan reviewers, which must write raw report files.
+
+`readonly` is an agent-file field, not a Subagent call argument — do not pass
+it in the tool call.
+
+## Model pins
+
+Do not pass `model` on the Subagent call unless the user overrides. Each VGV
+agent file already pins a Cursor model from the Wingspan tier:
+
+| Upstream | Cursor pin | Intent |
+| --- | --- | --- |
+| `haiku` | `composer-2.5` | Mechanical / fast (Cursor Models pool) |
+| `sonnet` | `claude-sonnet-5` | Deep review / research (Other Models pool) |
+| `inherit` | `inherit` | Match the parent (orchestrator reviews) |
+
+Parent chat for brainstorm/plan handoffs should be **Composer 2.5** so
+AskQuestion works. See `vgv-cursor-handoff.mdc`.
+
+## Cursor-native mapping
+
+| Wingspan specialist | `subagent_type` | Typical skill |
+| --- | --- | --- |
+| `codebase-review-agent` | `codebase-review-agent` | `/brainstorm`, `/plan`, `/hotfix` |
+| `vgv-review-agent` | `vgv-review-agent` | `/build` P3, `/code-review`, plan review |
+| `architecture-review-agent` | `architecture-review-agent` | `/build` P3, `/code-review` |
+| `test-quality-review-agent` | `test-quality-review-agent` | `/build` P3, `/code-review`, `/hotfix` |
+| `code-simplicity-review-agent` | `code-simplicity-review-agent` | `/build` P3, `/code-review`, plan review |
+| `pr-readiness-review-agent` | `pr-readiness-review-agent` | `/build` P3 |
+| `user-flow-analysis-agent` | `user-flow-analysis-agent` | `/plan` |
+| `plan-splitting-agent` | `plan-splitting-agent` | `/plan`, `/plan-technical-review` |
+| `official-docs-research-agent` | `official-docs-research-agent` | `/plan` research |
+| `best-practices-research-agent` | `best-practices-research-agent` | `/plan` research |
+| `flutter-reviewer` (Flutter plugin) | `flutter-reviewer` (read-only) | Flutter diff pass after `/build`, `/code-review` |
+
+## Wingspan dispatch patterns (do these)
+
+### 1. Parallel fan-out (required where skills say so)
+
+When `/build` Phase 3, `/code-review`, `/plan` research, or plan-review
+says **in parallel**, launch **multiple Subagent calls in one assistant
+turn** (one message, multiple tool uses). Do not serialize them.
+
+| Workflow | Parallel set |
+| --- | --- |
+| `/plan` local + external research | `codebase-review-agent` + docs/best-practices agents as the skill lists |
+| `/plan` / `/plan-technical-review` quality | `code-simplicity-review-agent` + `vgv-review-agent` + `plan-splitting-agent` |
+| `/build` Phase 3 | all 5: vgv, architecture, test-quality, simplicity, pr-readiness |
+| `/code-review` | vgv, architecture, test-quality, simplicity (+ pr-readiness if shipping) |
+| `/hotfix` review | vgv + test-quality (reduced set) |
+
+### 2. Absolute paths + structured raw reports
+
+Before fan-out: `PWD=$(pwd)`. Each review agent prompt must include the
+skill's review-agent-instructions (from the ported skill under
+`~/.cursor/skills/<skill>/references/`) with:
+
+- `<RAW_DIR>` = absolute path (e.g. `$PWD/docs/reviews/raw`)
+- `<name>` = bare stem (`vgv-review`, …)
+
+Agents write `$RAW_DIR/<name>.md` and return the **structured findings
+block** only. Parent consolidates per the skill's
+`review-consolidation` procedure into one report.
+
+### 3. Non-fatal failures
+
+If one Subagent fails, continue with the others; record the failure in the
+consolidated report header. Offer retry for failed agents.
+
+### 4. Parent owns synthesis
+
+Subagents do not edit the plan/PR narrative. Parent merges findings,
+applies auto-fixes the skill allows, and presents AskQuestion options.
+
+### 5. AskQuestion for handoffs
+
+After parallel work completes, present skill option lists via
+**AskQuestion** (see `vgv-ask-question.mdc`) — never shrink the list.
+
+## Anti-patterns (avoid)
+
+- Sending only an agent name instead of a self-contained specialist prompt
+- Guessing a VGV `subagent_type` that is absent from the current tool schema
+- Passing `readonly` as a Subagent call argument (it is an agent-file field)
+- Falling back to `generalPurpose` before re-running the link script
+- Running the 5 `/build` reviewers **sequentially**
+- Relative `docs/reviews/...` paths in subagent prompts
+- Skipping consolidation and dumping five chat essays
+- Copying agent `.md` files into this repo
+
+## Sea Trials extras
+
+Repo-local Cursor agents (Task types registered for this workspace):
+
+- `powersync-migration-operator`
+- `macos-appstore-signing`
+
+Use those when the work touches PowerSync migrations or App Store
+signing — they are not Wingspan agents.
+
+## Related
+
+- AskQuestion: `.cursor/rule-sources/vgv-ask-question.mdc` (installed to `~/.cursor/rules/`)
+- Handoffs: `.cursor/rule-sources/vgv-cursor-handoff.mdc`
+- `/build` validation: `.cursor/rules/vgv-build-validation.mdc`
+- Tiered validate: `.cursor/rule-sources/vgv-cli-required.mdc`

@@ -1,0 +1,18 @@
+{
+  "name": "sea-trials",
+  "displayName": "Sea Trials",
+  "version": "2026.07.30",
+  "description": "Sea Trials team skills (PR review loops, pre-push harden), repo agents, and dual-host VGV adapter rules.",
+  "author": {
+    "name": "Sea Trials",
+    "email": "alex@seatrials.com"
+  },
+  "homepage": "https://github.com/hughesyadaddy/sea_trials_universal",
+  "repository": "https://github.com/hughesyadaddy/sea_trials_universal",
+  "license": "UNLICENSED",
+  "keywords": ["sea-trials", "pr-review", "vgv", "cursor"],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "rules": "./rules/",
+  "hooks": "./hooks/hooks.json"
+}

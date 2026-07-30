@@ -1,0 +1,63 @@
+---
+description: >-
+  Dual-host structured questions: AskQuestion on Cursor, AskQuestion (Cursor; AskUserQuestion on Claude Code)
+  on Claude Code. Never use plain chat for option lists when a tool exists.
+alwaysApply: true
+---
+
+# Structured question popups (dual-host)
+
+Call the **host structured question tool** — whichever exists in the
+current tool schema:
+
+| Host | Tool | UX |
+| --- | --- | --- |
+| **Cursor** | **AskQuestion** | Clickable choices in chat |
+| **Claude Code** | **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) | Claude's native picker |
+
+Detect by tool availability, not by guessing the product name. Prefer
+the tool that is present. Never invent a third question API.
+
+Upstream VGV skills may say **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) (Claude-first) or the
+dual-host dialect. On Cursor, treat AskQuestion (Cursor; AskUserQuestion on Claude Code) mentions as
+**AskQuestion**.
+
+## Required behavior
+
+When a skill, rule, or workflow says to present options, confirm a
+choice, or ask a clarifying multiple-choice question:
+
+1. Call **AskQuestion** if it is in the tool schema; otherwise call
+   **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) if that is available.
+2. Mark the recommended option clearly (e.g. "(Recommended)").
+3. Do **not** paste the option list as plain chat text when either
+   structured question tool is available. Numbered "1. 2. 3." chat
+   lists are the last-resort fallback only — never the intended UX.
+4. On Cursor, present the skill's option list but **drop Claude twins
+   the port collapsed**: never show both `Plan now` and
+   `Continue with planning`, or both `Build now` and `Start building`.
+   Canonical Cursor lists live in `vgv-cursor-handoff.mdc`.
+5. Translate Claude-only context-reset actions on Cursor into same-chat
+   actions: `Plan now` → `Plan now`;
+   `Build now` → `Build now`. On Claude Code, clear-context
+   handoffs remain valid when the skill requests them.
+6. After a Cursor handoff selection, invoke the next skill immediately
+   in the current chat. Never emit `/clear`, `/new-chat`, or copy-paste
+   commands on Cursor.
+7. If **neither** structured question tool is available (e.g. **Grok
+   4.5** on Cursor), say so once, tell the user which model restores
+   the clickable picker (**Composer 2.5 recommended** for brainstorm/plan
+   handoffs; Claude or GPT also work), then list the same options as a
+   numbered chat list (last resort only).
+
+For brainstorm / plan / refine sessions on Cursor, prefer **Composer
+2.5** as the parent model so AskQuestion is available without burning
+the Other Models pool. Subagent model pins are separate — see
+`vgv-cursor-handoff.mdc`.
+
+## Handoff options
+
+Post-brainstorm / post-plan / post-build option lists come from the
+active skill's SKILL.md. Present them via the host structured question
+tool, then execute the pick per `vgv-cursor-handoff.mdc` (Cursor) or
+the skill's clear-context handoff (Claude Code).
