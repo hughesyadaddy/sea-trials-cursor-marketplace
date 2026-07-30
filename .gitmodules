@@ -1,6 +1,0 @@
-[submodule "plugins/vgv-wingspan"]
-	path = plugins/vgv-wingspan
-	url = https://github.com/hughesyadaddy/vgv-wingspan.git
-[submodule "plugins/vgv-ai-flutter-plugin"]
-	path = plugins/vgv-ai-flutter-plugin
-	url = https://github.com/hughesyadaddy/vgv-ai-flutter-plugin.git

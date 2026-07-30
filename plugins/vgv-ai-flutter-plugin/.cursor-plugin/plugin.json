@@ -1,0 +1,14 @@
+{
+  "name": "vgv-ai-flutter-plugin",
+  "displayName": "VGV AI Flutter Plugin",
+  "version": "0.0.5",
+  "description": "Best-practice Flutter and Dart skills plus a read-only Flutter reviewer (Cursor build).",
+  "author": { "name": "Very Good Ventures", "url": "https://verygood.ventures" },
+  "homepage": "https://github.com/VeryGoodOpenSource/vgv-ai-flutter-plugin",
+  "repository": "https://github.com/hughesyadaddy/vgv-ai-flutter-plugin",
+  "license": "MIT",
+  "keywords": ["vgv", "cursor", "dual-host"],
+  "skills": "./cursor/skills/",
+  "agents": "./cursor/agents/",
+  "hooks": "./cursor/hooks/hooks.json"
+}
