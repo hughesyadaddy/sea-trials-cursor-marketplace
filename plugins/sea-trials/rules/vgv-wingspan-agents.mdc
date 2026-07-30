@@ -131,13 +131,17 @@ After parallel work completes, present skill option lists via
 
 ## Sea Trials extras
 
-Repo-local Cursor agents (Task types registered for this workspace):
+Two more `subagent_type` values, shipped by the **sea-trials plugin**:
 
 - `powersync-migration-operator`
 - `macos-appstore-signing`
 
 Use those when the work touches PowerSync migrations or App Store
 signing — they are not Wingspan agents.
+
+Their sources live in `.cursor/agent-sources/`, not `.cursor/agents/`,
+which Cursor would scan as a second registration of the same two names.
+Edit there and re-run `--emit-sea-trials-plugin`.
 
 ## Related
 
