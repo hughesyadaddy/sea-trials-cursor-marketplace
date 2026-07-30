@@ -96,4 +96,5 @@ ask whether to merge. Up to 5 race retries.
 - Claude Code: **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code)
 
 (Canonical source under `.cursor/skill-custom/` uses AskQuestion (Cursor; AskUserQuestion on Claude Code);
-`scripts/cursor-link-vgv-skills.sh` rewrites for Cursor.)
+`--emit-sea-trials-plugin` rewrites Cursor copies into
+`tools/sea-trials-cursor-plugin/`.)

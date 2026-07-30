@@ -2,11 +2,14 @@
 
 Aggregator marketplace for Cursor Teams (one marketplace URL):
 
-| Plugin | Content SoT |
-| --- | --- |
-| `vgv-wingspan` | git submodule → `hughesyadaddy/vgv-wingspan` |
-| `vgv-ai-flutter-plugin` | git submodule → `hughesyadaddy/vgv-ai-flutter-plugin` |
-| `sea-trials` | synced from Sea Trials `tools/sea-trials-cursor-plugin/` |
+| Plugin | Content SoT | Vendored from |
+| --- | --- | --- |
+| `vgv-wingspan` | `hughesyadaddy/vgv-wingspan` | fork working dir (pinned SHA below) |
+| `vgv-ai-flutter-plugin` | `hughesyadaddy/vgv-ai-flutter-plugin` | fork working dir |
+| `sea-trials` | Sea Trials `tools/sea-trials-cursor-plugin/` | monorepo |
+
+**Not git submodules.** Cursor's Team Marketplace clone does not run
+`git submodule update --init`, so submodule plugin dirs install empty.
 
 ## Sync
 
@@ -17,10 +20,8 @@ Aggregator marketplace for Cursor Teams (one marketplace URL):
 # push both VGV forks, then:
 ./scripts/scaffold-vgv-cursor-marketplace.sh
 cd ~/dev/sea-trials-vgv-cursor-marketplace
-git submodule update --remote
-# re-rsync sea-trials is done by the scaffold script
 git add -A && git commit -m "chore: bump marketplace plugins" && git push
 ```
 
-Import this repo in Cursor Dashboard → Team Marketplace. Enable Auto
-Refresh. Set both VGV plugins + Sea Trials to **Default On**.
+Import this repo in Cursor Dashboard → Plugins. Enable Auto Refresh.
+Set all three plugins to **Default On**.
