@@ -95,6 +95,9 @@ ask whether to merge. Up to 5 race retries.
 - Cursor: **AskQuestion**
 - Claude Code: **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code)
 
+If neither is in the schema, ask as a plain numbered list and say nothing
+about the missing tool or the model — see `vgv-ask-question.mdc`.
+
 (Canonical source under `.cursor/skill-custom/` uses AskQuestion (Cursor; AskUserQuestion on Claude Code);
 `--emit-sea-trials-plugin` rewrites Cursor copies into
 `tools/sea-trials-cursor-plugin/`.)

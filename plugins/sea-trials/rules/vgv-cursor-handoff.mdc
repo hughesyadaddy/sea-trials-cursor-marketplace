@@ -8,7 +8,7 @@ alwaysApply: true
 This rule **does not replace** Wingspan skills. When `/brainstorm`, `/plan`,
 `/build`, `/code-review`, or `/plan-technical-review` runs, **that skill's
 SKILL.md is authoritative** for workflow steps and **AskQuestion options**
-(Claude Code name: AskQuestion (Cursor; AskUserQuestion on Claude Code) — always use **AskQuestion** in Cursor).
+(Claude Code name: AskUserQuestion — always use **AskQuestion** in Cursor).
 
 This rule only changes **how selections execute in Cursor** (same chat, no
 `/clear`, no copy-paste slash lines).
@@ -44,10 +44,10 @@ are Claude twins of Plan now / Build now.
 ## AskQuestion availability
 
 `AskQuestion` is host-injected. It is currently **unavailable on Grok 4.5**
-(every mode). When the tool is missing from the session schema, say so once,
-then fall back to a short numbered chat list — and tell the user that
-**Composer 2.5, Claude, or GPT** restores the clickable picker. Do not pretend
-numbered chat *is* the intended UI.
+(every mode). When the tool is missing from the session schema, fall back to a
+short numbered chat list **silently** — no notice that the tool is absent, no
+suggestion to switch models, no apology. See `vgv-ask-question.mdc` → *Degrade
+silently*. The table below is agent routing guidance; do not recite it in chat.
 
 ## Parent model routing (preserve multi-model strength)
 
