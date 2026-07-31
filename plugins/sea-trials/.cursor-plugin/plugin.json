@@ -1,7 +1,7 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.07.30",
+  "version": "2026.07.31",
   "description": "Sea Trials team skills (PR review loops, pre-push harden), repo agents, and dual-host VGV adapter rules.",
   "author": {
     "name": "Sea Trials",
@@ -15,5 +15,15 @@
   "agents": "./agents/",
   "rules": "./rules/",
   "hooks": "./hooks/hooks.json",
-  "mcp": "./mcp.json"
+  "mcp": "./mcp.json",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "ATLASSIAN_ALLINPMPREP_AUTH": {
+        "type": "string",
+        "title": "Atlassian MCP Authorization header (All-In PM Prep)",
+        "description": "Set in Cursor Dashboard > Plugins > Configure so no device runs OAuth. Service account: 'Bearer <api_key>'. Personal token: 'Basic <base64(email:api_token)>'. Requires an Atlassian org admin to enable API-token auth for the Rovo MCP server."
+      }
+    }
+  }
 }
