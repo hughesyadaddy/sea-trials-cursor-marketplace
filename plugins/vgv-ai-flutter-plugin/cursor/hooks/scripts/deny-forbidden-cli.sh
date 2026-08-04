@@ -57,6 +57,13 @@ deny_with_cli_check() {
 
 [[ -z "$command" ]] && allow
 
+# Tier-2 scoped validation (vgv-cli-required.mdc) — never block.
+if [[ "$command" == *'pnpm agent-validate'* || \
+      "$command" == *'pnpm prepush'* || \
+      "$command" == *'agent-validate-changed'* ]]; then
+  allow
+fi
+
 blocked="$(
   echo "$command" | awk '{
     n = split($0, parts, /[;&|]+/)
