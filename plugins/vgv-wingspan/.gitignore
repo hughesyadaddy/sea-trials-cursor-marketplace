@@ -1,9 +1,0 @@
-.DS_Store
-*.log
-node_modules/
-docs/brainstorm/
-docs/plan/
-docs/reviews/
-docs/hotfix-review/
-docs/code-review/
-docs/debriefs/

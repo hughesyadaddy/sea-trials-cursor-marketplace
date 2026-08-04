@@ -1,39 +1,30 @@
-# Sea Trials Cursor Team Marketplace (private)
+# Sea Trials Cursor Team Marketplace (private — Sea Trials plugin only)
 
-**Sea Trials engineers only.** Do not share this repo or marketplace URL with
-other teams — use `vgv-cursor-marketplace` for them.
+**Sea Trials engineers only.** Import **both** Team Marketplaces in Cursor:
 
-GitHub repo must stay **private** (team MCP, Atlassian auth placeholders,
-custom skills).
+| Marketplace | Repo | Visibility | Plugins |
+| --- | --- | --- | --- |
+| VGV | `hughesyadaddy/vgv-cursor-marketplace` | **Public** | Wingspan + Flutter |
+| Sea Trials | `hughesyadaddy/sea-trials-vgv-cursor-marketplace` | **Private** | Sea Trials only |
 
-| Plugin | Content SoT | Vendored from |
-| --- | --- | --- |
-| `vgv-wingspan` | `hughesyadaddy/vgv-wingspan` | fork working dir (pinned SHA below) |
-| `vgv-ai-flutter-plugin` | `hughesyadaddy/vgv-ai-flutter-plugin` | fork working dir |
-| `sea-trials` | Sea Trials `tools/sea-trials-cursor-plugin/` | monorepo |
+Other teams import `vgv-cursor-marketplace` only — never this repo.
 
-**Not git submodules.** Cursor's Team Marketplace clone does not run
-`git submodule update --init`, so submodule plugin dirs install empty.
+GitHub repo must stay **private** (Atlassian auth placeholders, custom skills).
 
-## First-time GitHub repo (private)
+## Install (Sea Trials monorepo)
 
-```bash
-gh repo create hughesyadaddy/sea-trials-vgv-cursor-marketplace --private \
-  --source=. --remote=origin --push
-```
+1. Dashboard → Team Marketplaces → import **both** repos above
+2. Enable **VGV Wingspan**, **VGV AI Flutter**, and **Sea Trials**
+3. Cmd+Q → reopen Cursor
 
-Import in Cursor Dashboard → Team Marketplaces (Sea Trials Cursor org only).
-Enable Auto Refresh. Set all three plugins to **Default On**.
-
-## Sync
+## Sync (maintainers)
 
 ```bash
-# From sea_trials_universal:
-./scripts/cursor-link-vgv-skills.sh --emit-cursor-plugin
 ./scripts/cursor-link-vgv-skills.sh --emit-sea-trials-plugin
-./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
-# push both VGV forks, then:
 ./scripts/scaffold-vgv-cursor-marketplace.sh
 cd ~/dev/sea-trials-vgv-cursor-marketplace
-git add -A && git commit -m "chore: bump marketplace plugins" && git push
+git add -A && git commit -m "chore: bump sea-trials plugin" && git push
+gh repo edit hughesyadaddy/sea-trials-vgv-cursor-marketplace --visibility private
 ```
+
+VGV plugin updates: `scaffold-vgv-only-cursor-marketplace.sh` → `vgv-cursor-marketplace`.

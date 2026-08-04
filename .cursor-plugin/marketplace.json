@@ -5,19 +5,9 @@
     "email": "alex@seatrials.com"
   },
   "metadata": {
-    "description": "Private Sea Trials Team Marketplace: VGV + Sea Trials custom skills, agents, and team MCP."
+    "description": "Private Sea Trials plugin: custom skills, agents, team MCP (Atlassian, chrome-devtools)."
   },
   "plugins": [
-    {
-      "name": "vgv-wingspan",
-      "source": "./plugins/vgv-wingspan",
-      "description": "VGV Wingspan Cursor build (skills + flat agents)."
-    },
-    {
-      "name": "vgv-ai-flutter-plugin",
-      "source": "./plugins/vgv-ai-flutter-plugin",
-      "description": "VGV AI Flutter Plugin Cursor build."
-    },
     {
       "name": "sea-trials",
       "source": "./plugins/sea-trials",
