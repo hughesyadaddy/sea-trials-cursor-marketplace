@@ -41,6 +41,7 @@ Quit Cursor fully (Cmd+Q) after install.
 
 ## Team Marketplace
 
-Listed as `plugins/sea-trials` in
-`hughesyadaddy/sea-trials-vgv-cursor-marketplace` alongside the VGV
-fork dual-manifest plugins.
+Listed as `plugins/sea-trials` in the private Team Marketplace
+`hughesyadaddy/sea-trials-cursor-marketplace` (Sea Trials plugin only).
+Sea Trials monorepo devs also import the public `vgv-cursor-marketplace`
+for Wingspan + Flutter.

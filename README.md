@@ -1,30 +1,36 @@
-# Sea Trials Cursor Team Marketplace (private — Sea Trials plugin only)
+# Sea Trials Cursor Team Marketplace (private)
 
-**Sea Trials engineers only.** Import **both** Team Marketplaces in Cursor:
+**Sea Trials engineers only.** This repo ships the **Sea Trials plugin**
+only — not VGV Wingspan or Flutter.
 
-| Marketplace | Repo | Visibility | Plugins |
-| --- | --- | --- | --- |
-| VGV | `hughesyadaddy/vgv-cursor-marketplace` | **Public** | Wingspan + Flutter |
-| Sea Trials | `hughesyadaddy/sea-trials-vgv-cursor-marketplace` | **Private** | Sea Trials only |
+Sea Trials monorepo devs import **two** Team Marketplaces in Cursor:
 
-Other teams import `vgv-cursor-marketplace` only — never this repo.
+| Marketplace | Repo | Plugins |
+| --- | --- | --- |
+| VGV | `hughesyadaddy/vgv-cursor-marketplace` (public) | Wingspan + Flutter |
+| Sea Trials | `hughesyadaddy/sea-trials-cursor-marketplace` (private) | Sea Trials only |
 
-GitHub repo must stay **private** (Atlassian auth placeholders, custom skills).
+Keep this GitHub repo **private** (Atlassian auth placeholders, custom
+skills, internal agents).
 
 ## Install (Sea Trials monorepo)
 
-1. Dashboard → Team Marketplaces → import **both** repos above
+1. Dashboard → Team Marketplaces → import both repos above
 2. Enable **VGV Wingspan**, **VGV AI Flutter**, and **Sea Trials**
 3. Cmd+Q → reopen Cursor
 
-## Sync (maintainers)
+Do **not** share this repo or marketplace URL with other teams.
+
+## Maintainer sync
+
+From `sea_trials_universal`:
 
 ```bash
 ./scripts/cursor-link-vgv-skills.sh --emit-sea-trials-plugin
-./scripts/scaffold-vgv-cursor-marketplace.sh
-cd ~/dev/sea-trials-vgv-cursor-marketplace
+./scripts/scaffold-sea-trials-cursor-marketplace.sh
+cd ~/dev/sea-trials-cursor-marketplace
 git add -A && git commit -m "chore: bump sea-trials plugin" && git push
-gh repo edit hughesyadaddy/sea-trials-vgv-cursor-marketplace --visibility private
 ```
 
-VGV plugin updates: `scaffold-vgv-only-cursor-marketplace.sh` → `vgv-cursor-marketplace`.
+VGV plugin updates: `scaffold-vgv-only-cursor-marketplace.sh` →
+`vgv-cursor-marketplace`.
