@@ -9,6 +9,7 @@ description: >-
   lock, and pre-push-harden before every push. Prefers zero questions:
   auto-merges origin when push is rejected, fixes regressions, re-pushes.
 disable-model-invocation: true
+user-invocable: true
 ---
 
 <!-- CURSOR_VGV_PORT -->
@@ -65,6 +66,29 @@ the user to switch or run `pr-review-loop-worktree`.
 - **Standard:** minimal diff, zero regression, zero open threads,
   30 minutes silence after last push, harden-green before every push
 
+## Commit policy (in-place only)
+
+In-place runs share one checkout with parallel agents and local WIP.
+**Every push must include the entire pending working tree**, not only
+files touched for review threads.
+
+Before each review-round commit (Phase 4, Sync recovery, Phase 0 dirty-tree
+commit):
+
+1. From `$REPO_ROOT`, inspect `git status --porcelain`.
+2. Stage **all** repo changes: `git add -A` (tracked + untracked that
+   belong in git). Do **not** stage path-by-path for review fixes alone.
+1. **Never** stage secrets or local-only env:
+   - `.secrets/**`, untracked `.env`, `*.pem`, credentials JSON, etc.
+   - If status is *only* forbidden paths, skip `git add -A`; resolve or
+     leave them untracked — do not commit secrets.
+4. One commit per push round is the default (bundle review fixes + any
+   other agent edits). Split commits only for merge-recovery vs review
+   work when both exist in one batch.
+
+Worktree skill (`pr-review-loop-worktree`) keeps **explicit-path**
+staging — only in-place uses this full-tree policy.
+
 ## Execution model
 
 - `gh` for discovery / reply / resolve / polling
@@ -84,7 +108,7 @@ rejected as non-fast-forward:
 2. `git merge --ff-only "origin/$PR_BRANCH"` when possible
 3. Else `git merge --no-edit "origin/$PR_BRANCH"` (never rebase+force)
 4. Resolve conflicts with the smallest correct merge
-5. Run **`pre-push-harden`**; fix until READY; commit with explicit paths
+5. Run **`pre-push-harden`**; fix until READY; commit per **Commit policy**
 6. `git push origin HEAD:$PR_BRANCH` (no `--force`, no `--no-verify`)
 7. Retry up to **5** times on races; then report the exact error
 
@@ -98,10 +122,11 @@ rejected as non-fast-forward:
 3. `PR_BRANCH=$(gh pr view <n> --json headRefName -q .headRefName)`.
 4. If `"$CURRENT_BRANCH" != "$PR_BRANCH"` → abort (suggest worktree).
 5. Dirty tree (`git status --porcelain` non-empty):
-   - Autonomy already granted → commit explicit paths, continue.
-   - Else **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) once: Commit (Recommended) / Stash /
+   - Autonomy already granted → commit full working tree (Commit policy),
+     continue.
+   - Else **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) once: Commit all (Recommended) / Stash /
      Discard / Use worktree / Abort. Discard needs a second confirm.
-   Tree must be empty afterward.
+   Tree must be empty afterward (everything committed or stashed).
 6. `git fetch origin "$PR_BRANCH"` — if remote ahead/diverged, run Sync
    recovery (harden included). Do not push yet unless nothing else to do.
 
@@ -171,9 +196,12 @@ Every thread: reply + resolve. No exceptions.
 
 ## Phase 4 — Harden, commit, push
 
-1. `git status --porcelain` — only intentional review-fix changes.
-2. Stage **explicit paths only** (never `git add -A` / `git add .`).
-3. Commit with a clear review-round message.
+1. `git status --porcelain` — review fixes **and** any other pending
+   edits (other agents, WIP in this checkout).
+2. Stage per **Commit policy** (`git add -A` from `$REPO_ROOT`, minus
+   secrets). Include untracked files that belong in the repo.
+3. Commit with a clear review-round message (mention review threads;
+   note bundled non-review files in the body if present).
 4. Run **`pre-push-harden`** from `$REPO_ROOT` until READY.
 5. `git push origin HEAD:$PR_BRANCH`.
 6. On rejection → Sync recovery. No AskQuestion (Cursor; AskUserQuestion on Claude Code).
@@ -217,7 +245,8 @@ substitute a 10/15-minute window.
 5. Evaluate independently — do not rubber-stamp bots.
 6. Do not switch branches.
 7. Prefer zero questions (AskQuestion (Cursor; AskUserQuestion on Claude Code) only as Phase 0 allows).
-8. Explicit paths only for `git add`.
+8. In-place: **full working tree** commits per Commit policy (not
+   path-scoped `git add`). Worktree skill keeps explicit paths.
 9. Full **30-minute** silence after last push — no shorter substitute.
 10. Never `--force` / `--no-verify`.
 11. Stay inside `$REPO_ROOT` for all file and tool operations.

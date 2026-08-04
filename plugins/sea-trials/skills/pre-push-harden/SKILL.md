@@ -10,6 +10,7 @@ description: >-
   push. Works in the current project checkout or inside a
   .review-worktrees/ worktree.
 disable-model-invocation: true
+user-invocable: true
 ---
 
 <!-- CURSOR_VGV_PORT -->

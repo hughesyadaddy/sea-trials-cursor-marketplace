@@ -10,6 +10,7 @@ description: >-
   (not bare /tmp), and pre-push-harden before every push. Leaves the
   user's original checkout untouched.
 disable-model-invocation: true
+user-invocable: true
 ---
 
 <!-- CURSOR_VGV_PORT -->

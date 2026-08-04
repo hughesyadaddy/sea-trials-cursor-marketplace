@@ -72,6 +72,16 @@ Batch every finding from a round into the fewest commits needed, then
 **one** push. Do not push per-thread. Concurrent auto-fix agents on the
 same branch are forbidden while this loop runs.
 
+## In-place commit scope
+
+**`pr-review-loop-inplace` only:** before each push, stage and commit the
+**entire** pending working tree under `$REPO_ROOT` (`git add -A`), not
+just review-fix paths. Parallel agents and local WIP in the same checkout
+must land on the PR branch together. Never stage `.secrets/`, untracked
+`.env`, or credential files.
+
+**`pr-review-loop-worktree`:** keep **explicit-path** staging only.
+
 ## Pre-push harden (before every push)
 
 Before `git push` (including merge-recovery pushes that carry code):
