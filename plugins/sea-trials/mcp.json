@@ -1,19 +1,5 @@
 {
   "mcpServers": {
-    "dart": {
-      "command": "dart",
-      "args": ["mcp-server", "--force-roots-fallback"],
-      "env": {}
-    },
-    "very-good-cli": {
-      "command": "very_good",
-      "args": ["mcp"],
-      "env": {}
-    },
-    "context7": {
-      "type": "http",
-      "url": "https://mcp.context7.com/mcp"
-    },
     "atlassian-seatrials": {
       "type": "http",
       "url": "https://mcp.atlassian.com/v1/mcp",
