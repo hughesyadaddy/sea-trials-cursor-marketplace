@@ -59,10 +59,9 @@ choice, or ask a clarifying multiple-choice question:
 3. Do **not** paste the option list as plain chat text when any
    structured question tool above is available. Numbered "1. 2. 3." chat
    lists are the last-resort fallback only — never the intended UX.
-4. On Cursor, present the skill's option list but **drop Claude twins
-   the port collapsed**: never show both `Plan now` and
-   `Continue with planning`, or both `Build now` and `Start building`.
-   Canonical Cursor lists live in `vgv-cursor-handoff.mdc`.
+4. On Cursor, **never** offer clear-context options in AskQuestion — no
+   `Clear context and …`, `Start building`, or `Continue with planning`.
+   Use `Plan now`, `Build now`, `Continue in this chat`, or `Stop here` only.
 5. Translate Claude-only context-reset actions on Cursor into same-chat
    actions: `Clear context and plan` → `Plan now`;
    `Clear context and build` → `Build now`. On Claude Code, clear-context

@@ -35,11 +35,18 @@ are the same action, so present the **deduped** lists below.
 **After plan-technical-review** — follow that skill's post-review options
 (same dedupe: one Build now, not Start building).
 
-**After build** — follow build skill post-ship options.
+**After build (mid-plan, more phases remain)** — Cursor only; never offer
+clear-context:
+
+1. Continue in this chat (Recommended)
+2. Stop here
+
+**After build (shipped)** — Done only unless the skill lists more.
 
 Never ask these as plain chat when AskQuestion is available. Never display a
-"Clear context", "Start building", or "Continue with planning" action — those
-are Claude twins of Plan now / Build now.
+"Clear context", "Start building", "Continue with planning", or
+"Clear context and continue" action — those are Claude-only or broken on
+Cursor.
 
 ## AskQuestion availability
 
@@ -81,6 +88,8 @@ suggest a context reset, or tell the user to copy-paste `/plan path` or
 | --- | --- |
 | Plan now | Run **plan** skill on the brainstorm doc path |
 | Build now | Run **build** skill on the plan file path |
+| Continue in this chat | Loop **build** to the next plan phase in this chat |
+| Stop here | End build; user runs `/build` again to resume from Status markers |
 | Open the plan file in my code editor | `open docs/plan/<filename>.md` |
 | Review and refine / Review and refine approach | Run **refine-approach** on the artifact |
 | Freeform: run plan-technical-review | Run **plan-technical-review** on the plan path |

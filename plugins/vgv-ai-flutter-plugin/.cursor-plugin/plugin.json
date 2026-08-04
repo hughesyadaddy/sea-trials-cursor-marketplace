@@ -10,5 +10,6 @@
   "keywords": ["vgv", "cursor", "dual-host"],
   "skills": "./cursor/skills/",
   "agents": "./cursor/agents/",
-  "hooks": "./cursor/hooks/hooks.json"
+  "hooks": "./cursor/hooks/hooks.json",
+  "mcp": "./mcp.json"
 }

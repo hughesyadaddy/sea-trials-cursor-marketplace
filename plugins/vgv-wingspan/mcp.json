@@ -4,6 +4,10 @@
       "command": "scripts/vgv-ask-question-mcp.sh",
       "args": [],
       "env": {}
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp"
     }
   }
 }

@@ -69,11 +69,11 @@ Offer to save the choice to Claude memory (a personal preference) so future buil
 
 **Otherwise**, summarize scope to the user, then use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) to confirm:
 
-- **Start building (Recommended)**: proceed with implementation
+- **Build now (Recommended)**: proceed with implementation
 - **Review the plan first**: open the plan file for review
 - **Adjust scope**: accept user input on what to change
 
-Do not proceed until the user selects "Start building."
+Do not proceed until the user selects "Build now."
 
 ## Phase 1 — Setup
 
@@ -141,9 +141,8 @@ Brief progress update to the user: phase completed, phases remaining.
 #### Step 6: Advance
 
 - **More phases remain, auto-commit mode** → use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code):
-  1. **Clear context and continue (Recommended)**: build the next phase in a fresh window. Follow the [same-chat handoff](references/cursor-same-chat-handoff.md) with `<NEXT_SKILL>` = `build`, `<DOC_PATH>` = this plan's path, and `<NEXT_ACTION>` = "the next phase". Then **stop**.
-  2. **Continue in this context**: loop back and build the next phase now.
-  3. **Stop here**: end the session; the plan's `**Status:**` markers record which phases remain.
+  1. **Continue in this chat (Recommended)**: loop back and build the next phase now in this chat.
+  2. **Stop here**: end the session; the plan's `**Status:**` markers record which phases remain.
 - **More phases remain, I'll-commit-myself mode** → **stop**. Tell the user the phase is ready to review and commit, then to run `/build` on this plan again to continue with the next phase (it resumes from the `**Status:**` markers).
 - **No phases remain** (last phase done, or the plan had none) → proceed to the Surgical-Diff Gate.
 

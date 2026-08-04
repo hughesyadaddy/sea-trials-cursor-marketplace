@@ -42,8 +42,9 @@ After the review completes, use **AskQuestion** (Cursor) / **AskUserQuestion** (
 **Options:**
 
 1. **Build now (Recommended)**: continue in this chat and build
-2. **Refine the plan**: improve the plan based on review findings
-3. **Done for now**: review complete
+2. **Build now**: execute the plan with `/build`
+3. **Refine the plan**: improve the plan based on review findings
+4. **Done for now**: review complete
 
 **If the user selects "Build now"** → Follow the [same-chat handoff](references/cursor-same-chat-handoff.md) for `/build` with the actual plan file path. Then stop.
 
