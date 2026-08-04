@@ -1,4 +1,24 @@
 {
   "version": 1,
-  "hooks": {}
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "./cursor/hooks/scripts/warn-missing-mcp.sh"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "./cursor/hooks/scripts/deny-forbidden-cli.sh",
+        "matcher": "flutter\\s+(test|create)|dart\\s+(test|create)|very_good\\s+(test|create|packages)"
+      }
+    ],
+    "afterFileEdit": [
+      {
+        "command": "./cursor/hooks/scripts/analyze-dart.sh"
+      },
+      {
+        "command": "./cursor/hooks/scripts/format-dart.sh"
+      }
+    ]
+  }
 }
