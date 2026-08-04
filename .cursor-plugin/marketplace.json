@@ -5,7 +5,7 @@
     "email": "alex@seatrials.com"
   },
   "metadata": {
-    "description": "Sea Trials Team Marketplace: VGV Wingspan + Flutter dual-manifest forks and Sea Trials custom skills/agents/rules."
+    "description": "Private Sea Trials Team Marketplace: VGV + Sea Trials custom skills, agents, and team MCP."
   },
   "plugins": [
     {
@@ -21,7 +21,7 @@
     {
       "name": "sea-trials",
       "source": "./plugins/sea-trials",
-      "description": "Sea Trials PR review loops, pre-push harden, repo agents, adapter rules."
+      "description": "Sea Trials PR review loops, pre-push harden, repo agents, team MCP."
     }
   ]
 }

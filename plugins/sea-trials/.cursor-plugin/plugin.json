@@ -2,7 +2,7 @@
   "name": "sea-trials",
   "displayName": "Sea Trials",
   "version": "2026.08.04",
-  "description": "Sea Trials team skills (PR review loops, pre-push harden), repo agents, and dual-host VGV adapter rules.",
+  "description": "Sea Trials team skills (PR review loops, pre-push harden) and repo-specific agents.",
   "author": {
     "name": "Sea Trials",
     "email": "alex@seatrials.com"
@@ -13,7 +13,6 @@
   "keywords": ["sea-trials", "pr-review", "vgv", "cursor"],
   "skills": "./skills/",
   "agents": "./agents/",
-  "rules": "./rules/",
   "hooks": "./hooks/hooks.json",
   "mcp": "./mcp.json",
   "variables": {

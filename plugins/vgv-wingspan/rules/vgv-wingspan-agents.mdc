@@ -27,14 +27,15 @@ Pass the exact `subagent_type` string from the mapping table. The
 Agents load from Cursor plugins (flat `cursor/agents/*.md` or `agents/*.md`
 one level deep):
 
-| Plugin | Agents |
-| --- | --- |
-| `vgv-wingspan` | 10 review/research agents |
-| `vgv-ai-flutter-plugin` | `flutter-reviewer` (readonly) |
-| `sea-trials` | `powersync-migration-operator`, `macos-appstore-signing` |
+| Plugin | Agents | Rules / MCP |
+| --- | --- | --- |
+| `vgv-wingspan` | 10 review/research agents | 4 adapter rules + `vgv-ask-question` MCP |
+| `vgv-ai-flutter-plugin` | `flutter-reviewer` (readonly) | — |
+| `sea-trials` | `powersync-migration-operator`, `macos-appstore-signing` | Team MCP (dart, Atlassian, …) |
 
-From repo after clone: enable the three plugins in **Cursor Settings →
-Plugins** (Team Marketplace). Then **Cmd+Q** and reopen.
+From repo after clone: enable plugins in **Cursor Settings → Plugins** (Team
+Marketplace). **Sea Trials monorepo:** all three. **Other repos:** Wingspan
+(+ Flutter if Dart). Then **Cmd+Q** and reopen.
 
 ## Subagent prompt checklist
 

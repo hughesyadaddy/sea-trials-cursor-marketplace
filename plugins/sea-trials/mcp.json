@@ -47,14 +47,6 @@
         "NODE_OPTIONS": "--max-old-space-size=8192",
         "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS": "1"
       }
-    },
-    "vgv-ask-question": {
-      "command": "/bin/zsh",
-      "args": [
-        "-lc",
-        "ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; exec \"$ROOT/scripts/vgv-ask-question-mcp.sh\""
-      ],
-      "env": {}
     }
   }
 }
