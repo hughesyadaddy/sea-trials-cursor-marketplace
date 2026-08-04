@@ -1,0 +1,3 @@
+[submodule "imports/vgv-cursor-marketplace"]
+	path = imports/vgv-cursor-marketplace
+	url = https://github.com/hughesyadaddy/vgv-cursor-marketplace.git

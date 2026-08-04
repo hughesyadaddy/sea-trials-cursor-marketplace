@@ -1,0 +1,116 @@
+---
+description: >-
+  Map VGV Wingspan agent refs to Cursor-native Subagent (Task) calls with
+  self-contained prompts. Parallel fan-out for plan research and build/review
+  quality gates.
+alwaysApply: true
+---
+
+# Wingspan agents → Cursor Subagent (Task)
+
+Skills say `Cursor subagent vgv-review-agent`. That is **not** pseudo-code
+to narrate — dispatch with Cursor's **Task** tool (Subagent):
+
+```text
+Task({
+  subagent_type: "vgv-review-agent",
+  description: "Short title for UI",
+  prompt: "<self-contained specialist brief — see checklist below>"
+})
+```
+
+Pass the exact `subagent_type` string from the mapping table. The
+`name:` frontmatter in each agent file must match `subagent_type` exactly.
+
+## Install / discovery
+
+Agents load from Cursor plugins (flat `cursor/agents/*.md` or `agents/*.md`
+one level deep):
+
+| Plugin | Agents | Rules / MCP |
+| --- | --- | --- |
+| `vgv-wingspan` | 10 review/research agents | 4 adapter rules + `vgv-ask-question` MCP |
+| `vgv-ai-flutter-plugin` | `flutter-reviewer` (readonly) | — |
+| `sea-trials` | `powersync-migration-operator`, `macos-appstore-signing` | Team MCP (dart, Atlassian, …) |
+
+From repo after clone: enable plugins in **Cursor Settings → Plugins** (Team
+Marketplace). **Sea Trials monorepo:** all three. **Other repos:** Wingspan
+(+ Flutter if Dart). Then **Cmd+Q** and reopen.
+
+## Subagent prompt checklist
+
+Each Task prompt must be self-contained (subagents do not inherit chat):
+
+- user goal and review scope
+- absolute repo path (`$PWD=...`)
+- raw report path when required: `$PWD/docs/reviews/raw/<name>.md`
+- paste review-agent-instructions from the active skill's `references/`
+- instruction to return only the structured findings block
+
+Do not rely on `@agent` syntax or agent name alone in the prompt.
+
+## Complete `subagent_type` mapping
+
+| Skill reference | `subagent_type` | Raw report stem |
+| --- | --- | --- |
+| codebase-review-agent | `codebase-review-agent` | (no raw file — returns inline) |
+| vgv-review-agent | `vgv-review-agent` | `vgv-review` |
+| architecture-review-agent | `architecture-review-agent` | `architecture-review` |
+| test-quality-review-agent | `test-quality-review-agent` | `test-quality-review` |
+| code-simplicity-review-agent | `code-simplicity-review-agent` | `code-simplicity-review` |
+| pr-readiness-review-agent | `pr-readiness-review-agent` | `pr-readiness-review` |
+| user-flow-analysis-agent | `user-flow-analysis-agent` | (inline) |
+| plan-splitting-agent | `plan-splitting-agent` | (inline) |
+| official-docs-research-agent | `official-docs-research-agent` | (inline) |
+| best-practices-research-agent | `best-practices-research-agent` | (inline) |
+| flutter-reviewer | `flutter-reviewer` | (inline table, readonly) |
+| powersync-migration-operator | `powersync-migration-operator` | — |
+| macos-appstore-signing | `macos-appstore-signing` | — |
+
+## Parallel fan-out (one turn, multiple Task calls)
+
+| Workflow | `subagent_type` set |
+| --- | --- |
+| `/brainstorm` research | `codebase-review-agent` |
+| `/plan` external research | `official-docs-research-agent`, `best-practices-research-agent` |
+| `/plan` flow analysis | `user-flow-analysis-agent` |
+| `/plan` embedded review | `code-simplicity-review-agent`, `vgv-review-agent`, `plan-splitting-agent` |
+| `/plan-technical-review` | same three as plan review |
+| `/build` Phase 3 | all five reviewers (see table above) |
+| `/code-review` | vgv, architecture, test-quality, simplicity (+ pr-readiness if shipping) |
+| `/hotfix` review | `vgv-review-agent`, `test-quality-review-agent` |
+| Flutter diff pass | `flutter-reviewer` (after Dart changes) |
+
+Launch parallel Tasks in **one assistant turn** when the skill says
+**in parallel**. Do not serialize.
+
+## Model pins (in agent files — do not override on Task)
+
+| Upstream tier | Cursor pin |
+| --- | --- |
+| haiku | `composer-2.5` |
+| sonnet | `claude-sonnet-5` |
+| inherit | `inherit` |
+
+Parent chat for AskQuestion handoffs: **Composer 2.5** — see
+`vgv-cursor-handoff.mdc`.
+
+## Tool scoping
+
+- `flutter-reviewer` has `readonly: true` — no file edits
+- Other reviewers must write raw reports under `docs/reviews/raw/`
+- Never pass `readonly` as a Task argument (agent-file field only)
+
+## Anti-patterns
+
+- Narrating "I'll invoke the vgv-review-agent" without a Task call
+- Wrong type strings (`vgv-review`, `VGVReviewAgent`, `@vgv-review-agent`)
+- Sequential Phase 3 reviews when skill says parallel
+- Relative `docs/reviews/raw` without `$PWD` prefix in subagent prompt
+- Falling back to `generalPurpose` before install + Cursor restart
+
+## Related
+
+- AskQuestion: `vgv-ask-question.mdc`, `docs/runbooks/CURSOR_ASKQUESTION_PROTOCOL.md`
+- Handoffs: `vgv-cursor-handoff.mdc`
+- Install: `docs/runbooks/CURSOR_DEV_SETUP.md`

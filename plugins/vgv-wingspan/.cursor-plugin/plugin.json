@@ -1,0 +1,16 @@
+{
+  "name": "vgv-wingspan",
+  "displayName": "VGV Wingspan",
+  "version": "0.0.5",
+  "description": "VGV Wingspan - AI-native workflows following Very Good Ventures best practices (Cursor build).",
+  "author": { "name": "Very Good Ventures", "url": "https://verygood.ventures" },
+  "homepage": "https://github.com/VeryGoodOpenSource/vgv-wingspan",
+  "repository": "https://github.com/hughesyadaddy/vgv-wingspan",
+  "license": "MIT",
+  "keywords": ["vgv", "cursor", "dual-host"],
+  "skills": "./cursor/skills/",
+  "agents": "./cursor/agents/",
+  "hooks": "./cursor/hooks/hooks.json",
+  "rules": "./rules/",
+  "mcp": "./mcp.json"
+}

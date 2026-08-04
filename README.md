@@ -1,36 +1,27 @@
-# Sea Trials Cursor Team Marketplace (private)
+# Sea Trials Cursor Team Marketplace (private, unified)
 
-**Sea Trials engineers only.** This repo ships the **Sea Trials plugin**
-only — not VGV Wingspan or Flutter.
+**Sea Trials engineers on Team plan:** import **this repo only**.
 
-Sea Trials monorepo devs import **two** Team Marketplaces in Cursor:
-
-| Marketplace | Repo | Plugins |
+| Plugin | Source of truth | In this repo |
 | --- | --- | --- |
-| VGV | `hughesyadaddy/vgv-cursor-marketplace` (public) | Wingspan + Flutter |
-| Sea Trials | `hughesyadaddy/sea-trials-cursor-marketplace` (private) | Sea Trials only |
+| `vgv-wingspan` | `hughesyadaddy/vgv-cursor-marketplace` | submodule import + vendored `plugins/` |
+| `vgv-ai-flutter-plugin` | `hughesyadaddy/vgv-cursor-marketplace` | submodule import + vendored `plugins/` |
+| `sea-trials` | `sea_trials_universal` | vendored `plugins/sea-trials/` |
 
-Keep this GitHub repo **private** (Atlassian auth placeholders, custom
-skills, internal agents).
+See [MARKETPLACE_IMPORTS.md](MARKETPLACE_IMPORTS.md) for the import model.
 
-## Install (Sea Trials monorepo)
+## Install
 
-1. Dashboard → Team Marketplaces → import both repos above
-2. Enable **VGV Wingspan**, **VGV AI Flutter**, and **Sea Trials**
+1. Dashboard → Team Marketplaces →
+   `https://github.com/hughesyadaddy/sea-trials-cursor-marketplace`
+2. Auto Refresh on; enable all three plugins
 3. Cmd+Q → reopen Cursor
-
-Do **not** share this repo or marketplace URL with other teams.
 
 ## Maintainer sync
 
-From `sea_trials_universal`:
-
 ```bash
-./scripts/cursor-link-vgv-skills.sh --emit-sea-trials-plugin
-./scripts/scaffold-sea-trials-cursor-marketplace.sh
-cd ~/dev/sea-trials-cursor-marketplace
-git add -A && git commit -m "chore: bump sea-trials plugin" && git push
+./scripts/scaffold-vgv-only-cursor-marketplace.sh && \
+  (cd ~/dev/vgv-cursor-marketplace && git push)
+./scripts/scaffold-sea-trials-cursor-marketplace.sh && \
+  (cd ~/dev/sea-trials-cursor-marketplace && git add -A && git commit && git push)
 ```
-
-VGV plugin updates: `scaffold-vgv-only-cursor-marketplace.sh` →
-`vgv-cursor-marketplace`.

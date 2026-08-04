@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "dart": {
+      "command": "dart",
+      "args": ["mcp-server", "--force-roots-fallback"],
+      "env": {}
+    },
+    "very-good-cli": {
+      "command": "very_good",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
