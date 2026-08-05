@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "vgv-ask-question": {
-      "command": "scripts/vgv-ask-question-mcp.sh",
+      "command": "./scripts/vgv-ask-question-mcp.sh",
       "args": [],
       "env": {}
     },
