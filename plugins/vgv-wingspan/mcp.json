@@ -3,6 +3,11 @@
     "context7": {
       "type": "http",
       "url": "https://mcp.context7.com/mcp"
+    },
+    "vgv-ask-question": {
+      "type": "stdio",
+      "command": "./scripts/vgv-ask-question-mcp.sh",
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }

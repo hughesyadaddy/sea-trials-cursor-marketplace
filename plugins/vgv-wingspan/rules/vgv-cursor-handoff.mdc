@@ -50,11 +50,15 @@ Cursor.
 
 ## AskQuestion availability
 
-`AskQuestion` is host-injected. It is currently **unavailable on Grok 4.5**
-(every mode). When the tool is missing from the session schema, fall back to a
-short numbered chat list **silently** — no notice that the tool is absent, no
-suggestion to switch models, no apology. See `vgv-ask-question.mdc` → *Degrade
-silently*. The table below is agent routing guidance; do not recite it in chat.
+`AskQuestion` is host-injected and missing from some sessions (e.g. Grok
+4.5, some Composer Agent chats). When it is absent:
+
+1. Call MCP **`ask_user_question`** (`vgv-ask-question` on Wingspan)
+2. Only if that MCP is also missing → short numbered chat list
+
+Do this **silently** — no notice that the host tool is absent, no
+suggestion to switch models, no apology. See `vgv-ask-question.mdc`.
+The table below is agent routing guidance; do not recite it in chat.
 
 ## Parent model routing (preserve multi-model strength)
 
