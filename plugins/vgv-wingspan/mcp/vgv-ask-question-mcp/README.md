@@ -36,12 +36,18 @@ Plugin `mcp.json` (required shape):
 ```json
 "vgv-ask-question": {
   "type": "stdio",
-  "command": "./scripts/vgv-ask-question-mcp.sh",
-  "cwd": "${PLUGIN_ROOT}"
+  "command": "/bin/bash",
+  "args": [
+    "-c",
+    "…find newest ~/.cursor/plugins/**/vgv-ask-question-mcp.sh and exec…"
+  ]
 }
 ```
 
-`cwd: ${PLUGIN_ROOT}` is required — relative commands without it fail ENOENT.
+Do **not** set `cwd: ${PLUGIN_ROOT}`. Cursor leaves that token literal, and
+`spawn` fails with ENOENT even when the script exists. Relative
+`./scripts/...` is also rewritten against the workspace. The bash
+resolver locates the installed plugin launcher by absolute path.
 
 Local smoke:
 

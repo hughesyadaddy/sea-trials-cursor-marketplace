@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Bundled in vgv-wingspan plugin — portable across projects (no git root).
-# Invoked with cwd=${PLUGIN_ROOT} from mcp.json so ./scripts resolves.
+# Self-locates via $0; mcp.json must invoke this by absolute path (see
+# write_wingspan_mcp_file). Do NOT rely on cwd=${PLUGIN_ROOT} — Cursor
+# leaves that token literal and spawn fails with ENOENT.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
