@@ -5,18 +5,18 @@
     "email": "alex@seatrials.com"
   },
   "metadata": {
-    "description": "Sea Trials unified Team Marketplace: VGV (imported from public vgv-cursor-marketplace submodule) + Sea Trials team plugin."
+    "description": "Private unified Team Marketplace: VGV (submodule import from public vgv-cursor-marketplace) + Sea Trials team plugin."
   },
   "plugins": [
     {
       "name": "vgv-wingspan",
       "source": "./plugins/vgv-wingspan",
-      "description": "VGV Wingspan — imported from public vgv-cursor-marketplace (see imports/)."
+      "description": "VGV Wingspan — vendored from public vgv-cursor-marketplace submodule."
     },
     {
       "name": "vgv-ai-flutter-plugin",
       "source": "./plugins/vgv-ai-flutter-plugin",
-      "description": "VGV AI Flutter — imported from public vgv-cursor-marketplace (see imports/)."
+      "description": "VGV AI Flutter — vendored from public vgv-cursor-marketplace submodule."
     },
     {
       "name": "sea-trials",

@@ -41,7 +41,14 @@ Quit Cursor fully (Cmd+Q) after install.
 
 ## Team Marketplace
 
-Listed as `plugins/sea-trials` in the private Team Marketplace
-`hughesyadaddy/sea-trials-cursor-marketplace` (Sea Trials plugin only).
-Sea Trials monorepo devs also import the public `vgv-cursor-marketplace`
-for Wingspan + Flutter.
+Vendored as `plugins/sea-trials` in the private unified Team Marketplace
+`hughesyadaddy/sea-trials-cursor-marketplace`. That repo also vendors
+Wingspan + Flutter from a git submodule of the public
+`vgv-cursor-marketplace` (Cursor Team indexes one marketplace import).
+
+Atlassian MCP is URL-only OAuth. After install, Connect
+`atlassian-seatrials` and `atlassian-allinpmprep` under Settings → MCP.
+
+Publish order: push public VGV first, then run
+`scaffold-sea-trials-cursor-marketplace.sh` so the submodule pin and
+vendored `plugins/vgv-*` stay in sync.

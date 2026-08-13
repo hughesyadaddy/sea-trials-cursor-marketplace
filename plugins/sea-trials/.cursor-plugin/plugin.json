@@ -1,7 +1,7 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.08.04",
+  "version": "2026.08.13",
   "description": "Sea Trials team skills (PR review loops, pre-push harden) and repo-specific agents.",
   "author": {
     "name": "Sea Trials",
@@ -14,20 +14,5 @@
   "skills": "./skills/",
   "agents": "./agents/",
   "hooks": "./hooks/hooks.json",
-  "mcp": "./mcp.json",
-  "variables": {
-    "type": "object",
-    "properties": {
-      "ATLASSIAN_SEATRIALS_AUTH": {
-        "type": "string",
-        "title": "Atlassian MCP Authorization header (Sea Trials)",
-        "description": "Authorization header value for seatrials. Prefer setting it in Cursor Dashboard > Integrations & MCP > Team MCP Servers > Edit mcp.json (no per-device OAuth). Service account: 'Bearer <api_key>'. Requires an Atlassian org admin to enable API-token auth for the Rovo MCP server. Team Marketplace has no Plugins > Configure surface for this variable today."
-      },
-      "ATLASSIAN_ALLINPMPREP_AUTH": {
-        "type": "string",
-        "title": "Atlassian MCP Authorization header (All-In PM Prep)",
-        "description": "Authorization header value for allinpmprep. Prefer setting it in Cursor Dashboard > Integrations & MCP > Team MCP Servers > Edit mcp.json (no per-device OAuth). Service account: 'Bearer <api_key>'. Requires an Atlassian org admin to enable API-token auth for the Rovo MCP server. Team Marketplace has no Plugins > Configure surface for this variable today."
-      }
-    }
-  }
+  "mcp": "./mcp.json"
 }

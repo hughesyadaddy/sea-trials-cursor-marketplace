@@ -2,17 +2,11 @@
   "mcpServers": {
     "atlassian-seatrials": {
       "type": "http",
-      "url": "https://mcp.atlassian.com/v1/mcp",
-      "headers": {
-        "Authorization": "${ATLASSIAN_SEATRIALS_AUTH}"
-      }
+      "url": "https://mcp.atlassian.com/v1/mcp"
     },
     "atlassian-allinpmprep": {
       "type": "http",
-      "url": "https://mcp.atlassian.com/v1/mcp/authv2",
-      "headers": {
-        "Authorization": "${ATLASSIAN_ALLINPMPREP_AUTH}"
-      }
+      "url": "https://mcp.atlassian.com/v1/mcp/authv2"
     },
     "chrome-devtools": {
       "command": "npx",
