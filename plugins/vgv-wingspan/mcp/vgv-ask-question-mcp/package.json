@@ -1,14 +1,15 @@
 {
   "name": "@seatrials/vgv-ask-question-mcp",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP fallback for VGV structured questions (AskUserQuestion / AskQuestion)",
   "type": "module",
   "bin": {
     "vgv-ask-question-mcp": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
@@ -16,6 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "esbuild": "^0.25.12",
     "typescript": "^5.7.0"
   },
   "engines": {
