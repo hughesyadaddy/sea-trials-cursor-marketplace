@@ -4426,11 +4426,11 @@ var require_core = __commonJS({
     Ajv2.ValidationError = validation_error_1.default;
     Ajv2.MissingRefError = ref_error_1.default;
     exports.default = Ajv2;
-    function checkOptions(checkOpts, options, msg, log = "error") {
+    function checkOptions(checkOpts, options, msg, log2 = "error") {
       for (const key in checkOpts) {
         const opt = key;
         if (opt in options)
-          this.logger[log](`${msg}: option ${key}. ${checkOpts[opt]}`);
+          this.logger[log2](`${msg}: option ${key}. ${checkOpts[opt]}`);
       }
     }
     function getSchEnv(keyRef) {
@@ -21162,77 +21162,107 @@ var questionSchema = external_exports.object({
 var inputSchema = {
   questions: external_exports.array(questionSchema).min(1).max(4)
 };
-function fallbackText(question) {
-  const lines = question.options.map(
-    (option, index) => `${index + 1}. ${option.label} [${option.id}]`
-  );
+function log(message) {
+  process.stderr.write(`vgv-ask-question-mcp: ${message}
+`);
+}
+function fallbackText(questions) {
+  const blocks = questions.map((question) => {
+    const lines = question.options.map(
+      (option, index) => `${index + 1}. ${option.label} [${option.id}]`
+    );
+    return [
+      `Question (${question.id}): ${question.prompt}`,
+      ...lines,
+      "Reply with the option id, label, or number."
+    ].join("\n");
+  });
   return [
     "HOST_QUESTION_TOOL_UNAVAILABLE",
-    `Question (${question.id}): ${question.prompt}`,
-    ...lines,
-    "Reply with the option id, label, or number."
-  ].join("\n");
+    "AskQuestion is a Cursor host tool (model-gated). Pin Composer 2.5 / Claude / GPT \u2014 not Auto or Grok 4.5 \u2014 for the native picker.",
+    "MCP elicitation did not render a form; falling back to chat options:",
+    ...blocks
+  ].join("\n\n");
 }
-function schemaForQuestion(question) {
-  if (question.allow_multiple) {
-    return {
-      type: "object",
-      properties: {
-        choices: {
-          type: "array",
-          title: question.prompt,
-          items: {
-            type: "string",
-            enum: question.options.map((option) => option.id)
-          },
-          minItems: 1
+function schemaForQuestions(questions) {
+  const properties = {};
+  const required2 = [];
+  for (const question of questions) {
+    required2.push(question.id);
+    if (question.allow_multiple) {
+      properties[question.id] = {
+        type: "array",
+        title: question.prompt,
+        minItems: 1,
+        items: {
+          type: "string",
+          enum: question.options.map((option) => option.id)
         }
-      },
-      required: ["choices"]
-    };
-  }
-  return {
-    type: "object",
-    properties: {
-      choice: {
+      };
+    } else {
+      properties[question.id] = {
         type: "string",
         title: question.prompt,
-        oneOf: question.options.map((option) => ({
-          const: option.id,
-          title: option.label
-        }))
-      }
-    },
-    required: ["choice"]
-  };
+        enum: question.options.map((option) => option.id),
+        enumNames: question.options.map((option) => option.label)
+      };
+    }
+  }
+  return { type: "object", properties, required: required2 };
 }
-async function elicitAnswer(server2, question) {
+function supportsFormElicitation(caps) {
+  const elicitation = caps?.elicitation;
+  if (!elicitation) return false;
+  if (elicitation.form !== void 0) return true;
+  return Object.keys(elicitation).length === 0 || elicitation.url === void 0;
+}
+async function elicitAnswers(server2, questions) {
+  const caps = server2.server.getClientCapabilities();
+  if (!supportsFormElicitation(caps)) {
+    log(
+      `client elicitation unsupported: ${JSON.stringify(caps?.elicitation ?? null)}`
+    );
+    return null;
+  }
+  const params = {
+    mode: "form",
+    message: questions.length === 1 ? questions[0].prompt : `Answer ${questions.length} questions`,
+    requestedSchema: schemaForQuestions(questions)
+  };
   try {
-    const result = await server2.server.elicitInput({
-      mode: "form",
-      message: question.prompt,
-      // SDK schema types are stricter than our dynamic form builder.
-      requestedSchema: schemaForQuestion(question)
-    });
+    const hasFormField = caps?.elicitation?.form !== void 0;
+    const result = hasFormField ? await server2.server.elicitInput(params) : await server2.server.request(
+      { method: "elicitation/create", params },
+      ElicitResultSchema
+    );
     if (result.action !== "accept" || !result.content) {
+      log(`elicit action=${result.action}`);
       return null;
     }
     const content = result.content;
-    if (question.allow_multiple && Array.isArray(content.choices)) {
-      return content.choices.map(String);
+    const answers = {};
+    for (const question of questions) {
+      const raw = content[question.id];
+      if (question.allow_multiple && Array.isArray(raw)) {
+        answers[question.id] = raw.map(String);
+      } else if (typeof raw === "string") {
+        answers[question.id] = raw;
+      } else {
+        log(`missing answer for ${question.id}`);
+        return null;
+      }
     }
-    if (typeof content.choice === "string") {
-      return content.choice;
-    }
-    return null;
-  } catch {
+    return answers;
+  } catch (error2) {
+    const message = error2 instanceof Error ? error2.message : String(error2);
+    log(`elicit failed: ${message}`);
     return null;
   }
 }
 var server = new McpServer(
   {
     name: "vgv-ask-question",
-    version: "1.0.0"
+    version: "1.1.0"
   },
   {
     capabilities: {}
@@ -21241,22 +21271,17 @@ var server = new McpServer(
 server.registerTool(
   "ask_user_question",
   {
-    description: "Present structured multiple-choice questions to the user. Prefer host AskQuestion (Cursor) or AskUserQuestion (Claude Code) when available. Use this MCP tool only when those host tools are absent from the schema.",
+    description: "MCP form elicitation fallback for multiple-choice questions when host AskQuestion / AskUserQuestion are absent from the agent tool schema. Does NOT enable Cursor AskQuestion (host-injected, model-gated). Prefer host AskQuestion when present.",
     inputSchema
   },
   async ({ questions }) => {
-    const answers = {};
-    for (const question of questions) {
-      const elicited = await elicitAnswer(server, question);
-      if (elicited !== null) {
-        answers[question.id] = elicited;
-        continue;
-      }
+    const elicited = await elicitAnswers(server, questions);
+    if (elicited !== null) {
       return {
         content: [
           {
             type: "text",
-            text: fallbackText(question)
+            text: JSON.stringify({ answers: elicited }, null, 2)
           }
         ]
       };
@@ -21265,7 +21290,7 @@ server.registerTool(
       content: [
         {
           type: "text",
-          text: JSON.stringify({ answers }, null, 2)
+          text: fallbackText(questions)
         }
       ]
     };
