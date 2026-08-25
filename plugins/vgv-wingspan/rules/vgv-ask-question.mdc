@@ -1,7 +1,8 @@
 ---
 description: >-
   Dual-host structured questions: AskQuestion on Cursor, AskUserQuestion
-  on Claude Code, MCP ask_user_question when host tools are missing.
+  on Claude Code. MCP ask_user_question is elicitation-only fallback —
+  it does NOT enable host AskQuestion.
 alwaysApply: true
 ---
 
@@ -12,88 +13,60 @@ chat when any of these exist in the tool schema:
 
 | Priority | Tool | Host / source |
 | --- | --- | --- |
-| 1 | **AskQuestion** | Cursor host (some models / modes) |
+| 1 | **AskQuestion** | Cursor host tool (ACP `cursor/ask_question`) |
 | 2 | **AskUserQuestion** | Claude Code host |
-| 3 | **ask_user_question** | MCP `vgv-ask-question` (Wingspan plugin) |
+| 3 | **ask_user_question** | MCP `vgv-ask-question` (form elicitation) |
 | 4 | Numbered chat list | Last resort only |
 
-Detect by **tool availability**, not by guessing the product name or
-model. Prefer the highest-priority tool present in the schema.
+Detect by **tool availability**, not by guessing the product name.
 
-Host `AskQuestion` is injected by Cursor only for some sessions (often
-Claude / GPT; Grok and some Composer Agent sessions omit it). That is
-a Cursor limitation — plugins cannot force the host tool. The Wingspan
-`vgv-ask-question` MCP is the portable fallback for every other chat.
+## Critical: AskQuestion is host-injected + model-gated
+
+Cursor attaches **AskQuestion** to the agent tool schema. Plugins, rules,
+and MCP **cannot** add it. Staff-confirmed availability:
+
+| Model / routing | AskQuestion |
+| --- | --- |
+| **Composer 2.5** | Yes |
+| Claude / GPT | Usually yes |
+| **Grok 4.5** | **No** (all modes, intentional) |
+| **Auto** (may route to Grok) | Unreliable |
+
+MCP `ask_user_question` is a **different** UI path (MCP elicitation). It
+does **not** turn on AskQuestion. If elicitation fails, it returns
+numbered text.
+
+For brainstorm / plan / refine handoffs that need the **native clickable
+card**, pin the chat model to **Composer 2.5** (not Auto, not Grok).
 
 ## Skills format is NOT chat output
 
-VGV skills often show:
-
-```markdown
-**Question**: "…"
-**Options:**
-1. Plan now (Recommended)
-2. …
-```
-
-That block describes what to pass to the structured question tool —
-not what to display in chat. Map each option to `{ id, label }` and
-call the tool.
-
-Examples: `docs/runbooks/CURSOR_ASKQUESTION_PROTOCOL.md`
+VGV skills often show markdown Options blocks. Those are tool input —
+map each option to `{ id, label }` and call the highest-priority tool.
 
 ## Required behavior
 
-When a skill, rule, or workflow says to present options, confirm a
-choice, or ask a clarifying multiple-choice question:
-
 1. Call **AskQuestion** if it is in the tool schema.
-2. Else call **AskUserQuestion** if that is available.
-3. Else call MCP **`ask_user_question`** on server `vgv-ask-question`
-   (via `CallMcpTool` / the registered tool) with the same
-   `{ questions: [{ id, prompt, options }] }` shape. Prefer elicitation
-   UI when the client supports it.
+2. Else call **AskUserQuestion** if available.
+3. Else call MCP **`ask_user_question`** with
+   `{ questions: [{ id, prompt, options }] }`.
 4. Mark the recommended option clearly (e.g. "(Recommended)").
-5. Do **not** paste the option list as plain chat text when any tool
-   above is available. Numbered "1. 2. 3." chat lists are last-resort
-   only.
-6. On Cursor, **never** offer clear-context options — no
-   `Clear context and …`, `Start building`, or `Continue with planning`.
-   Use `Plan now`, `Build now`, `Continue in this chat`, or `Stop here`
-   only.
-7. Translate Claude-only context-reset actions on Cursor into same-chat
-   actions: `Clear context and plan` → `Plan now`;
-   `Clear context and build` → `Build now`. On Claude Code, clear-context
-   handoffs remain valid when the skill requests them.
-8. After a Cursor handoff selection, invoke the next skill immediately
-   in the current chat. Never emit `/clear`, `/new-chat`, or copy-paste
-   commands on Cursor.
-9. If **none** of the structured question tools (including MCP) are in
-   the schema, degrade **silently**: ask as a short numbered list and
-   nothing else.
+5. Do **not** paste options as plain chat when any tool above exists.
+6. On Cursor, never offer clear-context options — use `Plan now`,
+   `Build now`, `Continue in this chat`, or `Stop here` only.
+7. After a Cursor handoff selection, invoke the next skill in this chat.
+8. If **none** of the tools exist, use a short numbered list.
 
-## Degrade silently — never narrate the fallback
+## When AskQuestion is missing on Cursor
 
-When falling back (host → MCP → numbered list), do **not** emit:
+You may tell the user once, briefly: pin **Composer 2.5** for the native
+picker (Grok / Auto often omit AskQuestion). Then still call MCP
+`ask_user_question` if present.
 
-- the name of the missing tool
-- an explanation that you are falling back
-- a recommendation to switch models
-- an apology for the format
-
-Mention model choice only if the user asks why the native host picker
-is missing. Prefer MCP over numbered lists whenever `ask_user_question`
-is registered.
-
-For brainstorm / plan / refine sessions on Cursor, **Composer 2.5** or
-**Claude** are preferred parents when you want the host AskQuestion
-picker; MCP covers the rest. Subagent model pins are separate — see
-`vgv-cursor-handoff.mdc`.
+Do **not** claim MCP “covers” or “replaces” AskQuestion.
 
 ## Handoff options
 
 Post-brainstorm / post-plan / post-build option lists come from the
-active skill's SKILL.md. Present them via the structured question tool
-(priority table above), then execute the pick per
-`vgv-cursor-handoff.mdc` (Cursor) or the skill's clear-context handoff
-(Claude Code).
+active skill. Present them via the host tool when available, else MCP,
+then execute the pick per `vgv-cursor-handoff.mdc`.
