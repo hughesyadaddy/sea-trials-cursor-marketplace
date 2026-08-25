@@ -5,56 +5,35 @@ MCP fallback for VGV structured handoffs when host tools are unavailable.
 ## Why this exists
 
 - **Claude Code** exposes `AskUserQuestion` as a **native host tool** (not MCP).
-- **Cursor** exposes `AskQuestion` the same way on some models/modes only.
-- Other sessions (e.g. Grok 4.5, some Composer Agent chats) inject neither.
+- **Cursor** exposes `AskQuestion` the same way on supported models (Composer 2.5).
+- Some models (e.g. Grok 4.5) inject neither tool.
 
 This server is **tier 3** in `vgv-ask-question.mdc`: agents call
-`ask_user_question` when both host tools are absent from the schema.
+`ask_user_question` only when both host tools are absent from the schema.
 
 When the Cursor client supports MCP **form elicitation**, the user gets a
 native form picker. Otherwise the tool returns a compact numbered fallback
 for chat.
 
-## Build
+## Runtime
+
+`dist/index.js` is a **self-contained esbuild bundle**. The launcher
+(`scripts/vgv-ask-question-mcp.sh`) runs `node dist/index.js` with **no**
+`npm install` on first spawn — that avoids Cursor hanging on
+"Authenticating…" while deps download.
+
+## Build (maintainers)
 
 ```bash
-cd tools/vgv-ask-question-mcp
-npm install --omit=dev
+cd plugins/vgv-wingspan/mcp/vgv-ask-question-mcp
+npm ci
 npm run build
 ```
 
-Or emit Wingspan (builds + vendors into the plugin):
-
-```bash
-./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
-```
+Commit the rebuilt `dist/index.js`. Do not vendor `node_modules`.
 
 ## Launch (stdio)
 
-Plugin `mcp.json` (required shape):
-
-```json
-"vgv-ask-question": {
-  "type": "stdio",
-  "command": "/bin/bash",
-  "args": [
-    "-c",
-    "…find newest ~/.cursor/plugins/**/vgv-ask-question-mcp.sh and exec…"
-  ]
-}
-```
-
-Do **not** set `cwd: ${PLUGIN_ROOT}`. Cursor leaves that token literal, and
-`spawn` fails with ENOENT even when the script exists. Relative
-`./scripts/...` is also rewritten against the workspace. The bash
-resolver locates the installed plugin launcher by absolute path.
-
-Local smoke:
-
 ```bash
-./scripts/vgv-ask-question-mcp.sh
-# or after emit:
-./tools/cursor-vgv-wingspan/scripts/vgv-ask-question-mcp.sh
+./plugins/vgv-wingspan/scripts/vgv-ask-question-mcp.sh
 ```
-
-Registered on the **VGV Wingspan** plugin (not Sea Trials).
