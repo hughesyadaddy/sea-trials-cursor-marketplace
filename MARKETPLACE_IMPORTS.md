@@ -29,6 +29,7 @@ marketplace plugin trees, including:
 | Review agents | 10 under `cursor/agents/` |
 | Adapter rules | `rules/*.mdc` (AskQuestion, handoffs, CLI tiers, Wingspan agent map) |
 | MCP | `context7` (HTTP), `vgv-ask-question` (stdio launcher) |
+
 Wingspan skills (**15**): `brainstorm`, `plan`, `build`, `code-review`,
 `create`, `create-pr`, `debrief`, `elements-of-style`, `hotfix`,
 `plan-technical-review`, `rebase`, `refine-approach`, `pr-review-loop-inplace`,
