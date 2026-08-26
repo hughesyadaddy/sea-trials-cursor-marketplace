@@ -73,6 +73,28 @@ State artifacts: `docs/code-review/<scope>/pr-review-state.json`,
 Silence window still applies after the last push; new pushes reset the
 timer. When `pr-review-queue.json` appears, parent agent must triage
 and fix (background Node cannot spawn Cursor subagents).
+## Background watcher → parent agent (autonomous wake)
+
+When `pnpm pr-review-loop` runs in a **background terminal**, treat its
+exit code as a work ticket — **never ask the user** whether to proceed:
+
+| Exit | Meaning | Parent agent action |
+| --- | --- | --- |
+| `0` | Silence met; threads clear; CI green | Done (or final verify) |
+| `2` | Unresolved review threads | Read `pr-review-queue.json`; fix **all**; reply+resolve; push; restart watcher |
+| `3` | CI failure on HEAD | Fix or re-run flake; push; restart watcher |
+| `8` | CI pending (watch mode) | Keep watcher running; do not stop early |
+
+After every fix round: `pnpm pr-review-push` → reply+resolve every thread
+→ restart `pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30`
+in background. Do not end the turn with open threads or an incomplete
+30-minute silence window unless the user explicitly stops the loop.
+
+Forbidden when the background watcher is active:
+
+- Asking "should I fix these Codex threads?"
+- Stopping after the watcher exits `2` without fixing and re-pushing
+- Telling the user to "check back later" instead of continuing the loop
 
 Forbidden early exits:
 

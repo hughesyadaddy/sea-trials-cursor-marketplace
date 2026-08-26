@@ -207,7 +207,15 @@ pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30
    **last** push with zero unresolved threads **and** CI green on HEAD
    on every poll.
 
-If `pr-review-queue.json` is written, parent agent resumes fixes.
+If `pr-review-loop` exits `2` or `3`, read
+`docs/code-review/<scope>/pr-review-queue.json` and resume fixes
+**autonomously** (no AskQuestion / AskUserQuestion). Fix every queued
+thread, push, reply+resolve, then **restart** the background watcher
+from `.
+
+When a background terminal is already running the watcher, treat exit
+`2`/`3` as the signal to wake this skill — same as the user saying
+"fix the new Codex reviews". Never ask permission to continue.
 
 Do **not** exit early. Do **not** use a 10/15-minute substitute. Do
 **not** declare done with CI pending or failing.
