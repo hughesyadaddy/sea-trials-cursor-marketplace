@@ -91,11 +91,17 @@ staging — only in-place uses this full-tree policy.
 
 ## Execution model
 
-- `gh` for discovery / reply / resolve / polling
-- **generalPurpose** Task subagents for parallel triage when **5+**
-  unresolved threads (parent applies edits)
-- Do **not** write custom review-loop scripts
-- Before every push: run **`pre-push-harden`** in `$REPO_ROOT`
+- `gh` for discovery / reply / resolve
+- **Repo hooks** for threads + CI gates (mandatory on Sea Trials):
+  - `pnpm pr-review-status` — one-shot snapshot
+  - `pnpm pr-review-loop` — background watch (15s; 30m silence)
+  - `pnpm pr-review-push` — `agent-prepush` → `git push` (prepush hook)
+- **Task** subagents for parallel triage when **5+** unresolved threads
+  (parent applies edits). For Codex/Bugbot threads, run adversarial
+  validation before accepting findings.
+- Do **not** write custom one-off poll scripts; use the hooks above.
+- Before every push: run **`pre-push-harden`**, then **`pnpm
+  pr-review-push`** (or `agent-prepush` + `git push` from `$REPO_ROOT`).
 
 ---
 
@@ -203,36 +209,56 @@ Every thread: reply + resolve. No exceptions.
 3. Commit with a clear review-round message (mention review threads;
    note bundled non-review files in the body if present).
 4. Run **`pre-push-harden`** from `$REPO_ROOT` until READY.
-5. `git push origin HEAD:$PR_BRANCH`.
+1. **`pnpm pr-review-push`** from `$REPO_ROOT` (runs `agent-prepush`,
+   then `git push` with prepush hook). Exit `8` after push means CI
+   pending — continue to Phase 5, do not treat as failure.
 6. On rejection → Sync recovery. No AskQuestion (Cursor; AskUserQuestion on Claude Code).
 7. Record push timestamp (UTC). **This resets the 30-minute timer.**
 
 ---
 
-## Phase 5 — Bot review polling (30-minute silence)
+## Phase 5 — Bot review + CI polling (30-minute silence)
+
+**Start background watch** (leave running for the full silence window):
+
+```bash
+pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30
+```
+
+While the loop runs (or between agent turns if hooks unavailable):
 
 1. Record last push timestamp (UTC).
-2. Every **5 minutes**, re-run paginated GraphQL `reviewThreads`.
+1. **`pnpm pr-review-status -- --pr <n>`** — threads + CI on HEAD.
 3. Triage **every unresolved thread** — do **not** require
    `thread.createdAt > last_push`. Bots often reply on existing threads.
    Also treat reopened threads (any comment after last push + unresolved)
    as new work.
-4. New work → Phase 2–4 → reset timer from the new push.
-5. Complete only when **30 continuous minutes** elapsed since last push
-   **and** every poll in that window showed zero unresolved threads.
+1. **CI gate:** all checks must pass on current `headRefOid`. Pending
+   is OK during the window; **fail** → fix or re-run flake, then push
+   and reset timer. Light jobs (`ci-script-tests`, `dart-static`,
+   `lint-migrations`, etc.) surface first in status output.
+5. New thread or CI fail → Phase 2–4 → reset timer from the new push.
+6. Complete only when **30 continuous minutes** elapsed since last push
+   **and** every poll showed zero unresolved threads **and** CI green
+   on HEAD.
+
+If `pr-review-loop` exits `2` or `3`, read
+`docs/code-review/<scope>/pr-review-queue.json` and resume fixes.
 
 Do **not** exit early. Do **not** stop after one clean poll. Do **not**
-substitute a 10/15-minute window.
+substitute a 10/15-minute window. Do **not** declare done with CI
+pending or failing on HEAD.
 
 ---
 
 ## Phase 6 — Final verification
 
-1. `git status --porcelain` → empty
-2. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0
-3. `git rev-list origin/$PR_BRANCH..HEAD --count` → 0
-4. `git branch --show-current` → `$PR_BRANCH`
-5. `pwd` / toplevel → `$REPO_ROOT`
+1. `pnpm pr-review-status -- --pr <n>` → exit `0` (threads clear, CI green)
+2. `git status --porcelain` → empty
+3. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0
+4. `git rev-list origin/$PR_BRANCH..HEAD --count` → 0
+5. `git branch --show-current` → `$PR_BRANCH`
+6. `pwd` / toplevel → `$REPO_ROOT`
 
 ---
 
@@ -260,5 +286,7 @@ substitute a 10/15-minute window.
 - Threads fixed / replied / resolved
 - Remaining unresolved (must be 0)
 - Harden runs: pass/fail summary before each push
-- Polling: iterations, new reviews, final silence duration
+- Push gate: `pr-review-push` exit codes
+- Polling: `pr-review-loop` / status iterations, CI pass/fail/pending,
+  new reviews, final silence duration
 - Phase 6 checks

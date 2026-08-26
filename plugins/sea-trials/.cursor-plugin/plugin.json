@@ -1,7 +1,7 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.08.13",
+  "version": "2026.08.25",
   "description": "Sea Trials team skills (PR review loops, pre-push harden) and repo-specific agents.",
   "author": {
     "name": "Sea Trials",

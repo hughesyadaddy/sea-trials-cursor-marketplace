@@ -51,8 +51,28 @@ Hard completion rule — all must be true:
 1. Zero unresolved review threads on the PR.
 2. At least **30 continuous minutes** have elapsed since the **last**
    push produced by this loop.
-3. Polls every **5 minutes** throughout that window (≈6 clean polls
-   minimum after the last push).
+3. Polls throughout the silence window. **Preferred:** run
+   `pnpm pr-review-loop` in a **background terminal** (15s interval).
+   Spot-check with `pnpm pr-review-status`. If hooks are unavailable,
+   poll GraphQL threads every **5 minutes** minimum (≈6 clean polls
+   after the last push).
+1. **All PR CI checks green on HEAD** (not only review threads).
+
+**Terminal automation (Cursor background):** use the repo hooks for
+instant polls and CI awareness:
+
+| Command | Purpose |
+| --- | --- |
+| `pnpm pr-review-status` | One-shot: threads + CI (+ light jobs) |
+| `pnpm pr-review-loop` | Watch every 15s; abort on threads/CI fail |
+| `pnpm pr-review-push` | `agent-prepush` → `git push` (prepush hook) |
+
+State artifacts: `docs/code-review/<scope>/pr-review-state.json`,
+`pr-review-queue.json`, `pr-*-loop-log.txt`. Exit codes: `0` clean,
+`2` threads, `3` CI fail, `4` local prepush fail, `8` CI pending.
+Silence window still applies after the last push; new pushes reset the
+timer. When `pr-review-queue.json` appears, parent agent must triage
+and fix (background Node cannot spawn Cursor subagents).
 
 Forbidden early exits:
 
@@ -60,6 +80,8 @@ Forbidden early exits:
 - Stopping at 10 or 15 minutes because “bots usually respond by then”
 - Filtering new work solely by thread `createdAt > last_push`
 - Declaring done because CI is green while threads remain open
+- Declaring done because threads are clear while CI is failing or pending
+  on HEAD
 - Ending the turn and asking the user to “check back later” instead of
   continuing the poll loop
 
@@ -88,8 +110,10 @@ Before `git push` (including merge-recovery pushes that carry code):
 
 1. Run the **`pre-push-harden`** skill against the pending diff in the
    active root (`$REPO_ROOT` or `$WORKTREE_DIR`).
-2. Do not push until that skill reports **READY**.
-3. Never `--force`, never `--no-verify`.
+2. Run **`pnpm pr-review-push`** (or `pnpm agent-prepush` then
+   `git push`) so local gates run before the hook.
+3. Do not push until that skill reports **READY**.
+4. Never `--force`, never `--no-verify`.
 
 Goal: catch analyze/lint/test/architecture regressions **before** bots
 open a new review round (fix-one / break-many loops).

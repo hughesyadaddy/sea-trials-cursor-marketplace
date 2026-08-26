@@ -69,10 +69,16 @@ contract is binding — especially the **30-minute silence**,
 
 - `gh` from any cwd (repo-aware via remote)
 - All file ops inside `$WORKTREE_DIR` (absolute paths)
-- **generalPurpose** Task subagents when **5+** unresolved threads
+- **Repo hooks** from `$WORKTREE_DIR` for threads + CI gates:
+  - `pnpm pr-review-status -- --pr <n>`
+  - `pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30`
+  - `pnpm pr-review-push` (after commit; runs from worktree root)
+- **Task** subagents when **5+** unresolved threads; adversarial
+  validation for Codex/Bugbot findings
 - Aligns with `git-safe-worktree`: no checkout/switch/pull on the
   user's primary worktree
-- Before every push: run **`pre-push-harden`** from `$WORKTREE_DIR`
+- Before every push: **`pre-push-harden`** then **`pnpm pr-review-push`**
+  from `$WORKTREE_DIR`
 
 ---
 
@@ -171,27 +177,40 @@ Inside `$WORKTREE_DIR`:
 2. Stage explicit paths only.
 3. Commit with a clear review-round message.
 4. Run **`pre-push-harden`** from `$WORKTREE_DIR` until READY.
-5. `git push origin HEAD:$PR_BRANCH` (no `--force`, no `--no-verify`).
-6. On rejection → Sync recovery inside `$WORKTREE_DIR`.
-7. Record push timestamp (UTC) — **resets the 30-minute timer**.
-8. Optional: `gh pr checks <n>` (informational only).
+5. Run **`pre-push-harden`** from `$WORKTREE_DIR` until READY.
+1. **`pnpm pr-review-push`** from `$WORKTREE_DIR` (`agent-prepush` +
+   `git push`). Exit `8` = CI pending — continue Phase 5.
+7. On rejection → Sync recovery inside `$WORKTREE_DIR`.
+8. Record push timestamp (UTC) — **resets the 30-minute timer**.
 
 Do **not** push from `$REPO_ROOT`. Do **not** merge into the user's
 local branch as part of this skill.
 
 ---
 
-## Phase 5 — Bot review polling (30-minute silence)
+## Phase 5 — Bot review + CI polling (30-minute silence)
+
+Start background watch from `$WORKTREE_DIR`:
+
+```bash
+cd "$WORKTREE_DIR"
+pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30
+```
 
 1. Record last push timestamp (UTC).
-2. Poll every **5 minutes** with paginated GraphQL `reviewThreads`.
+1. **`pnpm pr-review-status -- --pr <n>`** — threads + CI on HEAD.
 3. Triage **every unresolved thread** (not `createdAt`-only). Catch
    reopened threads whose latest comment is after last push.
-4. New work → Phase 2–4 → reset timer.
-5. Complete only after **30 continuous minutes** of silence from the
-   **last** push with zero unresolved threads on every poll.
+1. **CI gate:** all checks green on HEAD before completion.
+5. New thread or CI fail → Phase 2–4 → reset timer.
+6. Complete only after **30 continuous minutes** of silence from the
+   **last** push with zero unresolved threads **and** CI green on HEAD
+   on every poll.
 
-Do **not** exit early. Do **not** use a 10/15-minute substitute.
+If `pr-review-queue.json` is written, parent agent resumes fixes.
+
+Do **not** exit early. Do **not** use a 10/15-minute substitute. Do
+**not** declare done with CI pending or failing.
 
 ---
 
@@ -243,5 +262,7 @@ Do **not** exit early. Do **not** use a 10/15-minute substitute.
 - Threads fixed / replied / resolved
 - Remaining unresolved (must be 0)
 - Harden runs: pass/fail before each push
-- Polling: iterations, new reviews, final silence duration
+- Push gate: `pr-review-push` exit codes
+- Polling: loop/status iterations, CI pass/fail/pending, new reviews,
+  final silence duration
 - Push SHA(s) on `$PR_BRANCH`

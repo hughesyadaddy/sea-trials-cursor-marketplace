@@ -108,7 +108,7 @@ diff; escalate when the diff is broad or a prior push broke CI.
 
 ### Always (non-docs changes)
 
-1. **Tier 2:**  
+1. **Tier 2 — local push gate:**
 
    ```bash
    pnpm agent-validate -- $CHANGED_LIB_AND_TEST_PATHS
@@ -117,12 +117,16 @@ diff; escalate when the diff is broad or a prior push broke CI.
    Pass explicit paths. Do not rely on a clean `git status` alone when
    reviewing commits already made.
 
-2. If Flutter/Dart packages changed and agent-validate is green but the
+2. Review loops call **`pnpm pr-review-push`** after READY (runs
+   `agent-prepush` then `git push` with the prepush hook). Do not
+   bypass with a bare `git push`.
+
+3. If Flutter/Dart packages changed and agent-validate is green but the
    change spans package public APIs / multiple packages: run
    `pnpm prepush` (or the same format + analyze + `sea-trials-lint`
    scope the pre-push hook would use). Fix failures in place.
 
-3. Never suggest `--no-verify`. Never skip hooks.
+4. Never suggest `--no-verify`. Never skip hooks.
 
 ### Surface-specific
 
@@ -206,9 +210,12 @@ Do not declare READY from memory. Re-read the latest command output.
 `pr-review-loop-inplace` and `pr-review-loop-worktree` MUST:
 
 1. Call this skill (follow these phases) before every push.
-2. Treat BLOCKED as a hard stop on that push attempt.
-3. After a successful push, continue their **30-minute** poll window —
-   harden does not shorten polling.
+2. Push via **`pnpm pr-review-push`** after READY (not bare `git push`).
+3. Treat BLOCKED as a hard stop on that push attempt.
+4. After a successful push, run **`pnpm pr-review-loop`** in background
+   and **`pnpm pr-review-status`** for spot checks — threads **and**
+   CI must be green on HEAD before the loop completes. Harden does not
+   shorten the 30-minute poll window.
 
 ## Non-negotiable rules
 
