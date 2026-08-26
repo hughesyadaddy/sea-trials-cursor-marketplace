@@ -1,8 +1,8 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.08.25",
-  "description": "Sea Trials team skills (PR review loops, pre-push harden) and repo-specific agents.",
+  "version": "2026.08.26",
+  "description": "Sea Trials team agents and MCP (Atlassian, chrome-devtools). PR review loop skills ship in vgv-wingspan.",
   "author": {
     "name": "Sea Trials",
     "email": "alex@seatrials.com"
@@ -10,8 +10,7 @@
   "homepage": "https://github.com/hughesyadaddy/sea_trials_universal",
   "repository": "https://github.com/hughesyadaddy/sea_trials_universal",
   "license": "UNLICENSED",
-  "keywords": ["sea-trials", "pr-review", "vgv", "cursor"],
-  "skills": "./skills/",
+  "keywords": ["sea-trials", "vgv", "cursor"],
   "agents": "./agents/",
   "hooks": "./hooks/hooks.json",
   "mcp": "./mcp.json"
