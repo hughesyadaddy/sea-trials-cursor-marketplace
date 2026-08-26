@@ -1,8 +1,8 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.08.26",
-  "description": "Sea Trials team agents and MCP (Atlassian, chrome-devtools). PR review loop skills ship in vgv-wingspan.",
+  "version": "2026.08.25",
+  "description": "Sea Trials team agents and MCP (Atlassian, chrome-devtools). PR review skills ship on vgv-wingspan.",
   "author": {
     "name": "Sea Trials",
     "email": "alex@seatrials.com"

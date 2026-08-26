@@ -21,7 +21,7 @@
     {
       "name": "sea-trials",
       "source": "./plugins/sea-trials",
-      "description": "Sea Trials repo agents and team MCP. PR review skills are in vgv-wingspan."
+      "description": "Sea Trials PR review loops, pre-push harden, repo agents, team MCP."
     }
   ]
 }
