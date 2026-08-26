@@ -27,6 +27,10 @@ marketplace pin), not in `sea-trials`.
 Cursor does **not** index submodule checkouts for marketplace discovery — only
 committed files under `plugins/`. After bumping the submodule, always re-run
 scaffold so `plugins/vgv-*` match the pin.
+Vendored `plugins/vgv-wingspan` ships **15** skills under `cursor/skills/`,
+including the PR review trio: `pr-review-loop-inplace`,
+`pr-review-loop-worktree`, `pre-push-harden`. Full list in
+[MARKETPLACE_IMPORTS.md](MARKETPLACE_IMPORTS.md).
 
 Current VGV import pin: `143a3f1` (see `git submodule status` and
 [PLUGIN_SOURCES.md](PLUGIN_SOURCES.md)).

@@ -25,10 +25,14 @@ marketplace plugin trees, including:
 
 | Component | Count / servers |
 | --- | --- |
-| Skills | **15** (`brainstorm`, `plan`, `build`, `code-review`, … plus `pr-review-loop-inplace`, `pr-review-loop-worktree`, `pre-push-harden`) |
+| Skills | **15** under `cursor/skills/` (full list below) |
 | Review agents | 10 under `cursor/agents/` |
 | Adapter rules | `rules/*.mdc` (AskQuestion, handoffs, CLI tiers, Wingspan agent map) |
 | MCP | `context7` (HTTP), `vgv-ask-question` (stdio launcher) |
+Wingspan skills (**15**): `brainstorm`, `plan`, `build`, `code-review`,
+`create`, `create-pr`, `debrief`, `elements-of-style`, `hotfix`,
+`plan-technical-review`, `rebase`, `refine-approach`, `pr-review-loop-inplace`,
+`pr-review-loop-worktree`, `pre-push-harden`.
 
 PR review loop skills moved here in **2026-08-26** architecture — they are
 **not** duplicated under `plugins/sea-trials/`.
