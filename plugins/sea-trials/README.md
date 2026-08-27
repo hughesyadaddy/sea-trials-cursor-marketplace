@@ -48,6 +48,11 @@ Wingspan + Flutter from a git submodule of the public
 Atlassian MCP is URL-only OAuth. After install, Connect
 `atlassian-seatrials` and `atlassian-allinpmprep` under Settings → MCP.
 
+**Jira in agent sessions** uses Atlassian MCP OAuth above. **CLI sprint
+scripts** (e.g. `sprint_planning/*/jira_state.json` tooling) still use
+`JIRA_API_TOKEN` / `./scripts/setup-secrets.sh` separately — that token
+is not injected into Cursor MCP.
+
 Publish order: push public VGV first, then run
 `scaffold-sea-trials-cursor-marketplace.sh` so the submodule pin and
 vendored `plugins/vgv-*` stay in sync.

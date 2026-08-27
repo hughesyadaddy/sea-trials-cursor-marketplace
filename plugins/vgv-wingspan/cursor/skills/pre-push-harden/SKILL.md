@@ -32,7 +32,7 @@ round. Run this skill in the active repo root (user checkout or
 verdict is **READY**.
 
 **Also read:**
-[`../shared/review-loop-contract.md`](../shared/review-loop-contract.md)
+[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
 (or `references/shared/review-loop-contract.md` after install) for the
 project-directory lock shared with the review loops.
 

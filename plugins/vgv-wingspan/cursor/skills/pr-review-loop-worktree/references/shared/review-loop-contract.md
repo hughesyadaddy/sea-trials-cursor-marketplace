@@ -73,6 +73,7 @@ State artifacts: `docs/code-review/<scope>/pr-review-state.json`,
 Silence window still applies after the last push; new pushes reset the
 timer. When `pr-review-queue.json` appears, parent agent must triage
 and fix (background Node cannot spawn Cursor subagents).
+
 ## Background watcher → parent agent (autonomous wake)
 
 When `pnpm pr-review-loop` runs in a **background terminal**, treat its

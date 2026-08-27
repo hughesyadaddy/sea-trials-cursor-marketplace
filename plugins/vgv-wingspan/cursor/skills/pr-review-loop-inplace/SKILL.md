@@ -30,7 +30,7 @@ Autonomous resolution for every unresolved PR review thread, working
 No temp dirs. Leave the checkout clean and fully pushed when done.
 
 **Before Phase 0:** read
-[`../shared/review-loop-contract.md`](../shared/review-loop-contract.md)
+[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
 (or `references/shared/review-loop-contract.md` after install). That
 contract is binding — especially the **30-minute silence** and
 **project directory lock**.
@@ -244,8 +244,8 @@ While the loop runs (or between agent turns if hooks unavailable):
 
 If `pr-review-loop` exits `2` or `3`, read
 `docs/code-review/<scope>/pr-review-queue.json` and resume fixes
-**autonomously** (no AskQuestion / AskUserQuestion). Fix every queued
-thread, push, reply+resolve, then **restart** the background watcher.
+**autonomously** (no AskQuestion). Fix every queued thread, push,
+reply+resolve, then **restart** the background watcher.
 
 When a background terminal is already running the watcher, treat exit
 `2`/`3` as the signal to wake this skill — same as the user saying
