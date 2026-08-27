@@ -31,9 +31,10 @@ an **isolated git worktree under this project**. The user's current
 branch, uncommitted files, and IDE state must remain untouched.
 
 **Before Phase 0:** read
-[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
-(or `references/shared/review-loop-contract.md` after install). That
-contract is binding — especially the **30-minute silence**,
+[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md).
+Resolve `$ST_REVIEW`, `$ST_REVIEW_LOOP`, `$ST_REVIEW_STATUS`, and
+`$ST_REVIEW_PUSH` per the contract's **Sea Trials plugin CLI** section.
+That contract is binding — especially the **30-minute silence**,
 **project-local worktree**, and **pre-push-harden** rules.
 
 ## Autonomy policy
@@ -70,15 +71,15 @@ contract is binding — especially the **30-minute silence**,
 - `gh` from any cwd (repo-aware via remote)
 - All file ops inside `$WORKTREE_DIR` (absolute paths)
 - **Repo hooks** from `$WORKTREE_DIR` for threads + CI gates:
-  - `pnpm pr-review-status -- --pr <n>`
-  - `pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30`
-  - `pnpm pr-review-push` (after commit; runs from worktree root)
+  - `node "$ST_REVIEW_STATUS" -- --pr <n>`
+  - `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30`
+  - `node "$ST_REVIEW_PUSH" -- --pr <n>` (after commit; runs from worktree root)
 - **Task** subagents when **5+** unresolved threads; adversarial
   validation for Codex/Bugbot findings
 - Aligns with `git-safe-worktree`: no checkout/switch/pull on the
   user's primary worktree
-- Before every push: **`pre-push-harden`** then **`pnpm pr-review-push`**
-  from `$WORKTREE_DIR`
+- Before every push: **`pre-push-harden`** then
+  **`node "$ST_REVIEW_PUSH" -- --pr <n>`** from `$WORKTREE_DIR`
 
 ---
 
@@ -146,7 +147,7 @@ Same contract as in-place: use the canonical helper (paginated threads
 and full comment chains). Do **not** hand-roll `gh api`:
 
 ```bash
-node scripts/hooks/pr-review-threads.mjs list --pr <n> \
+node "$ST_REVIEW" list --pr <n> \
   --repo hughesyadaddy/sea_trials_universal
 ```
 
@@ -169,7 +170,7 @@ Batch all code fixes → one harden → one push per bot round.
 ## Phase 3 — Reply & resolve
 
 **Before replying:** run adversarial vet (Task subagents when 5+ threads).
-Every reply MUST use `formatBotReviewReply` / `pr-review-threads.mjs format`
+Every reply MUST use `formatBotReviewReply` / `node "$ST_REVIEW" format`
 so Codex sees **VALID / REJECT / STALE** — not bare "Fixed in …" or silent
 resolves. See `shared/review-loop-contract.md` → Bot reply format.
 
@@ -177,11 +178,11 @@ Use the helper for every thread (reply in-thread, resolve, verify).
 Do **not** call `gh api` REST/GraphQL for reply or resolve directly:
 
 ```bash
-BODY=$(node scripts/hooks/pr-review-threads.mjs format \
+BODY=$(node "$ST_REVIEW" format \
   --verdict valid --sha "$(git rev-parse --short HEAD)" \
   --summary "<what changed and why>")
 
-node scripts/hooks/pr-review-threads.mjs close --pr <n> \
+node "$ST_REVIEW" close --pr <n> \
   --repo hughesyadaddy/sea_trials_universal \
   --thread <PRRT_kwDO...> --body "$BODY"
 ```
@@ -199,8 +200,8 @@ Inside `$WORKTREE_DIR`:
 3. Commit with a clear review-round message.
 4. Run **`pre-push-harden`** from `$WORKTREE_DIR` until READY.
 5. Run **`pre-push-harden`** from `$WORKTREE_DIR` until READY.
-1. **`pnpm pr-review-push`** from `$WORKTREE_DIR` (`agent-prepush` +
-   `git push`). Exit `8` = CI pending — continue Phase 5.
+1. **`node "$ST_REVIEW_PUSH" -- --pr <n>`** from `$WORKTREE_DIR`
+   (`agent-prepush` + `git push`). Exit `8` = CI pending — continue Phase 5.
 7. On rejection → Sync recovery inside `$WORKTREE_DIR`.
 8. Record push timestamp (UTC) — **resets the 30-minute timer**.
 
@@ -215,11 +216,11 @@ Start background watch from `$WORKTREE_DIR`:
 
 ```bash
 cd "$WORKTREE_DIR"
-pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30
+node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30
 ```
 
 1. Record last push timestamp (UTC).
-1. **`pnpm pr-review-status -- --pr <n>`** — threads + CI on HEAD.
+1. **`node "$ST_REVIEW_STATUS" -- --pr <n>`** — threads + CI on HEAD.
 3. Triage **every unresolved thread** (not `createdAt`-only). Catch
    reopened threads whose latest comment is after last push.
 1. **CI gate:** all checks green on HEAD before completion.
@@ -283,7 +284,7 @@ Do **not** exit early. Do **not** use a 10/15-minute substitute. Do
 - Threads fixed / replied / resolved
 - Remaining unresolved (must be 0)
 - Harden runs: pass/fail before each push
-- Push gate: `pr-review-push` exit codes
+- Push gate: `ST_REVIEW_PUSH` exit codes
 - Polling: loop/status iterations, CI pass/fail/pending, new reviews,
   final silence duration
 - Push SHA(s) on `$PR_BRANCH`

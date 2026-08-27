@@ -40,6 +40,53 @@ secrets, workspace packages) only works inside this checkout.
    worktree of `$REPO_ROOT`; mixing edits between `$REPO_ROOT` and
    `$WORKTREE_DIR` in the same loop.
 
+## Sea Trials plugin CLI
+
+PR review hooks ship on the **sea-trials** Cursor plugin, not monorepo
+`scripts/hooks/`. Resolve the plugin root once per shell session:
+
+```bash
+_st_plugin_root() {
+  if [[ -n "${ST_PLUGIN_ROOT:-}" ]]; then
+    printf '%s\n' "$ST_PLUGIN_ROOT"
+    return 0
+  fi
+  local hit base
+  for base in \
+    "${HOME}/.cursor/plugins/cache/hughesyadaddy-sea-trials-cursor-marketplace" \
+    "${HOME}/.cursor/plugins/cache/sea-trials-cursor-marketplace"; do
+    [[ -d "$base" ]] || continue
+    hit="$(
+      find "$base" -path '*/plugins/sea-trials/scripts/resolve-plugin-root.mjs' \
+        2>/dev/null | head -1
+    )"
+    if [[ -n "$hit" ]]; then
+      dirname "$(dirname "$hit")"
+      return 0
+    fi
+  done
+  local repo_root
+  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ -n "$repo_root" && \
+        -f "$repo_root/tools/sea-trials-cursor-plugin/scripts/resolve-plugin-root.mjs" ]]; then
+    node "$repo_root/tools/sea-trials-cursor-plugin/scripts/resolve-plugin-root.mjs"
+    return 0
+  fi
+  echo "ERROR: sea-trials Cursor plugin not found (enable Team Marketplace)" >&2
+  return 1
+}
+
+ST_PLUGIN_ROOT="$(_st_plugin_root)"
+ST_REVIEW="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-threads.mjs"
+ST_REVIEW_STATUS="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs"
+ST_REVIEW_LOOP="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs"
+ST_REVIEW_PUSH="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs"
+```
+
+All review-loop commands below use these paths. From `$REPO_ROOT` (or a
+worktree), run `node "$ST_REVIEW…"` — never hand-roll monorepo
+`scripts/hooks/pr-review-*.mjs` paths.
+
 ## 30-minute bot silence (mandatory)
 
 Bot reviewers (Bugbot, Codex, Cursor Bugbot, etc.) often reply 5–15
@@ -52,8 +99,9 @@ Hard completion rule — all must be true:
 2. At least **30 continuous minutes** have elapsed since the **last**
    push produced by this loop.
 3. Polls throughout the silence window. **Preferred:** run
-   `pnpm pr-review-loop` in a **background terminal** (15s interval).
-   Spot-check with `pnpm pr-review-status`. If hooks are unavailable,
+   `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30` in a
+   **background terminal** (15s interval). Spot-check with
+   `node "$ST_REVIEW_STATUS" -- --pr <n>`. If hooks are unavailable,
    poll GraphQL threads every **5 minutes** minimum (≈6 clean polls
    after the last push).
 1. **All PR CI checks green on HEAD** (not only review threads).
@@ -63,9 +111,9 @@ instant polls and CI awareness:
 
 | Command | Purpose |
 | --- | --- |
-| `pnpm pr-review-status` | One-shot: threads + CI (+ light jobs) |
-| `pnpm pr-review-loop` | Watch every 15s; abort on threads/CI fail |
-| `pnpm pr-review-push` | `agent-prepush` → `git push` (prepush hook) |
+| `node "$ST_REVIEW_STATUS" -- --pr <n>` | One-shot: threads + CI (+ light jobs) |
+| `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30` | Watch every 15s; abort on threads/CI fail |
+| `node "$ST_REVIEW_PUSH" -- --pr <n>` | `agent-prepush` → `git push` (prepush hook) |
 
 State artifacts: `docs/code-review/<scope>/pr-review-state.json`,
 `pr-review-queue.json`, `pr-*-loop-log.txt`. Exit codes: `0` clean,
@@ -76,7 +124,7 @@ and fix (background Node cannot spawn Cursor subagents).
 
 ## Background watcher → parent agent (autonomous wake)
 
-When `pnpm pr-review-loop` runs in a **background terminal**, treat its
+When `node "$ST_REVIEW_LOOP"` runs in a **background terminal**, treat its
 exit code as a work ticket — **never ask the user** whether to proceed:
 
 | Exit | Meaning | Parent agent action |
@@ -86,8 +134,8 @@ exit code as a work ticket — **never ask the user** whether to proceed:
 | `3` | CI failure on HEAD | Fix or re-run flake; push; restart watcher |
 | `8` | CI pending (watch mode) | Keep watcher running; do not stop early |
 
-After every fix round: `pnpm pr-review-push` → reply+resolve every thread
-→ restart `pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30`
+After every fix round: `node "$ST_REVIEW_PUSH" -- --pr <n>` → reply+resolve every thread
+→ restart `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30`
 in background. Do not end the turn with open threads or an incomplete
 30-minute silence window unless the user explicitly stops the loop.
 
@@ -146,15 +194,15 @@ Map Phase 2 classification → verdict:
 Build the body with the repo helper (never hand-roll the prefix):
 
 ```bash
-node scripts/hooks/pr-review-threads.mjs format \
+node "$ST_REVIEW" format \
   --verdict valid --sha 197c8d91ef \
   --summary "Scheduled callback calls _runFileChannel inside the slot."
 
-node scripts/hooks/pr-review-threads.mjs format \
+node "$ST_REVIEW" format \
   --verdict reject \
   --summary "Subscribe-before-login is intentional; promotion gated on userRowPresent."
 
-node scripts/hooks/pr-review-threads.mjs format \
+node "$ST_REVIEW" format \
   --verdict stale \
   --summary "RLS migration already shipped in 20260827184106_…"
 ```
@@ -162,7 +210,7 @@ node scripts/hooks/pr-review-threads.mjs format \
 Then close in-thread:
 
 ```bash
-node scripts/hooks/pr-review-threads.mjs close --pr <n> \
+node "$ST_REVIEW" close --pr <n> \
   --repo hughesyadaddy/sea_trials_universal \
   --thread <PRRT_kwDO...> --body "<formatted text>"
 ```
@@ -185,7 +233,7 @@ Before `git push` (including merge-recovery pushes that carry code):
 
 1. Run the **`pre-push-harden`** skill against the pending diff in the
    active root (`$REPO_ROOT` or `$WORKTREE_DIR`).
-2. Run **`pnpm pr-review-push`** (or `pnpm agent-prepush` then
+2. Run **`node "$ST_REVIEW_PUSH" -- --pr <n>`** (or `pnpm agent-prepush` then
    `git push`) so local gates run before the hook.
 3. Do not push until that skill reports **READY**.
 4. Never `--force`, never `--no-verify`.
@@ -209,4 +257,4 @@ about the missing tool or the model — see `vgv-ask-question.mdc`.
 
 (Canonical source under `.cursor/skill-custom/` uses AskQuestion (Cursor; AskUserQuestion on Claude Code);
 `--emit-sea-trials-plugin` rewrites Cursor copies into
-`tools/sea-trials-cursor-plugin/`.)
+`tools/sea-trials-cursor-plugin/skills/`.)

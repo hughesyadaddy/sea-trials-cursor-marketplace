@@ -3,18 +3,20 @@
 Team Marketplace plugin for Sea Trials–owned Cursor components:
 
 - Agents: `powersync-migration-operator`, `macos-appstore-signing`
+- Skills: `pr-review-loop-inplace`, `pr-review-loop-worktree`,
+  `pre-push-harden`
+- Scripts: PR review CLI under `scripts/hooks/` (resolve plugin root via
+  `scripts/resolve-plugin-root.mjs`)
 - MCP: Atlassian (`atlassian-seatrials`, `atlassian-allinpmprep`),
   `chrome-devtools`
 - Hooks: Flutter plugin deny-list shim
-
-PR review skills (`pr-review-loop-inplace`, `pr-review-loop-worktree`,
-`pre-push-harden`) ship on **vgv-wingspan**, not this plugin.
 
 ## Source of truth
 
 | Component | Source | Ships in |
 | --- | --- | --- |
-| Skills | `.cursor/skill-custom/` | vgv-wingspan |
+| Skills | `.cursor/skill-custom/` | sea-trials |
+| Review scripts | `scripts/hooks/pr-review-*.mjs` | sea-trials `scripts/hooks/` |
 | Agents | `.cursor/agent-sources/` | sea-trials |
 | Rules | `.cursor/rule-sources/` | vgv-wingspan |
 
@@ -25,8 +27,8 @@ Regenerate after editing those sources:
 ./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
 ```
 
-Do not hand-edit generated files under `agents/` — they are overwritten by
-the emitter.
+Do not hand-edit generated files under `agents/`, `skills/`, or
+`scripts/` — they are overwritten by the emitter.
 
 ## Local install (smoke)
 

@@ -33,8 +33,8 @@ verdict is **READY**.
 
 **Also read:**
 [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
-(or `references/shared/review-loop-contract.md` after install) for the
-project-directory lock shared with the review loops.
+for the project-directory lock and **Sea Trials plugin CLI** (`$ST_REVIEW*`
+paths) shared with the review loops.
 
 ## When to run
 
@@ -117,8 +117,8 @@ diff; escalate when the diff is broad or a prior push broke CI.
    Pass explicit paths. Do not rely on a clean `git status` alone when
    reviewing commits already made.
 
-2. Review loops call **`pnpm pr-review-push`** after READY (runs
-   `agent-prepush` then `git push` with the prepush hook). Do not
+2. Review loops call **`node "$ST_REVIEW_PUSH" -- --pr <n>`** after READY
+   (runs `agent-prepush` then `git push` with the prepush hook). Do not
    bypass with a bare `git push`.
 
 3. If Flutter/Dart packages changed and agent-validate is green but the
@@ -210,10 +210,11 @@ Do not declare READY from memory. Re-read the latest command output.
 `pr-review-loop-inplace` and `pr-review-loop-worktree` MUST:
 
 1. Call this skill (follow these phases) before every push.
-2. Push via **`pnpm pr-review-push`** after READY (not bare `git push`).
+2. Push via **`node "$ST_REVIEW_PUSH" -- --pr <n>`** after READY (not bare
+   `git push`).
 3. Treat BLOCKED as a hard stop on that push attempt.
-4. After a successful push, run **`pnpm pr-review-loop`** in background
-   and **`pnpm pr-review-status`** for spot checks — threads **and**
+4. After a successful push, run **`node "$ST_REVIEW_LOOP"`** in background
+   and **`node "$ST_REVIEW_STATUS"`** for spot checks — threads **and**
    CI must be green on HEAD before the loop completes. Harden does not
    shorten the 30-minute poll window.
 

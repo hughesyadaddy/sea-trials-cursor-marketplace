@@ -30,9 +30,10 @@ Autonomous resolution for every unresolved PR review thread, working
 No temp dirs. Leave the checkout clean and fully pushed when done.
 
 **Before Phase 0:** read
-[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
-(or `references/shared/review-loop-contract.md` after install). That
-contract is binding — especially the **30-minute silence** and
+[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md).
+Resolve `$ST_REVIEW`, `$ST_REVIEW_LOOP`, `$ST_REVIEW_STATUS`, and
+`$ST_REVIEW_PUSH` per the contract's **Sea Trials plugin CLI** section.
+That contract is binding — especially the **30-minute silence** and
 **project directory lock**.
 
 ## Autonomy policy
@@ -93,15 +94,16 @@ staging — only in-place uses this full-tree policy.
 
 - `gh` for discovery / reply / resolve
 - **Repo hooks** for threads + CI gates (mandatory on Sea Trials):
-  - `pnpm pr-review-status` — one-shot snapshot
-  - `pnpm pr-review-loop` — background watch (15s; 30m silence)
-  - `pnpm pr-review-push` — `agent-prepush` → `git push` (prepush hook)
+  - `node "$ST_REVIEW_STATUS" -- --pr <n>` — one-shot snapshot
+  - `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30` — background watch
+  - `node "$ST_REVIEW_PUSH" -- --pr <n>` — `agent-prepush` → `git push`
 - **Task** subagents for parallel triage when **5+** unresolved threads
   (parent applies edits). For Codex/Bugbot threads, run adversarial
   validation before accepting findings.
 - Do **not** write custom one-off poll scripts; use the hooks above.
-- Before every push: run **`pre-push-harden`**, then **`pnpm
-  pr-review-push`** (or `agent-prepush` + `git push` from `$REPO_ROOT`).
+- Before every push: run **`pre-push-harden`**, then
+  **`node "$ST_REVIEW_PUSH" -- --pr <n>`** (or `agent-prepush` + `git push`
+  from `$REPO_ROOT`).
 
 ---
 
@@ -145,7 +147,7 @@ rejected as non-fast-forward:
    chains) via the canonical helper — do **not** hand-roll `gh api`:
 
    ```bash
-   node scripts/hooks/pr-review-threads.mjs list --pr <n> \
+   node "$ST_REVIEW" list --pr <n> \
      --repo hughesyadaddy/sea_trials_universal
    ```
 
@@ -174,7 +176,7 @@ push (one push per bot round).
 ## Phase 3 — Reply & resolve
 
 **Before replying:** run adversarial vet (Task subagents when 5+ threads).
-Every reply MUST use `formatBotReviewReply` / `pr-review-threads.mjs format`
+Every reply MUST use `formatBotReviewReply` / `node "$ST_REVIEW" format`
 so Codex sees **VALID / REJECT / STALE** — not bare "Fixed in …" or silent
 resolves. See `shared/review-loop-contract.md` → Bot reply format.
 
@@ -183,11 +185,11 @@ resolves via GraphQL, verifies from a fresh read, and retries resolve
 safely if the reply already posted:
 
 ```bash
-BODY=$(node scripts/hooks/pr-review-threads.mjs format \
+BODY=$(node "$ST_REVIEW" format \
   --verdict reject \
   --summary "<evidence-based rebuttal>")
 
-node scripts/hooks/pr-review-threads.mjs close --pr <n> \
+node "$ST_REVIEW" close --pr <n> \
   --repo hughesyadaddy/sea_trials_universal \
   --thread <PRRT_kwDO...> --body "$BODY"
 ```
@@ -206,9 +208,9 @@ Every thread: reply + resolve. No exceptions. Do **not** call
 3. Commit with a clear review-round message (mention review threads;
    note bundled non-review files in the body if present).
 4. Run **`pre-push-harden`** from `$REPO_ROOT` until READY.
-1. **`pnpm pr-review-push`** from `$REPO_ROOT` (runs `agent-prepush`,
-   then `git push` with prepush hook). Exit `8` after push means CI
-   pending — continue to Phase 5, do not treat as failure.
+1. **`node "$ST_REVIEW_PUSH" -- --pr <n>`** from `$REPO_ROOT` (runs
+   `agent-prepush`, then `git push` with prepush hook). Exit `8` after push
+   means CI pending — continue to Phase 5, do not treat as failure.
 6. On rejection → Sync recovery. No AskQuestion (Cursor; AskUserQuestion on Claude Code).
 7. Record push timestamp (UTC). **This resets the 30-minute timer.**
 
@@ -219,13 +221,13 @@ Every thread: reply + resolve. No exceptions. Do **not** call
 **Start background watch** (leave running for the full silence window):
 
 ```bash
-pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30
+node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30
 ```
 
 While the loop runs (or between agent turns if hooks unavailable):
 
 1. Record last push timestamp (UTC).
-1. **`pnpm pr-review-status -- --pr <n>`** — threads + CI on HEAD.
+1. **`node "$ST_REVIEW_STATUS" -- --pr <n>`** — threads + CI on HEAD.
 3. Triage **every unresolved thread** — do **not** require
    `thread.createdAt > last_push`. Bots often reply on existing threads.
    Also treat reopened threads (any comment after last push + unresolved)
@@ -239,7 +241,7 @@ While the loop runs (or between agent turns if hooks unavailable):
    **and** every poll showed zero unresolved threads **and** CI green
    on HEAD.
 
-If `pr-review-loop` exits `2` or `3`, read
+If `node "$ST_REVIEW_LOOP"` exits `2` or `3`, read
 `docs/code-review/<scope>/pr-review-queue.json` and resume fixes
 **autonomously** (no AskQuestion). Fix every queued thread, push,
 reply+resolve, then **restart** the background watcher.
@@ -256,7 +258,7 @@ pending or failing on HEAD.
 
 ## Phase 6 — Final verification
 
-1. `pnpm pr-review-status -- --pr <n>` → exit `0` (threads clear, CI green)
+1. `node "$ST_REVIEW_STATUS" -- --pr <n>` → exit `0` (threads clear, CI green)
 2. `git status --porcelain` → empty
 3. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0
 4. `git rev-list origin/$PR_BRANCH..HEAD --count` → 0
@@ -289,7 +291,7 @@ pending or failing on HEAD.
 - Threads fixed / replied / resolved
 - Remaining unresolved (must be 0)
 - Harden runs: pass/fail summary before each push
-- Push gate: `pr-review-push` exit codes
-- Polling: `pr-review-loop` / status iterations, CI pass/fail/pending,
+- Push gate: `ST_REVIEW_PUSH` exit codes
+- Polling: `ST_REVIEW_LOOP` / status iterations, CI pass/fail/pending,
   new reviews, final silence duration
 - Phase 6 checks
