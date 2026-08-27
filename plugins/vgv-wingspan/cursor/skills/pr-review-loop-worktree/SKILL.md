@@ -142,8 +142,14 @@ inside `$WORKTREE_DIR`.
 
 ## Phase 1 — Full discovery
 
-Same contract as in-place (paginated REST comments + paginated GraphQL
-`reviewThreads` with nested comment `pageInfo` / REST fallback).
+Same contract as in-place: use the canonical helper (paginated threads
+and full comment chains). Do **not** hand-roll `gh api`:
+
+```bash
+node scripts/hooks/pr-review-threads.mjs list --pr <n> \
+  --repo hughesyadaddy/sea_trials_universal
+```
+
 Manifest of unresolved only. Zero → Phase 5 once, then Phase 6 cleanup.
 
 ---
@@ -162,8 +168,23 @@ Batch all code fixes → one harden → one push per bot round.
 
 ## Phase 3 — Reply & resolve
 
-1. Reply REST (`in_reply_to` = original `databaseId`).
-2. Resolve GraphQL `resolveReviewThread` (`PRRT_kwDO...`).
+**Before replying:** run adversarial vet (Task subagents when 5+ threads).
+Every reply MUST use `formatBotReviewReply` / `pr-review-threads.mjs format`
+so Codex sees **VALID / REJECT / STALE** — not bare "Fixed in …" or silent
+resolves. See `shared/review-loop-contract.md` → Bot reply format.
+
+Use the helper for every thread (reply in-thread, resolve, verify).
+Do **not** call `gh api` REST/GraphQL for reply or resolve directly:
+
+```bash
+BODY=$(node scripts/hooks/pr-review-threads.mjs format \
+  --verdict valid --sha "$(git rev-parse --short HEAD)" \
+  --summary "<what changed and why>")
+
+node scripts/hooks/pr-review-threads.mjs close --pr <n> \
+  --repo hughesyadaddy/sea_trials_universal \
+  --thread <PRRT_kwDO...> --body "$BODY"
+```
 
 Every thread: reply + resolve.
 

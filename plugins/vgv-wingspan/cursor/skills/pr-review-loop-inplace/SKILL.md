@@ -141,37 +141,18 @@ rejected as non-fast-forward:
 ## Phase 1 — Full discovery
 
 1. `gh pr view <n> --json title,body,state,headRefName,baseRefName`
-2. `gh api repos/{owner}/{repo}/pulls/{n}/comments --paginate`
-3. GraphQL threads — **paginate every page** (PRs can exceed 100
-   threads). Nested `comments` also need `pageInfo` / REST fallback:
+2. List every review thread (paginated threads **and** full comment
+   chains) via the canonical helper — do **not** hand-roll `gh api`:
 
    ```bash
-   gh api graphql --paginate -f query='
-   query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
-     repository(owner: $owner, name: $repo) {
-       pullRequest(number: $number) {
-         reviewThreads(first: 100, after: $endCursor) {
-           pageInfo { hasNextPage endCursor }
-           nodes {
-             id
-             isResolved
-             comments(first: 100) {
-               pageInfo { hasNextPage endCursor }
-               nodes {
-                 databaseId
-                 body
-                 author { login }
-                 createdAt
-               }
-             }
-           }
-         }
-       }
-     }
-   }' -F owner={owner} -F repo={repo} -F number={number}
+   node scripts/hooks/pr-review-threads.mjs list --pr <n> \
+     --repo hughesyadaddy/sea_trials_universal
    ```
 
-4. Manifest = **unresolved** only. Zero → still Phase 5 once, then 6.
+   Add `--json` when you need machine-readable output. The helper
+   paginates past 100 threads and loads every reply in each chain.
+
+3. Manifest = **unresolved** only. Zero → still Phase 5 once, then 6.
 
 ---
 
@@ -192,11 +173,27 @@ push (one push per bot round).
 
 ## Phase 3 — Reply & resolve
 
-1. Reply REST with `in_reply_to=<original databaseId>`.
-2. Resolve GraphQL `resolveReviewThread` with thread `id`
-   (`PRRT_kwDO...`).
+**Before replying:** run adversarial vet (Task subagents when 5+ threads).
+Every reply MUST use `formatBotReviewReply` / `pr-review-threads.mjs format`
+so Codex sees **VALID / REJECT / STALE** — not bare "Fixed in …" or silent
+resolves. See `shared/review-loop-contract.md` → Bot reply format.
 
-Every thread: reply + resolve. No exceptions.
+Use the helper for every thread — it replies in-thread (`in_reply_to`),
+resolves via GraphQL, verifies from a fresh read, and retries resolve
+safely if the reply already posted:
+
+```bash
+BODY=$(node scripts/hooks/pr-review-threads.mjs format \
+  --verdict reject \
+  --summary "<evidence-based rebuttal>")
+
+node scripts/hooks/pr-review-threads.mjs close --pr <n> \
+  --repo hughesyadaddy/sea_trials_universal \
+  --thread <PRRT_kwDO...> --body "$BODY"
+```
+
+Every thread: reply + resolve. No exceptions. Do **not** call
+`gh api` REST/GraphQL for reply or resolve directly.
 
 ---
 

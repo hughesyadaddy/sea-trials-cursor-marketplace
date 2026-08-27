@@ -127,6 +127,58 @@ must land on the PR branch together. Never stage `.secrets/`, untracked
 
 **`pr-review-loop-worktree`:** keep **explicit-path** staging only.
 
+## Bot reply format (Codex / Bugbot)
+
+Every thread close reply MUST use an explicit adversarial verdict so bot
+reviewers can distinguish **fixed** from **rejected** findings on the
+next pass. Silent resolve or vague "won't fix" replies invite repeat
+false positives.
+
+Map Phase 2 classification → verdict:
+
+| Triage | Verdict | When |
+| --- | --- | --- |
+| (a) valid fix | `valid` | Code changed; cite push SHA |
+| (b) already fixed | `stale` | Finding true on old diff only |
+| (c) intentional | `reject` | Design/contract is deliberate |
+| (d) incorrect | `reject` | Evidence shows finding is wrong |
+
+Build the body with the repo helper (never hand-roll the prefix):
+
+```bash
+node scripts/hooks/pr-review-threads.mjs format \
+  --verdict valid --sha 197c8d91ef \
+  --summary "Scheduled callback calls _runFileChannel inside the slot."
+
+node scripts/hooks/pr-review-threads.mjs format \
+  --verdict reject \
+  --summary "Subscribe-before-login is intentional; promotion gated on userRowPresent."
+
+node scripts/hooks/pr-review-threads.mjs format \
+  --verdict stale \
+  --summary "RLS migration already shipped in 20260827184106_…"
+```
+
+Then close in-thread:
+
+```bash
+node scripts/hooks/pr-review-threads.mjs close --pr <n> \
+  --repo hughesyadaddy/sea_trials_universal \
+  --thread <PRRT_kwDO...> --body "<formatted text>"
+```
+
+Required shape (first line):
+
+- **VALID:** `**Adversarial vet: VALID — applied in \`<sha>\`.** …`
+- **REJECT:** `**Adversarial vet: REJECT.** …` (name the flaw: wrong phase,
+  stale diff, intentional contract, etc.)
+- **STALE:** `**Adversarial vet: STALE — no code change.** …`
+- **DEFER:** non-blocking follow-up only — never for incorrect findings
+
+Include concrete evidence in the summary (file/symbol, production log fact,
+existing test, contract doc). Rejections without evidence read as dismissals
+and Codex will re-raise the same thread.
+
 ## Pre-push harden (before every push)
 
 Before `git push` (including merge-recovery pushes that carry code):
