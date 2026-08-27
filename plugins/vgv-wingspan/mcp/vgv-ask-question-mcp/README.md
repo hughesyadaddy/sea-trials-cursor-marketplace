@@ -1,22 +1,54 @@
 # vgv-ask-question MCP
 
-**Does not replace Cursor AskQuestion.** AskQuestion is a host-injected
-tool (ACP `cursor/ask_question`), model-gated (Composer 2.5 yes; Grok 4.5
-intentionally no). This MCP is tier-3 form **elicitation** only.
+MCP fallback for VGV structured handoffs when host tools are unavailable.
 
-## Runtime
+## Why this exists
 
-`dist/index.js` is an esbuild bundle (no `node_modules` at runtime).
+- **Claude Code** exposes `AskUserQuestion` as a **native host tool** (not MCP).
+- **Cursor** exposes `AskQuestion` the same way on some models/modes only.
+- Other sessions (e.g. Grok 4.5, some Composer Agent chats) inject neither.
+
+This server is **tier 3** in `vgv-ask-question.mdc`: agents call
+`ask_user_question` when both host tools are absent from the schema.
+
+When the Cursor client supports MCP **form elicitation**, the user gets a
+native form picker. Otherwise the tool returns a compact numbered fallback
+for chat.
 
 ## Build
 
 ```bash
-cd plugins/vgv-wingspan/mcp/vgv-ask-question-mcp
-npm ci && npm run build
+cd tools/vgv-ask-question-mcp
+npm install --omit=dev
+npm run build
 ```
 
-## Launch
+Or emit Wingspan (builds + vendors into the plugin):
 
 ```bash
-./plugins/vgv-wingspan/scripts/vgv-ask-question-mcp.sh
+./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
 ```
+
+## Launch (stdio)
+
+Plugin `mcp.json` (required shape):
+
+```json
+"vgv-ask-question": {
+  "type": "stdio",
+  "command": "./scripts/vgv-ask-question-mcp.sh",
+  "cwd": "${PLUGIN_ROOT}"
+}
+```
+
+`cwd: ${PLUGIN_ROOT}` is required — relative commands without it fail ENOENT.
+
+Local smoke:
+
+```bash
+./scripts/vgv-ask-question-mcp.sh
+# or after emit:
+./tools/cursor-vgv-wingspan/scripts/vgv-ask-question-mcp.sh
+```
+
+Registered on the **VGV Wingspan** plugin (not Sea Trials).

@@ -6,11 +6,8 @@
     },
     "vgv-ask-question": {
       "type": "stdio",
-      "command": "/bin/bash",
-      "args": [
-        "-c",
-        "set -euo pipefail; best=; best_m=0; while IFS= read -r -d '' s; do [[ -x \"$s\" ]] || continue; m=$(stat -f %m \"$s\" 2>/dev/null || stat -c %Y \"$s\"); if [[ \"$m\" -ge \"$best_m\" ]]; then best_m=$m; best=$s; fi; done < <(find \"$HOME/.cursor/plugins\" -name 'vgv-ask-question-mcp.sh' -type f -print0 2>/dev/null); [[ -n \"$best\" ]] || { echo 'vgv-ask-question-mcp: launcher not found under ~/.cursor/plugins' >&2; exit 1; }; exec \"$best\""
-      ]
+      "command": "./scripts/vgv-ask-question-mcp.sh",
+      "cwd": "${PLUGIN_ROOT}"
     }
   }
 }
