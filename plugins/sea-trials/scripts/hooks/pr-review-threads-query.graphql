@@ -11,7 +11,17 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
           isResolved
           path
           line
-          comments(first: 3) {
+          firstComment: comments(first: 1) {
+            nodes {
+              databaseId
+              author {
+                login
+              }
+              createdAt
+              body
+            }
+          }
+          latestComment: comments(last: 1) {
             nodes {
               databaseId
               author {

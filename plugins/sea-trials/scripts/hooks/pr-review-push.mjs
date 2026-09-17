@@ -14,7 +14,7 @@ import {
   parsePrArgs,
   reviewPaths,
   runGitPush,
-  runLocalPrepush,
+  runLocalPushGate,
   writeJson,
 } from './lib/pr-review-lib.mjs';
 
@@ -40,12 +40,25 @@ const headBeforePush = readHeadOid(repoRoot);
 
 process.stdout.write(`PR #${prNumber} push gate (${pr.headRefName})\n`);
 
-const local = runLocalPrepush(repoRoot);
+const local = runLocalPushGate(repoRoot, { prNumber });
 if (!local.ok) {
-  process.stderr.write(local.stderr || local.stdout);
+  for (const step of local.steps) {
+    if (!step.ok) {
+      process.stderr.write(
+        step.stderr || step.stdout || `❌ ${step.name} failed\n`,
+      );
+      break;
+    }
+  }
   process.exit(4);
 }
-process.stdout.write('✅ agent-prepush\n');
+for (const step of local.steps) {
+  const captured = (step.stdout ?? '').trim();
+  if (captured) {
+    process.stdout.write(`${captured}\n`);
+  }
+  process.stdout.write(`✅ ${step.name}\n`);
+}
 
 const push = runGitPush(repoRoot, pr.headRefName);
 if (!push.ok) {

@@ -267,6 +267,20 @@ export function fetchCiChecks(repoRoot, prNumber) {
   let allChecks = [];
   if (result.status === 0 || result.status === 8) {
     allChecks = parseGhStdout(result.stdout) ?? [];
+  } else if (result.status === 1) {
+    const parsed = parseGhStdout(result.stdout);
+    if (parsed === null) {
+      const msg = result.stderr?.trim() || result.stdout?.trim() || '';
+      if (msg.includes('no checks reported')) {
+        allChecks = [];
+      } else {
+        throw new Error(
+          msg || 'gh pr checks failed without checks JSON',
+        );
+      }
+    } else {
+      allChecks = parsed;
+    }
   } else {
     const msg = result.stderr || result.stdout || 'gh failed';
     if (msg.includes('no checks reported')) {
@@ -376,6 +390,41 @@ export function remoteHeadPushIso(repoRoot, branch, headRefOid) {
   ).trim();
 }
 
+function mapUnresolvedThread(t) {
+  const legacyNodes = t.comments?.nodes ?? [];
+  const findingComment =
+    t.firstComment?.nodes?.[0] ??
+    legacyNodes[0] ??
+    null;
+  const latestComment =
+    t.latestComment?.nodes?.[0] ??
+    legacyNodes[legacyNodes.length - 1] ??
+    null;
+  const mapped = {
+    id: t.id,
+    path: t.path,
+    line: t.line,
+    databaseId: findingComment?.databaseId ?? null,
+    latestDatabaseId: latestComment?.databaseId ?? null,
+    author: findingComment?.author?.login ?? null,
+    preview: (findingComment?.body ?? '')
+      .replace(/\s+/g, ' ')
+      .slice(0, 160),
+    body: findingComment?.body ?? '',
+  };
+  const hasReply =
+    latestComment?.databaseId != null &&
+    latestComment.databaseId !== findingComment?.databaseId;
+  if (hasReply) {
+    mapped.latestAuthor = latestComment?.author?.login ?? null;
+    mapped.latestPreview = (latestComment?.body ?? '')
+      .replace(/\s+/g, ' ')
+      .slice(0, 160);
+    mapped.latestBody = latestComment?.body ?? '';
+  }
+  return mapped;
+}
+
 export function buildReviewSnapshot(repoRoot, prNumber) {
   const pr = fetchPrMeta(repoRoot, prNumber);
   const threads = fetchReviewThreads(repoRoot, prNumber);
@@ -395,17 +444,7 @@ export function buildReviewSnapshot(repoRoot, prNumber) {
     threads: {
       total: threads.total,
       unresolvedCount: threads.unresolved.length,
-      unresolved: threads.unresolved.map((t) => ({
-        id: t.id,
-        path: t.path,
-        line: t.line,
-        databaseId: t.comments.nodes[0]?.databaseId ?? null,
-        author: t.comments.nodes[0]?.author?.login ?? null,
-        preview: (t.comments.nodes[0]?.body ?? '')
-          .replace(/\s+/g, ' ')
-          .slice(0, 160),
-        body: t.comments.nodes[0]?.body ?? '',
-      })),
+      unresolved: threads.unresolved.map(mapUnresolvedThread),
     },
     ci: {
       total: ci.total,
@@ -466,8 +505,8 @@ export function evaluateSnapshot(snapshot) {
   return { ok: true, reason: 'clean', exitCode: 0 };
 }
 
-export function runLocalPrepush(repoRoot) {
-  const result = spawnSync('pnpm', ['agent-prepush'], {
+function runPnpmScript(repoRoot, scriptArgs) {
+  const result = spawnSync('pnpm', scriptArgs, {
     encoding: 'utf8',
     cwd: repoRoot,
     shell: isWindows,
@@ -481,12 +520,85 @@ export function runLocalPrepush(repoRoot) {
   };
 }
 
+/**
+ * Dirty-tree fast gate (parallel-friendly via agent-prepush --list-tasks).
+ *
+ * @param {string} repoRoot
+ */
+export function runLocalPrepush(repoRoot) {
+  return runPnpmScript(repoRoot, ['agent-prepush']);
+}
+
+/**
+ * Full local push gate — contract: NEVER push until this passes.
+ *
+ * Order mirrors CI + hooks:
+ * 1. agent-prepush (dirty tree, parallel subagent fan-out)
+ * 2. prepush (committed diff, format + analyze + sea-trials-lint)
+ * 3. pr-local-ci (path-filtered PR Checks lanes)
+ *
+ * @param {string} repoRoot
+ * @param {{ prNumber?: number, base?: string }} [opts]
+ */
+export function runLocalPushGate(repoRoot, { prNumber, base } = {}) {
+  const steps = [];
+
+  const agent = runLocalPrepush(repoRoot);
+  steps.push({ name: 'agent-prepush', ...agent });
+  if (!agent.ok) {
+    return { ok: false, steps };
+  }
+
+  const prepush = runPnpmScript(repoRoot, ['prepush']);
+  steps.push({ name: 'prepush', ...prepush });
+  if (!prepush.ok) {
+    return { ok: false, steps };
+  }
+
+  const localCiArgs = prNumber != null
+    ? ['--pr', String(prNumber)]
+    : ['--base', base ?? 'origin/dev'];
+  const localCi = spawnSync(
+    'node',
+    [
+      path.join(repoRoot, 'scripts/hooks/pr-local-ci.mjs'),
+      ...localCiArgs,
+    ],
+    {
+      encoding: 'utf8',
+      cwd: repoRoot,
+      shell: isWindows,
+      stdio: 'pipe',
+    },
+  );
+  const ciStep = {
+    name: 'pr-local-ci',
+    ok: localCi.status === 0,
+    status: localCi.status ?? 1,
+    stdout: localCi.stdout ?? '',
+    stderr: localCi.stderr ?? '',
+  };
+  steps.push(ciStep);
+  if (!ciStep.ok) {
+    return { ok: false, steps };
+  }
+
+  return { ok: true, steps };
+}
+
 export function runGitPush(repoRoot, branch) {
+  const head = spawnSync('git', ['rev-parse', 'HEAD'], {
+    encoding: 'utf8',
+    cwd: repoRoot,
+    shell: isWindows,
+  });
+  const headOid = (head.stdout ?? '').trim();
   const result = spawnSync('git', ['push', 'origin', `HEAD:${branch}`], {
     encoding: 'utf8',
     cwd: repoRoot,
     shell: isWindows,
     stdio: 'pipe',
+    env: { ...process.env, ST_REVIEW_PUSH: headOid },
   });
   return {
     ok: result.status === 0,

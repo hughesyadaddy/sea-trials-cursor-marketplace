@@ -103,30 +103,48 @@ Classify touched surfaces: Flutter/Dart packages, `functions/`, `web/`,
 
 ## Phase 2 — Mechanical gates (mandatory)
 
-Run from `$ACTIVE_ROOT`. Prefer the lightest gate that still covers the
-diff; escalate when the diff is broad or a prior push broke CI.
+Run from `$ACTIVE_ROOT`. **`agent-validate` is iteration-only** — it is
+NOT sufficient before push.
 
-### Always (non-docs changes)
+### Always before push (non-docs changes)
 
-1. **Tier 2 — local push gate:**
+1. **Dirty tree:**
 
    ```bash
-   pnpm agent-validate -- $CHANGED_LIB_AND_TEST_PATHS
+   pnpm agent-prepush
    ```
 
-   Pass explicit paths. Do not rely on a clean `git status` alone when
-   reviewing commits already made.
+   When `--list-tasks` emits multiple lines, fan out **Task subagents**
+   (one per JSON task) in a single parent turn.
 
-2. Review loops call **`node "$ST_REVIEW_PUSH" -- --pr <n>`** after READY
-   (runs `agent-prepush` then `git push` with the prepush hook). Do not
-   bypass with a bare `git push`.
+1. **Committed diff:**
 
-3. If Flutter/Dart packages changed and agent-validate is green but the
-   change spans package public APIs / multiple packages: run
-   `pnpm prepush` (or the same format + analyze + `sea-trials-lint`
-   scope the pre-push hook would use). Fix failures in place.
+   ```bash
+   pnpm prepush
+   ```
 
-4. Never suggest `--no-verify`. Never skip hooks.
+1. **CI parity (required when pushing a PR branch):**
+
+   ```bash
+   pnpm pr-local-ci -- --pr <n>
+   ```
+
+   Fan out subagents on `pnpm pr-local-ci -- --pr <n> --list-tasks` the
+   same way. This mirrors `dart-static`, `dart-analyze`, and `dart-test`.
+
+1. **Push gate (only allowed push path):**
+
+   ```bash
+   node "$ST_REVIEW_PUSH" -- --pr <n> --repo hughesyadaddy/sea_trials_universal
+   ```
+
+   Runs steps 1–3 again, then `git push`. Never bare `git push`.
+
+5. During iteration (before commit): `pnpm agent-validate` on changed
+   paths is OK for fast feedback — but never substitute it for the push
+   gate above.
+
+6. Never suggest `--no-verify`. Never skip hooks.
 
 ### Surface-specific
 
