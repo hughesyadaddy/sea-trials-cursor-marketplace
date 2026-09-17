@@ -1,4 +1,11 @@
 {
   "version": 1,
-  "hooks": {}
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "./scripts/deny-no-verify-push.sh",
+        "matcher": "git\\s+push"
+      }
+    ]
+  }
 }
