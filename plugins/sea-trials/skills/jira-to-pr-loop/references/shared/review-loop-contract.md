@@ -57,8 +57,10 @@ _st_plugin_root() {
     "${HOME}/.cursor/plugins/cache/sea-trials-cursor-marketplace"; do
     [[ -d "$base" ]] || continue
     hit="$(
-      find "$base" -path '*/plugins/sea-trials/scripts/resolve-plugin-root.mjs' \
-        2>/dev/null | head -1
+      find "$base" \( \
+        -path '*/sea-trials/*/scripts/resolve-plugin-root.mjs' \
+        -o -path '*/plugins/sea-trials/scripts/resolve-plugin-root.mjs' \
+        \) 2>/dev/null | head -1
     )"
     if [[ -n "$hit" ]]; then
       dirname "$(dirname "$hit")"
