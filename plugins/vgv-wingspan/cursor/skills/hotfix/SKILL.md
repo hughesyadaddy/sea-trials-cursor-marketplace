@@ -107,6 +107,8 @@ Follow the [validation and fix procedure](references/validate-and-fix.md).
 
 Run review agents **in parallel** to validate the fix. Use a reduced set — speed matters, but quality is non-negotiable.
 
+See [dual-host Task dispatch](../code-review/references/dual-host-task-dispatch.md) for Cursor `Task({ subagent_type })` examples.
+
 ### Agent instructions
 
 Run `pwd` and let `<PWD>` be the result — subagents may change directories, making relative paths unreliable.

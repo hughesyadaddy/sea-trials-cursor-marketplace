@@ -42,7 +42,7 @@ A brainstorm is relevant if created within the last 7 days and its topic semanti
 | One relevant | Yes | Read it, announce "Found brainstorm from [date]: [topic]", extract key decisions, proceed |
 | One relevant | No | **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code): "Plan this brainstorm?" — (Recommended) use it, or describe something different |
 | Multiple relevant | Either | **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code): list candidates, ask which to use |
-| None / not relevant | No | Ask: "What would you like to plan?" |
+| None / not relevant | No | **AskQuestion** / **AskUserQuestion**: "What would you like to plan?" |
 | None / not relevant | Yes | Run /brainstorm to clarify the idea first |
 
 Do not proceed until you have a clear feature description — from arguments, a brainstorm, or the user.
@@ -212,17 +212,15 @@ After the review completes, use the **host structured question tool (AskQuestion
 **Options:**
 
 1. **Build now (Recommended)**: continue in this chat and build
-2. **Build now**: execute this plan with `/build`
-3. **Open the plan file in my code editor**: open the plan file for review
-4. **Review and refine**: improve the plan through self-review
+2. **Open the plan file in my code editor**: open the plan file for review
+3. **Review and refine**: improve the plan through self-review
 
 **If the user selects "Build now"** → Follow the [same-chat handoff](references/cursor-same-chat-handoff.md) for `/build` with the actual plan file path. Then stop.
 
 **For other selections:**
 
-- **Build now** → Call the `/build` skill with the plan file path
 - **Open plan in editor** → Run `open docs/plan/<plan_filename>.md` to open the file in the user's default editor
-- **Review and refine** → Load `/refine-approach` skill.
+- **Review and refine** → Invoke `/refine-approach` in this chat
 - **Other** (automatically provided) → Accept free text for rework or specific changes
 
 ## Important

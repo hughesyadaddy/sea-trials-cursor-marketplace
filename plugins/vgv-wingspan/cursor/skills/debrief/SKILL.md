@@ -111,7 +111,7 @@ Use the **host structured question tool (AskQuestion on Cursor; AskUserQuestion 
 2. **Generate issue previews**: format action items as ready-to-copy GitHub issue drafts
 3. **Done**: debrief complete
 
-**If the user selects "Review and refine"** → apply the @refine-approach skill to the document. When refinement is complete, present these options again (without the refine option).
+**If the user selects "Review and refine"** → invoke `/refine-approach` in this chat on the document. When refinement is complete, present these options again (without the refine option).
 
 **If the user selects "Generate issue previews"** → read the action items from the written debrief document, then:
 

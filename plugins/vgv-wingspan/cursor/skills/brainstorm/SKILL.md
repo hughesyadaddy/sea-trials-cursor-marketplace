@@ -137,7 +137,7 @@ Use **host structured question tool (AskQuestion on Cursor; AskUserQuestion on C
 
 **If the user selects "Plan now"** → Follow the [same-chat handoff](references/cursor-same-chat-handoff.md) for `/plan` with the actual brainstorm doc path. Then stop.
 
-**If the user selects "Review and refine approach"** then apply the @refine-approach skill to the document.
+**If the user selects "Review and refine approach"** then invoke `/refine-approach` in this chat on the document.
 
 When `refine-approach` is complete, present these options:
 

@@ -141,8 +141,8 @@ Brief progress update to the user: phase completed, phases remaining.
 #### Step 6: Advance
 
 - **More phases remain, auto-commit mode** → use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code):
-  1. **Continue in this chat (Recommended)**: build the next phase in a fresh window. Follow the [same-chat handoff](references/cursor-same-chat-handoff.md) with `<NEXT_SKILL>` = `build`, `<DOC_PATH>` = this plan's path, and `<NEXT_ACTION>` = "the next phase". Then **stop**.
-  3. **Stop here**: end the session; the plan's `**Status:**` markers record which phases remain.
+  1. **Continue in this chat (Recommended)**: build the next phase here. Follow the [same-chat handoff](references/cursor-same-chat-handoff.md) with `<NEXT_SKILL>` = `build`, `<DOC_PATH>` = this plan's path, and `<NEXT_ACTION>` = "the next phase". Then **stop**.
+  2. **Stop here**: end the session; the plan's `**Status:**` markers record which phases remain.
 - **More phases remain, I'll-commit-myself mode** → **stop**. Tell the user the phase is ready to review and commit, then to run `/build` on this plan again to continue with the next phase (it resumes from the `**Status:**` markers).
 - **No phases remain** (last phase done, or the plan had none) → proceed to the Surgical-Diff Gate.
 
@@ -162,6 +162,8 @@ Once the final phase is committed, follow the [surgical-diff gate](references/su
 ## Phase 3 — Quality Review
 
 Once the final phase is committed and the surgical-diff gate has run, review the whole branch. Run 5 review agents **in parallel** — they review the full branch diff, so this runs once after the last phase, not per phase.
+
+See [dual-host Task dispatch](references/dual-host-task-dispatch.md) for Cursor `Task({ subagent_type })` examples.
 
 ### Agent instructions
 
@@ -235,7 +237,9 @@ Whatever commits this build produced are local. Pushing and opening a PR is outw
   2. **Push and open the PR now**: proceed this once.
   3. **Always push automatically**: proceed, and save the preference to Claude memory (the user's own preference, never the project's AGENTS.md) so future builds skip this prompt.
 
-To push, call `/create-pr skip-checks` — it pushes and opens the PR. Validation already ran above. The PR body uses the [PR template](references/pr-template.md).
+**Sea Trials monorepo:** follow [sea-trials-push-gate](references/sea-trials-push-gate.md) — use `pnpm pr-review-push` or `/pre-push-harden`, never `/create-pr skip-checks`.
+
+**Other repos:** call `/create-pr skip-checks` — it pushes and opens the PR. Validation already ran above. The PR body uses the [PR template](references/pr-template.md).
 
 ### Post-Ship
 

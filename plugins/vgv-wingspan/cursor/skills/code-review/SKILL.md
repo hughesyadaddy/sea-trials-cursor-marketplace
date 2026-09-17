@@ -72,6 +72,9 @@ clobbers another branch's kept report.
 Run the **default review agents** below **in parallel**. Projects may add agents in their
 `AGENTS.md` (include them alongside the defaults) or replace the default set entirely.
 
+See [dual-host Task dispatch](references/dual-host-task-dispatch.md) for Cursor
+`Task({ subagent_type })` examples (one parent turn, one Task per agent).
+
 Each agent prompt must include:
 
 1. **The scope constraint** — changed-file list, specific paths, or no constraint.
