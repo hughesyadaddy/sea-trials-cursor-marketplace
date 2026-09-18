@@ -361,14 +361,18 @@ On non-fast-forward / remote ahead: fetch → ff-only if possible → else
 `git merge --no-edit` → harden → push. Never rebase+force-push. Never
 ask whether to merge. Up to 5 race retries.
 
-## Ask tool name
+## Structured questions (dual-host)
 
-- Cursor: **AskQuestion**
-- Claude Code: **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code)
+Priority — first tool present in the session schema wins:
 
-If neither is in the schema, ask as a plain numbered list and say nothing
-about the missing tool or the model — see `vgv-ask-question.mdc`.
+| # | Tool | Host |
+| --- | --- | --- |
+| 1 | **AskQuestion** | Cursor |
+| 2 | **AskUserQuestion** | Claude Code |
+| 3 | **ask_user_question** | MCP `vgv-ask-question` |
+| 4 | Numbered chat list | Last resort only |
 
-(Canonical source under `.cursor/skill-custom/` uses AskQuestion (Cursor; AskUserQuestion on Claude Code);
-`--emit-sea-trials-plugin` rewrites Cursor copies into
-`tools/sea-trials-cursor-plugin/skills/`.)
+Full protocol:
+`plugins/vgv-wingspan/references/structured-questions-protocol.md`.
+Always-on rule: `vgv-ask-question.mdc`. Degrade silently — no tool-name
+lecture when falling back.

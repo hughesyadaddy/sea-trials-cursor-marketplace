@@ -1,31 +1,107 @@
 ---
 description: >-
-  Dual-host structured questions: AskQuestion on Cursor, AskUserQuestion
-  on Claude Code, MCP ask_user_question when host tools are missing.
+  Dual-host structured questions: AskQuestion (Cursor), AskUserQuestion
+  (Claude Code), MCP ask_user_question as tier-3 fallback only.
 alwaysApply: true
 ---
 
 # Structured question popups (dual-host)
 
-Call a structured question tool — never paste option lists as plain
-chat when any of these exist in the tool schema:
+Present workflow options and multiple-choice prompts through a
+**structured question tool** — never paste option lists as plain chat
+when any tier-1–3 tool is available.
+
+Full protocol: `references/structured-questions-protocol.md` (this
+plugin).
+
+## Canonical payload schema
+
+All three tiers use the same shape:
+
+```json
+{
+  "questions": [
+    {
+      "id": "post-brainstorm",
+      "prompt": "Brainstorm complete! What would you like to do next?",
+      "options": [
+        { "id": "plan", "label": "Plan now (Recommended)" },
+        { "id": "refine", "label": "Review and refine approach" },
+        { "id": "done", "label": "Done for now" }
+      ],
+      "allow_multiple": false
+    }
+  ]
+}
+```
+
+| Field | Required | Notes |
+| --- | --- | --- |
+| `questions` | yes | 1–4 items per invocation |
+| `questions[].id` | yes | Stable id for the question |
+| `questions[].prompt` | yes | User-facing question text |
+| `questions[].options` | yes | At least one `{ id, label }` |
+| `questions[].allow_multiple` | no | Default `false`; multi-select |
+
+Map skill **Question** / **Options** markdown blocks to this schema.
+Mark the recommended option in `label` (e.g. `"Plan now (Recommended)"`).
+
+## Strict priority (tool schema order)
+
+Detect by **tool availability in the current session** — not by
+guessing product, model, or host.
 
 | Priority | Tool | Host / source |
 | --- | --- | --- |
-| 1 | **AskQuestion** | Cursor host (some models / modes) |
-| 2 | **AskUserQuestion** | Claude Code host |
+| 1 | **AskQuestion** | Cursor host (injected; not all models) |
+| 2 | **AskUserQuestion** | Claude Code host (interactive terminal) |
 | 3 | **ask_user_question** | MCP `vgv-ask-question` (Wingspan plugin) |
 | 4 | Numbered chat list | Last resort only |
 
-Detect by **tool availability**, not by guessing the product name or
-model. Prefer the highest-priority tool present in the schema.
+### NEVER call MCP when a host tool exists
 
-Host `AskQuestion` is injected by Cursor only for some sessions (often
-Claude / GPT; Grok and some Composer Agent sessions omit it). That is
-a Cursor limitation — plugins cannot force the host tool. The Wingspan
-`vgv-ask-question` MCP is the portable fallback for every other chat.
+If **AskQuestion** OR **AskUserQuestion** is in the tool schema, call
+that host tool only. **Do not** also call MCP `ask_user_question` —
+even as backup, prefetch, or “better UI.” Host tools always win.
 
-## Skills format is NOT chat output
+MCP is tier 3 **only** when neither host tool is present.
+
+### MCP elicitation ≠ Cursor native picker
+
+When MCP runs, clients that support **MCP form elicitation** may show
+a form-style picker. That is **not** the same as Cursor's native
+**AskQuestion** UI (host-injected, model-gated). Do not describe MCP
+elicitation as “the AskQuestion picker” or tell users they are
+equivalent.
+
+On Cursor without AskQuestion, MCP elicitation (when supported) is
+preferable to numbered chat; when elicitation is unsupported, MCP
+returns a compact numbered fallback string for the agent to relay.
+
+## Host-specific setup
+
+### Cursor
+
+- **AskQuestion** is injected by Cursor for some models/modes only.
+- **Composer 2.5** — use for brainstorm / plan / refine handoffs;
+  AskQuestion is reliably available.
+- **Grok 4.5** — does **not** expose AskQuestion; use MCP or silent
+  numbered chat per priority table.
+- Plugins cannot force the host tool; tier 3 MCP covers the gap.
+
+### Claude Code
+
+- **Interactive terminal** — **AskUserQuestion** is the host tool
+  (tier 2). Use it when present; never call MCP in parallel.
+- **Headless `-p` / SDK** — AskUserQuestion is not interactive. Use
+  SDK **`canUseTool`** approval flow for structured choices, or tier 3
+  MCP `ask_user_question` when the host tool is absent.
+- **Clear-context handoffs** from upstream skills (e.g. “Clear context
+  and plan”) remain valid on Claude Code when the skill requests them.
+  On Cursor, translate to same-chat actions — see
+  `vgv-cursor-handoff.mdc`.
+
+## Skills markdown is tool input, not chat output
 
 VGV skills often show:
 
@@ -36,11 +112,12 @@ VGV skills often show:
 2. …
 ```
 
-That block describes what to pass to the structured question tool —
-not what to display in chat. Map each option to `{ id, label }` and
-call the tool.
+That block is **input for the structured question tool** — not text
+to display in chat. Map each numbered option to `{ id, label }` and
+call the highest-priority available tool.
 
-Examples: `docs/runbooks/CURSOR_ASKQUESTION_PROTOCOL.md`
+Examples and response shapes:
+`references/structured-questions-protocol.md`
 
 ## Required behavior
 
@@ -48,31 +125,27 @@ When a skill, rule, or workflow says to present options, confirm a
 choice, or ask a clarifying multiple-choice question:
 
 1. Call **AskQuestion** if it is in the tool schema.
-2. Else call **AskUserQuestion** if that is available.
+2. Else call **AskUserQuestion** if it is in the tool schema.
 3. Else call MCP **`ask_user_question`** on server `vgv-ask-question`
-   (via `CallMcpTool` / the registered tool) with the same
-   `{ questions: [{ id, prompt, options }] }` shape. Prefer elicitation
-   UI when the client supports it.
-4. Mark the recommended option clearly (e.g. "(Recommended)").
-5. Do **not** paste the option list as plain chat text when any tool
-   above is available. Numbered "1. 2. 3." chat lists are last-resort
-   only.
-6. On Cursor, **never** offer clear-context options — no
+   with the canonical payload. Prefer elicitation UI when the client
+   supports it.
+4. Mark the recommended option in `label` (e.g. `"(Recommended)"`).
+5. Do **not** paste the option list as plain chat when any tier 1–3
+   tool is available.
+6. On **Cursor**, never offer clear-context options — no
    `Clear context and …`, `Start building`, or `Continue with planning`.
-   Use `Plan now`, `Build now`, `Continue in this chat`, or `Stop here`
-   only.
-7. Translate Claude-only context-reset actions on Cursor into same-chat
-   actions: `Clear context and plan` → `Plan now`;
-   `Clear context and build` → `Build now`. On Claude Code, clear-context
-   handoffs remain valid when the skill requests them.
-8. After a Cursor handoff selection, invoke the next skill immediately
-   in the current chat. Never emit `/clear`, `/new-chat`, or copy-paste
-   commands on Cursor.
-9. If **none** of the structured question tools (including MCP) are in
-   the schema, degrade **silently**: ask as a short numbered list and
-   nothing else.
+   Use `Plan now`, `Build now`, `Continue in this chat`, or
+   `Stop here` only.
+7. Translate Claude-only context-reset actions on Cursor into
+   same-chat actions: `Clear context and plan` → `Plan now`;
+   `Clear context and build` → `Build now`.
+8. After a **Cursor** handoff selection, invoke the next skill
+   immediately in the current chat. Never emit `/clear`, `/new-chat`,
+   or copy-paste slash commands.
+9. If **no** structured question tool (host or MCP) is in the schema,
+   degrade **silently** to a short numbered list.
 
-## Degrade silently — never narrate the fallback
+## Silent degrade rules
 
 When falling back (host → MCP → numbered list), do **not** emit:
 
@@ -81,19 +154,21 @@ When falling back (host → MCP → numbered list), do **not** emit:
 - a recommendation to switch models
 - an apology for the format
 
-Mention model choice only if the user asks why the native host picker
-is missing. Prefer MCP over numbered lists whenever `ask_user_question`
-is registered.
+Mention model choice only if the user asks why the native picker is
+missing. Prefer MCP over numbered lists whenever `ask_user_question`
+is registered and no host tool exists.
 
-For brainstorm / plan / refine sessions on Cursor, **Composer 2.5** or
-**Claude** are preferred parents when you want the host AskQuestion
-picker; MCP covers the rest. Subagent model pins are separate — see
-`vgv-cursor-handoff.mdc`.
+## Recommended global Cursor User Rule (one sentence)
+
+> When a VGV skill shows Question and Options, call AskQuestion (or MCP
+> ask_user_question if AskQuestion is missing) with a questions array —
+> never paste numbered options as chat text.
+
+Users can paste this into **Cursor Settings → Rules → User Rules**.
 
 ## Handoff options
 
 Post-brainstorm / post-plan / post-build option lists come from the
-active skill's SKILL.md. Present them via the structured question tool
-(priority table above), then execute the pick per
-`vgv-cursor-handoff.mdc` (Cursor) or the skill's clear-context handoff
-(Claude Code).
+active skill's SKILL.md. Present them via the priority table above,
+then execute the pick per `vgv-cursor-handoff.mdc` (Cursor same-chat)
+or the skill's clear-context handoff (Claude Code).

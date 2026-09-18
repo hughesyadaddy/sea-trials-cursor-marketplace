@@ -1,24 +1,43 @@
 ---
-description: Cursor execution for VGV workflow handoffs — keep all skill options; run picks in same chat.
+description: >-
+  Dual-host VGV workflow handoffs — structured question priority,
+  same-chat execution on Cursor, clear-context valid on Claude Code.
 alwaysApply: true
 ---
 
-# VGV workflow handoffs (Cursor)
+# VGV workflow handoffs (dual-host)
 
-This rule **does not replace** Wingspan skills. When `/brainstorm`, `/plan`,
-`/build`, `/code-review`, or `/plan-technical-review` runs, **that skill's
-SKILL.md is authoritative** for workflow steps and **AskQuestion options**
-(Claude Code name: AskUserQuestion — always use **AskQuestion** in Cursor).
+This rule **does not replace** Wingspan skills. When `/brainstorm`,
+`/plan`, `/build`, `/code-review`, or `/plan-technical-review` runs,
+**that skill's SKILL.md is authoritative** for workflow steps and
+handoff option lists.
 
-This rule only changes **how selections execute in Cursor** (same chat, no
-`/clear`, no copy-paste slash lines).
+This rule defines **how to present** those options (structured
+question priority) and **how selections execute** per host.
 
-## Cursor-native option lists
+## Structured question priority (required)
 
-Always present options via the **AskQuestion** tool (clickable picker), never
-as numbered chat text the user must type back. Upstream Claude lists a
-"clear context" twin next to "start in place"; after the Cursor port those
-are the same action, so present the **deduped** lists below.
+Always follow `vgv-ask-question.mdc` before showing handoff options:
+
+| Priority | Tool | When |
+| --- | --- | --- |
+| 1 | **AskQuestion** | In Cursor tool schema |
+| 2 | **AskUserQuestion** | In Claude Code tool schema |
+| 3 | **ask_user_question** | MCP `vgv-ask-question` — **only** if neither host tool exists |
+| 4 | Numbered chat list | Silent last resort |
+
+**Never call MCP** when AskQuestion or AskUserQuestion is available.
+
+Map skill option lists to the canonical payload in
+`references/structured-questions-protocol.md`. Skills markdown **Options**
+blocks are tool input, not chat output.
+
+## Handoff option lists (deduped for Cursor)
+
+Upstream Claude skills may list a “clear context” twin next to “start in
+place.” On **Cursor**, those are the same action — present the deduped
+lists below. On **Claude Code**, offer clear-context variants when the
+skill requests them.
 
 **After brainstorm** (from brainstorm skill):
 
@@ -32,61 +51,31 @@ are the same action, so present the **deduped** lists below.
 2. Open the plan file in my code editor
 3. Review and refine
 
-**After plan-technical-review** — follow that skill's post-review options
-(same dedupe: one Build now, not Start building).
+**After plan-technical-review** — follow that skill's post-review
+options (same dedupe: one Build now, not Start building).
 
-**After build (mid-plan, more phases remain)** — Cursor only; never offer
-clear-context:
+**After build (mid-plan, more phases remain)** — Cursor only; never
+offer clear-context:
 
 1. Continue in this chat (Recommended)
 2. Stop here
 
 **After build (shipped)** — Done only unless the skill lists more.
 
-Never ask these as plain chat when AskQuestion is available. Never display a
-"Clear context", "Start building", "Continue with planning", or
-"Clear context and continue" action — those are Claude-only or broken on
+Never paste these as numbered chat when a tier 1–3 structured question
+tool is available. On Cursor, never display `Clear context`,
+`Start building`, `Continue with planning`, or
+`Clear context and continue` — those are Claude-only or broken on
 Cursor.
 
-## AskQuestion availability
+## Host differences after the user picks
 
-`AskQuestion` is host-injected and missing from some sessions (e.g. Grok
-4.5, some Composer Agent chats). When it is absent:
+| Host | After selection |
+| --- | --- |
+| **Cursor** | Execute immediately in **this chat** — no `/clear`, no new chat |
+| **Claude Code** | Follow the skill: same-chat **or** clear-context handoff when listed |
 
-1. Call MCP **`ask_user_question`** (`vgv-ask-question` on Wingspan)
-2. Only if that MCP is also missing → short numbered chat list
-
-Do this **silently** — no notice that the host tool is absent, no
-suggestion to switch models, no apology. See `vgv-ask-question.mdc`.
-The table below is agent routing guidance; do not recite it in chat.
-
-## Parent model routing (preserve multi-model strength)
-
-Use the **chat model picker** for the parent agent; subagent `model:` pins
-are set by the link script from upstream Wingspan tiers:
-
-| Phase / role | Recommended parent model | Why |
-| --- | --- | --- |
-| Brainstorm / plan / refine (AskQuestion handoffs) | **Composer 2.5** | Clickable picker works; Cursor Models pool |
-| Build / implementation | Composer 2.5 or Claude Sonnet 5 | Coding strength; user preference |
-| Avoid for handoffs | **Grok 4.5** | No AskQuestion |
-
-Subagent pins (do not override in the Task call unless the user asks):
-
-| Upstream tier | Cursor `model:` | Agents |
-| --- | --- | --- |
-| haiku | `composer-2.5` | `pr-readiness-review-agent` |
-| sonnet | `claude-sonnet-5` | codebase, simplicity, test-quality, plan-splitting, research agents |
-| inherit | `inherit` | vgv-review, architecture, user-flow, flutter-reviewer |
-
-That keeps mechanical checks cheap on Composer, deep reviews on Sonnet 5,
-and orchestrator-aligned agents matching the parent.
-
-## Cursor execution (when user picks an option)
-
-Execute **immediately in this chat**. Do not output `/clear`, `/new-chat`,
-suggest a context reset, or tell the user to copy-paste `/plan path` or
-`/build path`.
+### Cursor execution table
 
 | User selection | Cursor action |
 | --- | --- |
@@ -100,6 +89,41 @@ suggest a context reset, or tell the user to copy-paste `/plan path` or
 | Review (after `/build`) | Run **code-review** on the changed scope |
 | Done for now / Done | Summarize artifact path; stop |
 
+### Claude Code clear-context handoffs
+
+When the skill offers `Clear context and plan`, `Clear context and
+build`, or similar, those remain valid on Claude Code. Do not strip
+them on Claude Code. On Cursor, translate per `vgv-ask-question.mdc`
+(e.g. `Clear context and plan` → `Plan now`).
+
+## When host AskQuestion / AskUserQuestion is missing
+
+Follow `vgv-ask-question.mdc` silently:
+
+1. MCP **`ask_user_question`** if registered and no host tool
+2. Short numbered chat list only if MCP is also absent
+
+Do not narrate the fallback. See `references/structured-questions-protocol.md`.
+
+## Parent model routing (Cursor handoff phases)
+
+Use the **chat model picker** for the parent agent on Cursor:
+
+| Phase / role | Recommended parent model | Why |
+| --- | --- | --- |
+| Brainstorm / plan / refine (handoffs) | **Composer 2.5** | AskQuestion available |
+| Build / implementation | Composer 2.5 or Claude Sonnet 5 | Coding strength; user preference |
+| Avoid for handoffs | **Grok 4.5** | No AskQuestion |
+
+Subagent `model:` pins in agent files are separate — do not override
+in Task calls unless the user asks.
+
+| Upstream tier | Cursor `model:` | Agents |
+| --- | --- | --- |
+| haiku | `composer-2.5` | `pr-readiness-review-agent` |
+| sonnet | `claude-sonnet-5` | codebase, simplicity, test-quality, plan-splitting, research agents |
+| inherit | `inherit` | vgv-review, architecture, user-flow, flutter-reviewer |
+
 ## `/review` vs `/code-review` (Cursor)
 
 | Command | What it is |
@@ -107,22 +131,32 @@ suggest a context reset, or tell the user to copy-paste `/plan path` or
 | `/review` | Cursor built-in — Bugbot or Security only |
 | `/code-review` | VGV Wingspan quality review (Claude `/review`) |
 
-## Slash skills still available
+## Slash skills
 
 Users can invoke `/plan`, `/build`, `/brainstorm`, `/code-review`, etc.
-This rule does not remove slash commands — it fixes handoff **execution**
-after phase completion.
+This rule does not remove slash commands — it fixes handoff
+**presentation** (structured questions) and **execution** after phase
+completion.
 
-## Skill locations
+## Skill locations (marketplace only)
 
-1. **Global (preferred):** `~/.cursor/skills/` — all Cursor projects
-2. **Repo ports mirror:** `.cursor/skill-ports/` — regenerated by the
-   link script (not scanned by Cursor; avoids duplicate slash skills)
-3. **Repo fallback:** `.cursor/skills/` — created only if global is
-   empty
-4. **Custom skill sources:** `.cursor/skill-custom/` (Sea Trials only)
+Wingspan ships via the **VGV Cursor Team Marketplace** plugin. No
+repo-local link script or `.cursor/skill-custom` wiring.
 
-Re-run `./scripts/cursor-link-vgv-skills.sh` after `git pull`.
+| What | Where |
+| --- | --- |
+| Skills | Plugin `cursor/skills/` (exposed as `/brainstorm`, `/plan`, …) |
+| Agents | Plugin `cursor/agents/` |
+| Rules | Plugin `rules/` (this file, `vgv-ask-question.mdc`, …) |
+| MCP | Plugin `mcp/vgv-ask-question-mcp/` via `mcp.json` |
+
+**Install:** Cursor Settings → Plugins → Team Marketplace → enable
+**vgv-wingspan** (or your org aggregator). **Cmd+Q** and reopen after
+updates.
+
+Consumer monorepos (e.g. Sea Trials) may aggregate this plugin with
+team-specific plugins; skills still resolve from the marketplace
+install, not from checked-in `.cursor/skills/` copies.
 
 ## Artifact YAML header
 
@@ -136,15 +170,17 @@ vgv_next:
 
 (or `skill: build` + plan path after planning)
 
-User can `@`-attach the file and say: “Run the next skill from `vgv_next`.”
+User can `@`-attach the file and say: “Run the next skill from
+`vgv_next`.”
 
-## Optional: thread too long
+## Optional: thread too long (Cursor)
 
-Only if the user **asks** for a fresh session: new chat (Cmd+L / Ctrl+L),
-then `/` → skill → `@` artifact. Not the default handoff.
+Only if the user **asks** for a fresh session: new chat (Cmd+L /
+Ctrl+L), then `/` → skill → `@` artifact. Not the default handoff.
 
 ## Related
 
-- Runbook: `docs/runbooks/CURSOR_VGV_PLUGINS.md` → Workflow handoffs
-- AskQuestion rule: `.cursor/rule-sources/vgv-ask-question.mdc` (→ `~/.cursor/rules/`)
-- Agents: `.cursor/rule-sources/vgv-wingspan-agents.mdc`
+- Payload, priority, MCP limits:
+  `references/structured-questions-protocol.md`
+- Structured question rules: `rules/vgv-ask-question.mdc`
+- Subagent dispatch: `rules/vgv-wingspan-agents.mdc`

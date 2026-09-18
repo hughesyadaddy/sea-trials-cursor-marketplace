@@ -2,11 +2,14 @@
 /**
  * VGV structured-question MCP server.
  *
- * Claude Code exposes AskUserQuestion as a host tool (not MCP). Cursor exposes
- * AskQuestion the same way. This server is tier 3: when neither host tool
- * exists, agents call ask_user_question here. When the client supports MCP
- * form elicitation, the user gets a native picker; otherwise the tool returns
- * a compact numbered fallback for chat.
+ * Tier 3 fallback when host tools are absent from the agent schema:
+ * - Cursor: native `AskQuestion` (injected by the host on some models/modes)
+ * - Claude Code: native `AskUserQuestion` (host tool, not MCP)
+ *
+ * This server's MCP form elicitation is **not** Cursor's native AskQuestion
+ * picker. It uses the MCP `elicitInput` protocol where the client supports
+ * it. Agents must never call this tool when host AskQuestion or
+ * AskUserQuestion is available — check the tool schema first.
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -24,14 +27,23 @@ const questionSchema = z.object({
 const inputSchema = {
     questions: z.array(questionSchema).min(1).max(4),
 };
-function fallbackText(question) {
-    const lines = question.options.map((option, index) => `${index + 1}. ${option.label} [${option.id}]`);
+function toSelectedOptionIds(value) {
+    return Array.isArray(value) ? value : [value];
+}
+function fallbackTextForQuestions(questions) {
+    const blocks = questions.map((question, questionIndex) => {
+        const lines = question.options.map((option, index) => `${index + 1}. ${option.label} [${option.id}]`);
+        return [
+            `Question ${questionIndex + 1} (${question.id}): ${question.prompt}`,
+            ...lines,
+        ].join('\n');
+    });
     return [
         'HOST_QUESTION_TOOL_UNAVAILABLE',
-        `Question (${question.id}): ${question.prompt}`,
-        ...lines,
+        'MCP elicitation UI is unavailable — reply in chat.',
+        ...blocks,
         'Reply with the option id, label, or number.',
-    ].join('\n');
+    ].join('\n\n');
 }
 function schemaForQuestion(question) {
     if (question.allow_multiple) {
@@ -74,58 +86,85 @@ async function elicitAnswer(server, question) {
             // SDK schema types are stricter than our dynamic form builder.
             requestedSchema: schemaForQuestion(question),
         });
+        if (result.action === 'decline' || result.action === 'cancel') {
+            return { status: 'cancelled' };
+        }
         if (result.action !== 'accept' || !result.content) {
-            return null;
+            return { status: 'fallback' };
         }
         const content = result.content;
         if (question.allow_multiple && Array.isArray(content.choices)) {
-            return content.choices.map(String);
+            return {
+                status: 'answered',
+                value: content.choices.map(String),
+            };
         }
         if (typeof content.choice === 'string') {
-            return content.choice;
+            return { status: 'answered', value: content.choice };
         }
-        return null;
+        return { status: 'fallback' };
     }
     catch {
-        return null;
+        return { status: 'fallback' };
     }
+}
+function formatToolResponse(payload, humanLines) {
+    const json = JSON.stringify(payload, null, 2);
+    const text = humanLines !== undefined && humanLines.length > 0
+        ? `${humanLines}\n\n${json}`
+        : json;
+    return {
+        content: [{ type: 'text', text }],
+    };
 }
 const server = new McpServer({
     name: 'vgv-ask-question',
-    version: '1.0.0',
+    version: '1.1.0',
 }, {
     capabilities: {},
 });
 server.registerTool('ask_user_question', {
-    description: 'Present structured multiple-choice questions to the user. Prefer host ' +
-        'AskQuestion (Cursor) or AskUserQuestion (Claude Code) when available. ' +
-        'Use this MCP tool only when those host tools are absent from the schema.',
+    description: 'Present up to 4 structured multiple-choice questions in one call. ' +
+        'NEVER call this MCP tool when host AskQuestion (Cursor) or ' +
+        'AskUserQuestion (Claude Code) exists in the agent tool schema — ' +
+        'those host tools are always preferred. Use this MCP server only as ' +
+        'tier 3 when both host tools are absent. MCP form elicitation is not ' +
+        "Cursor's native AskQuestion picker.",
     inputSchema,
 }, async ({ questions }) => {
-    const answers = {};
+    const answersById = {};
+    const answers = [];
     for (const question of questions) {
         const elicited = await elicitAnswer(server, question);
-        if (elicited !== null) {
-            answers[question.id] = elicited;
-            continue;
+        if (elicited.status === 'cancelled') {
+            return formatToolResponse({ outcome: 'cancelled' });
         }
-        return {
-            content: [
-                {
-                    type: 'text',
-                    text: fallbackText(question),
-                },
-            ],
-        };
+        if (elicited.status === 'fallback') {
+            const fallbackText = fallbackTextForQuestions(questions);
+            const humanLines = [
+                'Structured question fallback.',
+                'Host AskQuestion / AskUserQuestion unavailable;',
+                'MCP elicitation also failed.',
+                '',
+                fallbackText,
+            ].join('\n');
+            return formatToolResponse({
+                outcome: 'fallback',
+                answersById: {},
+                _fallbackText: fallbackText,
+            }, humanLines);
+        }
+        answersById[question.id] = elicited.value;
+        answers.push({
+            questionId: question.id,
+            selectedOptionIds: toSelectedOptionIds(elicited.value),
+        });
     }
-    return {
-        content: [
-            {
-                type: 'text',
-                text: JSON.stringify({ answers }, null, 2),
-            },
-        ],
-    };
+    return formatToolResponse({
+        outcome: 'answered',
+        answers,
+        answersById,
+    });
 });
 async function main() {
     const transport = new StdioServerTransport();

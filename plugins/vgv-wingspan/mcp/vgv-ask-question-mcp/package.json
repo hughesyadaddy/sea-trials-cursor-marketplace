@@ -1,7 +1,7 @@
 {
   "name": "@seatrials/vgv-ask-question-mcp",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "MCP fallback for VGV structured questions (AskUserQuestion / AskQuestion)",
   "type": "module",
   "bin": {
