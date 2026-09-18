@@ -1,7 +1,7 @@
 ---
 name: st-build-with-subagents
 description: >-
-  After /vgv-plan, implement with parallel package shards (cap 4), parent
+  After /plan, implement with parallel package shards (cap 4), parent
   integration, agent-validate, then delegate to /st-pre-push-harden and
   optional /st-pr-review-loop-worktree. Use when the user wants build +
   subagents + push-ready gates in one run.
@@ -34,7 +34,7 @@ Push gates and PR review loops delegate to existing Sea Trials skills.
 
 | Situation | Skill |
 | --- | --- |
-| Single package, small plan | `/vgv-build` |
+| Single package, small plan | `/build` |
 | Multi-package plan, parallel waves | **This skill** |
 | Push-ready gates only | `/st-pre-push-harden` |
 | PR thread resolution | `/st-pr-review-loop-worktree` or `-inplace` |
@@ -72,7 +72,7 @@ All paths below are under `$ACTIVE_ROOT`.
 Parent writes `shards.json` from the plan (package/surface waves).
 
 ```bash
-node scripts/validate-shard-manifest.mjs shards.json
+node "$ST_PLUGIN_ROOT/skills/st-build-with-subagents/scripts/validate-shard-manifest.mjs" shards.json
 ```
 
 Example:
@@ -166,7 +166,7 @@ every phase through READY.
 Do not inline gate logic here — `pre-push-harden` fans out
 `pnpm st-parallel-tasks` by default.
 
-Sea Trials: never use `/vgv-create-pr skip-checks`; use
+Sea Trials: never use `/create-pr skip-checks`; use
 `pnpm pr-review-push` or `/st-pre-push-harden`.
 
 ---
@@ -176,7 +176,7 @@ Sea Trials: never use `/vgv-create-pr skip-checks`; use
 | State | Action |
 | --- | --- |
 | PR exists | Invoke `/st-pr-review-loop-worktree` (default) or `-inplace` |
-| No PR yet | `/vgv-create-pr` or stop after harden (user choice) |
+| No PR yet | `/create-pr` or stop after harden (user choice) |
 
 ---
 

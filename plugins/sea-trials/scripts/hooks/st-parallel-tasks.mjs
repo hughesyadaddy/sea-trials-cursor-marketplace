@@ -15,11 +15,10 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getRepoRoot } from './lib/pr-review-lib.mjs';
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../..',
-);
+const hooksDir = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = getRepoRoot();
 
 function parseArgs(argv) {
   const out = {
@@ -96,7 +95,7 @@ function main() {
     emit(
       'review',
       runJsonLines('node', [
-        'scripts/hooks/pr-review-adversarial-tasks.mjs',
+        path.join(hooksDir, 'pr-review-adversarial-tasks.mjs'),
         '--pr',
         String(pr),
         '--repo',

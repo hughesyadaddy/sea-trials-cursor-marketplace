@@ -21,7 +21,7 @@
     {
       "name": "sea-trials",
       "source": "./plugins/sea-trials",
-      "description": "Sea Trials team agents and MCP (Atlassian OAuth, chrome-devtools). PR review skills ship on vgv-wingspan."
+      "description": "Sea Trials team agents and MCP (Atlassian OAuth, chrome-devtools). PR review skills ship on sea-trials."
     }
   ]
 }

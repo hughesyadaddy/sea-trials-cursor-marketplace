@@ -302,6 +302,14 @@ export function closeThread(pr, threadId, body, repo) {
   return { skipped: false, replySkipped: alreadyReplied };
 }
 
+/** Drop pnpm's literal `--` before the subcommand (pnpm 10). */
+export function argvWithoutPnpmSeparator(argv) {
+  if (argv[0] === '--') {
+    return argv.slice(1);
+  }
+  return argv;
+}
+
 function parseArgs(argv) {
   const out = { command: argv[0] };
   for (let i = 1; i < argv.length; i += 1) {
@@ -325,7 +333,7 @@ function formatCommentChain(comments) {
 }
 
 function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const args = parseArgs(argvWithoutPnpmSeparator(process.argv.slice(2)));
   const pr = Number(args.pr);
 
   if (!args.command) {

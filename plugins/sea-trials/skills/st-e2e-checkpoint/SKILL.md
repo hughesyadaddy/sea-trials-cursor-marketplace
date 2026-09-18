@@ -3,7 +3,7 @@ name: st-e2e-checkpoint
 description: >-
   After boot, admission, router, or integration_test changes, run
   pnpm agent-e2e-fast on the right scenario file and read SUMMARY.md.
-  Use at /vgv-build or /st-build-with-subagents checkpoints when E2E coverage
+  Use at /build or /st-build-with-subagents checkpoints when E2E coverage
   is required before push.
 disable-model-invocation: true
 user-invocable: true

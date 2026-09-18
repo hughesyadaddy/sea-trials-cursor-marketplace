@@ -14,9 +14,9 @@ when any tier-1–3 tool is available.
 Full protocol: `references/structured-questions-protocol.md` (this
 plugin).
 
-## Canonical payload schema
+## Canonical payload (tiers 1 and 3)
 
-All three tiers use the same shape:
+**AskQuestion** and MCP `ask_user_question` share this shape:
 
 ```json
 {
@@ -43,8 +43,12 @@ All three tiers use the same shape:
 | `questions[].options` | yes | At least one `{ id, label }` |
 | `questions[].allow_multiple` | no | Default `false`; multi-select |
 
-Map skill **Question** / **Options** markdown blocks to this schema.
-Mark the recommended option in `label` (e.g. `"Plan now (Recommended)"`).
+**Claude `AskUserQuestion` (tier 2) uses a different host schema**
+(`question`, `header`, `options[{label,description}]`). Map skill Options
+to natural-language instructions — do not pass this JSON blob.
+
+Map skill **Question** / **Options** markdown blocks to the tier 1/3 schema
+when calling AskQuestion or MCP.
 
 ## Strict priority (tool schema order)
 
@@ -74,9 +78,10 @@ a form-style picker. That is **not** the same as Cursor's native
 elicitation as “the AskQuestion picker” or tell users they are
 equivalent.
 
-On Cursor without AskQuestion, MCP elicitation (when supported) is
-preferable to numbered chat; when elicitation is unsupported, MCP
-returns a compact numbered fallback string for the agent to relay.
+On Cursor without AskQuestion, MCP elicitation may help when the MCP
+namespace is healthy and elicitation renders. When discovery fails,
+elicitation times out, or you are in the Agents window, **skip to tier 4**
+instead of waiting on MCP.
 
 ## Host-specific setup
 
@@ -132,8 +137,9 @@ choice, or ask a clarifying multiple-choice question:
 1. Call **AskQuestion** if it is in the tool schema.
 2. Else call **AskUserQuestion** if it is in the tool schema.
 3. Else call MCP **`ask_user_question`** on server `vgv-ask-question`
-   with the canonical payload. Prefer elicitation UI when the client
-   supports it.
+   with the tier 1/3 payload **only when** `ask_user_question` appears in
+   the schema (not just `mcp_auth`). Prefer elicitation when it renders;
+   on `outcome: cancelled`, offer tier 4 or stop.
 4. Mark the recommended option in `label` (e.g. `"(Recommended)"`).
 5. Do **not** paste the option list as plain chat when any tier 1–3
    tool is available.
@@ -160,8 +166,8 @@ When falling back (host → MCP → numbered list), do **not** emit:
 - an apology for the format
 
 Mention model choice only if the user asks why the native picker is
-missing. Prefer MCP over numbered lists whenever `ask_user_question`
-is registered and no host tool exists.
+missing. Use MCP only when tier 1–2 are absent **and** MCP tools resolve
+in the schema; otherwise degrade silently to tier 4.
 
 ## Recommended global Cursor User Rule (one sentence)
 

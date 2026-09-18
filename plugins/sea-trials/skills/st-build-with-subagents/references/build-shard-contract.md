@@ -3,7 +3,7 @@
 Parent authors `shards.json` before fan-out. Validate with:
 
 ```bash
-node scripts/validate-shard-manifest.mjs shards.json
+node "$ST_PLUGIN_ROOT/skills/st-build-with-subagents/scripts/validate-shard-manifest.mjs" shards.json
 ```
 
 ## Rules

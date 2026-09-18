@@ -1,7 +1,7 @@
 # Review-loop contract (Sea Trials)
 
-Shared by `pr-review-loop-inplace`, `pr-review-loop-worktree`, and
-`pre-push-harden`. Read this before Phase 0 of either review loop, and
+Shared by `st-pr-review-loop-inplace`, `st-pr-review-loop-worktree`, and
+`st-pre-push-harden`. Read this before Phase 0 of either review loop, and
 before every push.
 
 ## Maximum parallel fan-out (`st-*` default)
@@ -92,9 +92,9 @@ pnpm agent-prepush -- --list-tasks
 pnpm pr-local-ci -- --pr <n> --list-tasks
 ```
 
-`ST_PLUGIN_ROOT` / `${PLUGIN_ROOT}` are **optional** — Cursor injects
-`${PLUGIN_ROOT}` for Wingspan MCP; you never type it. Set
-`ST_PLUGIN_ROOT` only when debugging outside a checkout.
+`ST_PLUGIN_ROOT` is **optional** when working from a monorepo checkout
+(use `pnpm` shortcuts instead). Set it when debugging outside a repo, or
+let `_st_plugin_root` discover the cached Team Marketplace plugin.
 
 Fallback when `pnpm` is unavailable (marketplace-only agent, no repo):
 
@@ -106,6 +106,7 @@ _st_plugin_root() {
   fi
   local hit base
   for base in \
+    "${HOME}/.cursor/plugins/cache/__DEFAULT__/sea-trials" \
     "${HOME}/.cursor/plugins/cache/hughesyadaddy-sea-trials-cursor-marketplace" \
     "${HOME}/.cursor/plugins/cache/sea-trials-cursor-marketplace"; do
     [[ -d "$base" ]] || continue
@@ -129,6 +130,10 @@ ST_REVIEW="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-threads.mjs"
 ST_REVIEW_STATUS="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs"
 ST_REVIEW_LOOP="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs"
 ST_REVIEW_PUSH="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs"
+ST_PARALLEL="$ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs"
+ST_BUILD_SHARD="$ST_PLUGIN_ROOT/scripts/hooks/st-build-shard-tasks.mjs"
+ST_ADVERSARIAL="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-adversarial-tasks.mjs"
+ST_FIX="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-fix-tasks.mjs"
 ```
 
 All review-loop commands below use these paths when `pnpm` shortcuts are

@@ -47,8 +47,41 @@ Canonical protocol (vendored from VGV):
 **Import only this aggregator** — uninstall a separate
 `vgv-cursor-marketplace` import if present (duplicate skills/MCP).
 
+### Migrating from dual import
+
+If Dashboard still lists **both** `vgv-cursor-marketplace` and this repo:
+
+1. Dashboard → Team Marketplaces → **Remove** `vgv-cursor-marketplace`
+2. Keep only `sea-trials-cursor-marketplace` → **Refresh**
+3. Cmd+Q → reopen Cursor
+4. Optional stale cache cleanup:
+   `rm -rf ~/.cursor/plugins/cache/*vgv-cursor-marketplace*`
+
+Keeping both imports loads Wingspan and Flutter twice (duplicate skills,
+hooks, and MCP).
+
 After marketplace or submodule updates: Dashboard → **Refresh** → **Cmd+Q**
 → reopen Cursor so rules, skills, and MCP reload.
+
+## Claude Code
+
+**Wingspan workflow skills** (`/brainstorm`, `/plan`, `/build`, …) from
+upstream VGV — install the official Claude marketplace, not this Cursor
+fork:
+
+```bash
+claude plugin marketplace add VeryGoodOpenSource/very-good-claude-code-marketplace
+claude plugin install vgv-wingspan
+```
+
+**Sea Trials `st-*` skills** (`/st-pre-push-harden`, `/st-pr-review-loop-*`,
+etc.) are **Cursor Team Marketplace only**. Claude users rely on monorepo
+hooks (`pnpm pr-review-push`, etc.) and upstream Wingspan for generic
+workflows. There is no automated Claude install path for `st-*` today.
+
+Structured handoffs on Claude use native **AskUserQuestion** (tier 2).
+Optional MCP tier 3: build from the vendored Wingspan bundle under
+`plugins/vgv-wingspan/mcp/vgv-ask-question-mcp/` — not Cursor cache paths.
 
 ## Maintainer sync
 

@@ -10,9 +10,10 @@ VGV skills end phases with **Question** + **Options** blocks. Agents must
 turn those into a **structured question tool call** — not paste numbered
 lists into chat when any host or MCP tool is available.
 
-## Canonical payload
+## Canonical payload (tiers 1 and 3)
 
-All tiers share one JSON shape:
+**AskQuestion** (Cursor tier 1) and **MCP `ask_user_question`** (tier 3)
+share this JSON shape:
 
 ```json
 {
@@ -31,7 +32,7 @@ All tiers share one JSON shape:
 }
 ```
 
-### Field reference
+### Field reference (tiers 1 and 3)
 
 | Field | Type | Required | Constraints |
 | --- | --- | --- | --- |
@@ -42,6 +43,10 @@ All tiers share one JSON shape:
 | `questions[].options[].id` | string | yes | Returned on selection |
 | `questions[].options[].label` | string | yes | Display text; put `(Recommended)` here |
 | `questions[].allow_multiple` | boolean | no | Default false; multi-select when true |
+
+**Claude `AskUserQuestion` (tier 2) uses a different host schema** — see
+[Claude Code setup](#claude-code-setup) below. Do not pass the tier 1/3
+JSON blob to AskUserQuestion.
 
 ### Mapping from skill markdown
 
@@ -121,9 +126,23 @@ Add to **Cursor Settings → Rules → User Rules**:
 ### AskUserQuestion (tier 2)
 
 - Available in **interactive** Claude Code terminal sessions.
-- Same payload shape as AskQuestion.
+- **Different schema** from AskQuestion/MCP — the model invokes the host
+  tool; agents map skill Options to natural-language instructions, not
+  tier 1/3 JSON passthrough.
+
+| Tier 1/3 field | Claude `AskUserQuestion` field |
+| --- | --- |
+| `prompt` | `question` |
+| `id` (question slug) | `header` (max 12 chars) |
+| `options[].id` / `label` | `options[].label` + `description` |
+| `allow_multiple` | `multiSelect` |
+
+Response: `answers` map keyed by **question text** → selected label.
+
 - **Clear-context handoffs** from upstream skills remain valid when
   listed (e.g. “Clear context and build”).
+- **Headless `-p` / SDK** — AskUserQuestion is not interactive; use
+  `canUseTool` or tier 3 MCP (see below).
 
 ### Headless / SDK (`claude -p`, agents SDK)
 
@@ -131,6 +150,8 @@ Add to **Cursor Settings → Rules → User Rules**:
 - Use SDK **`canUseTool`** / permission callbacks for structured
   approvals when integrating programmatically.
 - Or register tier 3 MCP `ask_user_question` when no host tool exists.
+- Do **not** put `AskUserQuestion` in skill `allowed-tools` — upstream
+  may auto-allow with empty answers.
 
 ## MCP tier 3 (`vgv-ask-question`)
 
@@ -138,10 +159,15 @@ Shipped in the Wingspan plugin (`mcp/vgv-ask-question-mcp/`, wired in
 `mcp.json`). Namespace may appear as `plugin-vgv-wingspan-vgv-ask-question`
 or similar after marketplace install.
 
-### When to use
+### When to use MCP (tier 3)
 
 **Only** when neither AskQuestion nor AskUserQuestion is in the tool
-schema.
+schema **and** the MCP namespace is healthy (`ask_user_question` appears
+in the schema, not just `mcp_auth`).
+
+Prefer MCP elicitation over tier 4 **only when** elicitation actually
+renders (Editor chat, single workspace). In Agents window or when MCP
+discovery fails, **skip directly to tier 4** — do not wait for timeouts.
 
 ### Elicitation vs native picker
 
@@ -182,10 +208,11 @@ Agents should read the user's selection from the tool result:
 | Host / MCP | Typical result |
 | --- | --- |
 | AskQuestion | Selected option `id` (and sometimes `label`) |
-| AskUserQuestion | Selected option per Claude host contract |
-| MCP single-select | `{ "choice": "<option-id>" }` or elicitation equivalent |
-| MCP multi-select | `{ "choices": ["<id>", ...] }` when `allow_multiple: true` |
-| MCP text fallback | User replies with id, label, or number in chat |
+| AskUserQuestion | `answers` map: question text → selected label |
+| MCP answered | `{ "outcome": "answered", "answersById": { "<id>": "<label>" } }` |
+| MCP cancelled | `{ "outcome": "cancelled" }` — offer tier 4 or stop |
+| MCP fallback | `{ "outcome": "fallback", ... }` — relay numbered list |
+| Tier 4 chat | User replies with id, label, or number in chat |
 
 Match selection to handoff tables in `vgv-cursor-handoff.mdc` (Cursor)
 or the skill's Claude clear-context instructions.

@@ -37,7 +37,7 @@ irreversible cleanup (force-remove dirty worktree).
 
 | User signal | Route |
 | --- | --- |
-| Plan not implemented yet | `/st-build-with-subagents` or `/vgv-build` |
+| Plan not implemented yet | `/st-build-with-subagents` or `/build` |
 | Code done; validate before push | `/st-pre-push-harden` |
 | PR open; clear review threads | Review loop (below) |
 | Push only | `pnpm pr-review-push` |
@@ -72,5 +72,5 @@ When the user only needs gates before first push:
 ## Forbidden
 
 - Bare `git push` / `--no-verify`
-- `/vgv-create-pr skip-checks`
+- `/create-pr skip-checks`
 - Re-implementing `agent-prepush` or `pr-local-ci` tables here

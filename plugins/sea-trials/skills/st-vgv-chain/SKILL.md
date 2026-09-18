@@ -33,11 +33,11 @@ vgv_next:
 
 | Step | Skill | Handoff |
 | --- | --- | --- |
-| 1 | `/vgv-brainstorm` or skip if doc exists | Plan now |
-| 2 | `/vgv-plan` on brainstorm doc | Build now |
-| 3 | `/st-build-with-subagents` or `/vgv-build` | Continue |
+| 1 | `/brainstorm` or skip if doc exists | Plan now |
+| 2 | `/plan` on brainstorm doc | Build now |
+| 3 | `/st-build-with-subagents` or `/build` | Continue |
 | 4 | `/st-pre-push-harden` | READY |
-| 5 | `/vgv-create-pr` if needed | — |
+| 5 | `/create-pr` if needed | — |
 | 6 | `/st-pr-ship` | Done |
 
 ## Cursor execution
@@ -55,10 +55,10 @@ or build shards when JSON task lines exist.
 | Plan scope | Skill |
 | --- | --- |
 | Multi-package / parallel waves | `/st-build-with-subagents` |
-| Single package | `/vgv-build` |
+| Single package | `/build` |
 
 ## Stop conditions
 
 - User picks Done / Stop here
-- `pre-push-harden` BLOCKED — fix gates before continuing
+- `st-pre-push-harden` BLOCKED — fix gates before continuing
 - Review loop hands off to 30-minute CI poll (review-loop skill owns)
