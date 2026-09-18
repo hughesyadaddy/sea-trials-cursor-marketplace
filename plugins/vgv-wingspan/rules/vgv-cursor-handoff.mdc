@@ -111,7 +111,7 @@ Use the **chat model picker** for the parent agent on Cursor:
 
 | Phase / role | Recommended parent model | Why |
 | --- | --- | --- |
-| Brainstorm / plan / refine (handoffs) | **Composer 2.5** | AskQuestion available |
+| Brainstorm / plan / refine (handoffs) | **Composer 2.5** (not Auto) | Best chance of native AskQuestion; fall back to MCP if absent |
 | Build / implementation | Composer 2.5 or Claude Sonnet 5 | Coding strength; user preference |
 | Avoid for handoffs | **Grok 4.5** | No AskQuestion |
 

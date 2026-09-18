@@ -44,9 +44,10 @@ function runJsonLines(cmd, args) {
     encoding: 'utf8',
     shell: process.platform === 'win32',
   });
-  if (result.status !== 0 && !result.stdout) {
+  if (result.status !== 0) {
     throw new Error(
-      `${cmd} ${args.join(' ')} failed: ${result.stderr || result.status}`,
+      `${cmd} ${args.join(' ')} failed (exit ${result.status}): ` +
+        `${result.stderr || result.stdout || 'no output'}`,
     );
   }
   return result.stdout

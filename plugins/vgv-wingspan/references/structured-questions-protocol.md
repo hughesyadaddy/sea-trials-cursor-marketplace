@@ -87,10 +87,15 @@ Check the **current session tool schema** in order:
 
 ### AskQuestion (tier 1)
 
-- Injected by Cursor for supported models/modes.
-- **Composer 2.5** — reliable for brainstorm / plan / refine handoffs.
-- **Grok 4.5** — AskQuestion **not** available; use tier 3 or 4.
-- Native clickable picker UI; best experience for VGV handoffs.
+- Injected by Cursor when the host attaches it to **this session's**
+  tool schema.
+- **Composer 2.5** — best-effort default for handoff phases; verify
+  `AskQuestion` is present before assuming the native picker.
+- **Grok 4.5** — not available; tier 3 or 4.
+- **Claude / other third-party models** — may expose AskQuestion in
+  Agent mode when Composer does not; still schema-gated.
+- Native clickable picker UI when present; best experience for VGV
+  handoffs.
 
 ### When AskQuestion is missing on Cursor
 
@@ -209,11 +214,14 @@ When no structured tool exists:
 
 | Phase | Model | Why |
 | --- | --- | --- |
-| Brainstorm, plan, refine, handoffs | **Composer 2.5** | AskQuestion |
+| Brainstorm, plan, refine, handoffs | **Composer 2.5** (not Auto) | Best chance of native AskQuestion; fall back to MCP if absent |
 | Build, code-review, hotfix | Composer 2.5 or Claude Sonnet | Coding + subagents |
 | Avoid for question-heavy work | **Grok 4.5** | No AskQuestion |
 
-Subagent `model:` pins in agent files are independent of parent chat.
+Model picks are **hints**, not guarantees. Agents must still follow the
+strict priority table using the live tool schema. Subagent Task sessions
+may not receive host `AskQuestion` even when the parent chat model is
+Composer 2.5.
 
 ## Install checklist
 

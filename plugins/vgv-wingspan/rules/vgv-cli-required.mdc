@@ -66,7 +66,8 @@ packages. CI runs full test suites. Agents rely on these for full coverage.
 ## MCP bootstrap
 
 `~/.cursor/mcp.json` must include `very-good-cli` for Tier 3 and scaffolding.
-Setup: `docs/runbooks/CURSOR_VGV_PLUGINS.md`.
+Setup: enable **vgv-ai-flutter-plugin** in Team Marketplace; Flutter
+plugin ships `dart` and `very-good-cli` MCP (no hand `~/.cursor/mcp.json`).
 
 ## MCP `test` exit code 66
 

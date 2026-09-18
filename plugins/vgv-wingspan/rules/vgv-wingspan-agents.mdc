@@ -92,8 +92,9 @@ Launch parallel Tasks in **one assistant turn** when the skill says
 | sonnet | `claude-sonnet-5` |
 | inherit | `inherit` |
 
-Parent chat for AskQuestion handoffs: **Composer 2.5** — see
-`vgv-cursor-handoff.mdc`.
+Parent chat for handoffs: **Composer 2.5** (schema-gated) — see
+`vgv-cursor-handoff.mdc`. Subagent Task sessions may lack host
+`AskQuestion` even when the parent uses Composer 2.5.
 
 ## Tool scoping
 
@@ -111,6 +112,7 @@ Parent chat for AskQuestion handoffs: **Composer 2.5** — see
 
 ## Related
 
-- AskQuestion: `vgv-ask-question.mdc`, `docs/runbooks/CURSOR_ASKQUESTION_PROTOCOL.md`
+- Structured questions: `vgv-ask-question.mdc`,
+  `references/structured-questions-protocol.md`
 - Handoffs: `vgv-cursor-handoff.mdc`
-- Install: `docs/runbooks/CURSOR_DEV_SETUP.md`
+- Install: marketplace README (Team Marketplace → Refresh → Cmd+Q)

@@ -82,12 +82,17 @@ returns a compact numbered fallback string for the agent to relay.
 
 ### Cursor
 
-- **AskQuestion** is injected by Cursor for some models/modes only.
-- **Composer 2.5** — use for brainstorm / plan / refine handoffs;
-  AskQuestion is reliably available.
-- **Grok 4.5** — does **not** expose AskQuestion; use MCP or silent
-  numbered chat per priority table.
-- Plugins cannot force the host tool; tier 3 MCP covers the gap.
+- **AskQuestion** is injected by Cursor for some models, modes, and
+  surfaces only — check the **current session tool schema**.
+- **Composer 2.5** — recommended parent for brainstorm / plan / refine
+  handoffs; AskQuestion appears **more often** than on Grok 4.5 or some
+  Agent-mode Composer sessions, but is **not guaranteed**.
+- **Grok 4.5** — does **not** expose AskQuestion (Cursor-intentional);
+  use tier 3 MCP or tier 4 chat.
+- **Auto** — router may pick Grok; disable Auto for handoff-heavy work.
+- **Subagents / some Agent chats** — host tool may be absent even on
+  Composer 2.5; use MCP tier 3 when registered.
+- Plugins cannot force the host tool.
 
 ### Claude Code
 

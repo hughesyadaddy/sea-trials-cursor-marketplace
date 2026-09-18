@@ -120,13 +120,6 @@ _st_plugin_root() {
       return 0
     fi
   done
-  local repo_root
-  repo_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
-  if [[ -n "$repo_root" && \
-        -f "$repo_root/tools/sea-trials-cursor-plugin/scripts/resolve-plugin-root.mjs" ]]; then
-    node "$repo_root/tools/sea-trials-cursor-plugin/scripts/resolve-plugin-root.mjs"
-    return 0
-  fi
   echo "ERROR: sea-trials Cursor plugin not found (enable Team Marketplace)" >&2
   return 1
 }

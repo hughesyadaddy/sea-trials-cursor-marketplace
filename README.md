@@ -8,7 +8,7 @@ via git submodule, then vendored under `plugins/`.
 | --- | --- | --- |
 | `vgv-wingspan` | `hughesyadaddy/vgv-cursor-marketplace` | submodule + vendored `plugins/` |
 | `vgv-ai-flutter-plugin` | `hughesyadaddy/vgv-cursor-marketplace` | submodule + vendored `plugins/` |
-| `sea-trials` | `sea_trials_universal` | vendored `plugins/sea-trials/` |
+| `sea-trials` | this repo `plugins/sea-trials/` | committed `plugins/sea-trials/` |
 
 See [MARKETPLACE_IMPORTS.md](MARKETPLACE_IMPORTS.md) for the import model.
 
@@ -44,21 +44,31 @@ when the host tool is absent.
 Canonical protocol (vendored from VGV):
 [`plugins/vgv-wingspan/references/structured-questions-protocol.md`](plugins/vgv-wingspan/references/structured-questions-protocol.md)
 
-After marketplace or submodule updates: Dashboard → **Refresh** on this
-marketplace → **Cmd+Q** → reopen Cursor so rules, skills, and MCP reload.
+**Import only this aggregator** — uninstall a separate
+`vgv-cursor-marketplace` import if present (duplicate skills/MCP).
+
+After marketplace or submodule updates: Dashboard → **Refresh** → **Cmd+Q**
+→ reopen Cursor so rules, skills, and MCP reload.
 
 ## Maintainer sync
 
-From `sea_trials_universal`, **public VGV first**, then this aggregator:
+From this aggregator repo (and `vgv-cursor-marketplace` for VGV):
 
 ```bash
-./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
-./scripts/cursor-link-vgv-skills.sh --emit-cursor-plugin
-./scripts/scaffold-vgv-only-cursor-marketplace.sh
-cd ~/dev/vgv-cursor-marketplace && git add -A && git commit && git push
-
-./scripts/cursor-link-vgv-skills.sh --emit-sea-trials-plugin
-./scripts/scaffold-sea-trials-cursor-marketplace.sh
-cd ~/dev/sea-trials-cursor-marketplace
+# 1. Edit + push public VGV marketplace
+cd ~/Desktop/vgv-cursor-marketplace
 git add -A && git commit && git push
+
+# 2. Vendor VGV into this aggregator
+cd ~/Desktop/sea-trials-cursor-marketplace
+git submodule update --remote imports/vgv-cursor-marketplace
+rsync -a --delete imports/vgv-cursor-marketplace/plugins/vgv-wingspan/ \
+  plugins/vgv-wingspan/
+rsync -a --delete imports/vgv-cursor-marketplace/plugins/vgv-ai-flutter-plugin/ \
+  plugins/vgv-ai-flutter-plugin/
+
+# 3. Edit plugins/sea-trials/ here; update PLUGIN_SOURCES.md SHAs
+git add imports/ plugins/ PLUGIN_SOURCES.md .gitmodules
+git commit && git push
+# Dashboard → Refresh → Cmd+Q
 ```

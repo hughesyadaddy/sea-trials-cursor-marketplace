@@ -3,8 +3,8 @@
 Team Marketplace plugin for Sea Trials–owned Cursor components:
 
 - Agents: `powersync-migration-operator`, `macos-appstore-signing`
-- Skills: `pr-review-loop-inplace`, `pr-review-loop-worktree`,
-  `pre-push-harden`
+- Skills: 10 `st-*` skills (see `skills/` — e.g. `st-pre-push-harden`,
+  `st-pr-review-loop-inplace`, …)
 - Scripts: PR review CLI under `scripts/hooks/` (resolve plugin root via
   `scripts/resolve-plugin-root.mjs`)
 - MCP: Atlassian (`atlassian-seatrials`, `atlassian-allinpmprep`),
@@ -15,26 +15,20 @@ Team Marketplace plugin for Sea Trials–owned Cursor components:
 
 | Component | Source | Ships in |
 | --- | --- | --- |
-| Skills | `.cursor/skill-custom/` | sea-trials |
-| Review scripts | `scripts/hooks/pr-review-*.mjs` | sea-trials `scripts/hooks/` |
-| Agents | `.cursor/agent-sources/` | sea-trials |
-| Rules | `.cursor/rule-sources/` | vgv-wingspan |
+| Skills | `plugins/sea-trials/skills/` (this repo) | sea-trials |
+| Review scripts | `sea_trials_universal/scripts/hooks/pr-review-*.mjs` → copy to `plugins/sea-trials/scripts/hooks/` | sea-trials |
+| Agents | `plugins/sea-trials/agents/` (this repo) | sea-trials |
+| Rules | `vgv-cursor-marketplace/plugins/vgv-wingspan/rules/` | vgv-wingspan |
 
-Regenerate after editing those sources:
-
-```bash
-./scripts/cursor-link-vgv-skills.sh --emit-sea-trials-plugin
-./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
-```
-
-Do not hand-edit generated files under `agents/`, `skills/`, or
-`scripts/` — they are overwritten by the emitter.
+Edit `plugins/sea-trials/` in this repo. After changing PR review hooks in
+the monorepo, copy `sea_trials_universal/scripts/hooks/pr-review-*.mjs`
+(and `lib/`) into `plugins/sea-trials/scripts/hooks/`.
 
 ## Local install (smoke)
 
 ```bash
 rsync -a --delete \
-  tools/sea-trials-cursor-plugin/ \
+  plugins/sea-trials/ \
   ~/.cursor/plugins/local/sea-trials/
 ```
 
@@ -47,6 +41,9 @@ Vendored as `plugins/sea-trials` in the private unified Team Marketplace
 Wingspan + Flutter from a git submodule of the public
 `vgv-cursor-marketplace` (Cursor Team indexes one marketplace import).
 
+**Import only this aggregator** — do not also import
+`vgv-cursor-marketplace` separately (duplicate skills/MCP).
+
 Atlassian MCP is URL-only OAuth. After install, Connect
 `atlassian-seatrials` and `atlassian-allinpmprep` under Settings → MCP.
 
@@ -55,6 +52,5 @@ scripts** (e.g. `sprint_planning/*/jira_state.json` tooling) still use
 `JIRA_API_TOKEN` / `./scripts/setup-secrets.sh` separately — that token
 is not injected into Cursor MCP.
 
-Publish order: push public VGV first, then run
-`scaffold-sea-trials-cursor-marketplace.sh` so the submodule pin and
-vendored `plugins/vgv-*` stay in sync.
+Publish order: push public VGV first, then bump `imports/vgv-cursor-marketplace`
+and re-vendor `plugins/vgv-*` in this repo (see root `README.md`).

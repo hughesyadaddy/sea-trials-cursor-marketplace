@@ -65,8 +65,9 @@ Plugin `mcp.json`:
 "vgv-ask-question": {
   "type": "stdio",
   "command": "node",
-  "args": ["mcp/vgv-ask-question-mcp/dist/index.js"],
-  "cwd": "${PLUGIN_ROOT}"
+  "args": [
+    "${CURSOR_PLUGIN_ROOT}/mcp/vgv-ask-question-mcp/dist/index.js"
+  ]
 }
 ```
 
