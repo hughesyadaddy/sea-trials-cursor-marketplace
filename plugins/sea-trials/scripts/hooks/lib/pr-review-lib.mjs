@@ -38,6 +38,9 @@ export const LIGHT_CI_JOBS = [
 ];
 
 export function getRepoRoot() {
+  if (process.env.ST_REPO_ROOT?.trim()) {
+    return path.resolve(process.env.ST_REPO_ROOT.trim());
+  }
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
     encoding: 'utf8',
     shell: isWindows,
@@ -525,65 +528,89 @@ function runPnpmScript(repoRoot, scriptArgs) {
  *
  * @param {string} repoRoot
  */
-export function runLocalPrepush(repoRoot) {
-  return runPnpmScript(repoRoot, ['agent-prepush']);
+export async function runLocalPrepush(repoRoot) {
+  return runLocalPushGate(repoRoot, { phases: new Set(['dirty']) });
 }
 
 /**
  * Full local push gate — contract: NEVER push until this passes.
  *
- * Order mirrors CI + hooks:
- * 1. agent-prepush (dirty tree, parallel subagent fan-out)
- * 2. prepush (committed diff, format + analyze + sea-trials-lint)
- * 3. pr-local-ci (path-filtered PR Checks lanes)
+ * Single planner (`push-gate-tasks.mjs`) runs dirty, prepush, and CI
+ * groups with maximum in-process parallelism. Subagent fan-out:
+ * `pnpm pr-review-push -- --pr <n> --list-tasks`.
  *
  * @param {string} repoRoot
- * @param {{ prNumber?: number, base?: string }} [opts]
+ * @param {{
+ *   prNumber?: number,
+ *   base?: string,
+ *   phases?: Set<string>,
+ * }} [opts]
  */
-export function runLocalPushGate(repoRoot, { prNumber, base } = {}) {
-  const steps = [];
+export async function runLocalPushGate(
+  repoRoot,
+  { prNumber, base, phases } = {},
+) {
+  const { buildPushGatePlan } = await import('./push-gate-tasks.mjs');
+  const { runPushGatePlan } = await import('./push-gate-run.mjs');
 
-  const agent = runLocalPrepush(repoRoot);
-  steps.push({ name: 'agent-prepush', ...agent });
-  if (!agent.ok) {
-    return { ok: false, steps };
+  const root = repoRoot || getRepoRoot();
+  const plan = await buildPushGatePlan({
+    repoRoot: root,
+    prNumber,
+    base,
+    phases,
+  });
+
+  if (!plan.ok) {
+    return {
+      ok: false,
+      error: plan.error,
+      steps: [{ name: 'push-gate-plan', ok: false, stderr: plan.error }],
+    };
   }
 
-  const prepush = runPnpmScript(repoRoot, ['prepush']);
-  steps.push({ name: 'prepush', ...prepush });
-  if (!prepush.ok) {
-    return { ok: false, steps };
-  }
-
-  const localCiArgs = prNumber != null
-    ? ['--pr', String(prNumber)]
-    : ['--base', base ?? 'origin/dev'];
-  const localCi = spawnSync(
-    'node',
-    [
-      path.join(repoRoot, 'scripts/hooks/pr-local-ci.mjs'),
-      ...localCiArgs,
-    ],
-    {
-      encoding: 'utf8',
-      cwd: repoRoot,
-      shell: isWindows,
-      stdio: 'pipe',
-    },
+  const taskCount = plan.groups.reduce(
+    (sum, group) => sum + group.tasks.length,
+    0,
   );
-  const ciStep = {
-    name: 'pr-local-ci',
-    ok: localCi.status === 0,
-    status: localCi.status ?? 1,
-    stdout: localCi.stdout ?? '',
-    stderr: localCi.stderr ?? '',
-  };
-  steps.push(ciStep);
-  if (!ciStep.ok) {
-    return { ok: false, steps };
+  process.stdout.write(
+    `🔎 push gate: ${plan.groups.length} group(s), `
+      + `${taskCount} parallel task(s)\n`,
+  );
+  for (const message of plan.reminders) {
+    process.stdout.write(`ℹ️  ${message}\n`);
   }
 
-  return { ok: true, steps };
+  const result = await runPushGatePlan(plan, root);
+  if (!result.ok) {
+    const failure = result.failures[0];
+    const stderr = failure
+      ? `${failure.stderr ?? ''}${failure.stdout ?? ''}`
+      : result.error ?? 'push gate failed';
+    return {
+      ok: false,
+      error: result.error,
+      steps: [
+        {
+          name: 'push-gate',
+          ok: false,
+          stderr,
+          stdout: failure?.stdout ?? '',
+        },
+      ],
+    };
+  }
+
+  return {
+    ok: true,
+    steps: [
+      {
+        name: 'push-gate',
+        ok: true,
+        stdout: `All ${taskCount} task(s) passed`,
+      },
+    ],
+  };
 }
 
 export function runGitPush(repoRoot, branch) {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { fileURLToPath } from 'node:url';
 
 import {
   EXECUTABLE_MODE,
@@ -14,12 +14,17 @@ import {
   scriptSegments,
 } from './git-hooks-wiring.mjs';
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-  '..',
-);
+const isWindows = process.platform === 'win32';
+const repoRoot = (() => {
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+    shell: isWindows,
+  });
+  if (top.status !== 0) {
+    throw new Error('git-hooks-wiring tests require a git checkout cwd');
+  }
+  return (top.stdout ?? '').trim();
+})();
 
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),

@@ -18,6 +18,7 @@ import {
   writeReviewState,
 } from './lib/pr-review-lib.mjs';
 
+async function main() {
 const repoRoot = getRepoRoot();
 const args = parsePrArgs(process.argv.slice(2));
 const withLocal = process.argv.includes('--local');
@@ -30,9 +31,10 @@ if (!Number.isFinite(args.prNumber) || args.prNumber <= 0) {
 let local = null;
 if (withLocal) {
   process.stderr.write('Running local agent-prepush…\n');
-  local = runLocalPrepush(repoRoot);
+  local = await runLocalPrepush(repoRoot);
   if (!local.ok) {
-    process.stderr.write(local.stderr || local.stdout);
+    const step = local.steps?.find((s) => !s.ok);
+    process.stderr.write(step?.stderr || step?.stdout || local.error || '');
     process.exit(4);
   }
 }
@@ -120,3 +122,9 @@ if (snapshot.threads.unresolvedCount > 0) {
 }
 
 process.exit(verdict.exitCode);
+}
+
+main().catch((err) => {
+  process.stderr.write(`pr-review-status: ${err.message}\n`);
+  process.exit(2);
+});

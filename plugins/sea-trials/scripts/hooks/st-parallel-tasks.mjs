@@ -1,16 +1,12 @@
 #!/usr/bin/env node
 /**
- * Emit JSON lines for maximum parallel Task fan-out across st-* workflows.
+ * Emit JSON lines for maximum parallel Task fan-out.
  *
- * Aggregates list-tasks from agent-prepush, pr-local-ci, and
- * pr-review-adversarial-tasks so the parent launches ONE Task per line
- * in a SINGLE turn.
+ * Delegates push-gate tasks to pr-review-push --list-tasks (canonical).
+ * Review adversarial tasks remain a separate phase.
  *
  *   pnpm st-parallel-tasks -- --pr 1657
- *   pnpm st-parallel-tasks -- --pr 1657 --phases prepush,ci,review
- *   pnpm st-parallel-tasks -- --phases prepush
- *
- * Each line includes `source` (prepush|ci|review) plus the child fields.
+ *   pnpm st-parallel-tasks -- --pr 1657 --phases review
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -55,53 +51,57 @@ function runJsonLines(cmd, args) {
     .filter((line) => line.startsWith('{'));
 }
 
-function emit(source, lines) {
+function emitGatePhase(pr, phaseName, gatePhase) {
+  if (!pr || Number.isNaN(pr)) {
+    throw new Error(`${phaseName} phase requires --pr <n>`);
+  }
+  const lines = runJsonLines('node', [
+    path.join(hooksDir, 'pr-review-push.mjs'),
+    '--pr',
+    String(pr),
+    '--phases',
+    gatePhase,
+    '--list-tasks',
+  ]);
   for (const line of lines) {
     const task = JSON.parse(line);
-    process.stdout.write(`${JSON.stringify({ source, ...task })}\n`);
+    process.stdout.write(
+      `${JSON.stringify({ source: phaseName, ...task })}\n`,
+    );
   }
 }
 
 function main() {
   const { pr, repo, phases } = parseArgs(process.argv.slice(2));
 
-  if (phases.has('prepush')) {
-    emit(
-      'prepush',
-      runJsonLines('pnpm', ['agent-prepush', '--', '--list-tasks']),
-    );
-  }
-
-  if (phases.has('ci')) {
-    if (!pr || Number.isNaN(pr)) {
-      throw new Error('ci phase requires --pr <n>');
+  if (phases.has('prepush') || phases.has('ci')) {
+    const gatePhases = [];
+    if (phases.has('prepush')) {
+      gatePhases.push('dirty', 'prepush');
     }
-    emit(
-      'ci',
-      runJsonLines('pnpm', [
-        'pr-local-ci',
-        '--',
-        '--pr',
-        String(pr),
-        '--list-tasks',
-      ]),
-    );
+    if (phases.has('ci')) {
+      gatePhases.push('ci');
+    }
+    emitGatePhase(pr, 'push-gate', [...new Set(gatePhases)].join(','));
   }
 
   if (phases.has('review')) {
     if (!pr || Number.isNaN(pr)) {
       throw new Error('review phase requires --pr <n>');
     }
-    emit(
-      'review',
-      runJsonLines('node', [
-        path.join(hooksDir, 'pr-review-adversarial-tasks.mjs'),
-        '--pr',
-        String(pr),
-        '--repo',
-        repo,
-      ]),
-    );
+    const lines = runJsonLines('node', [
+      path.join(hooksDir, 'pr-review-adversarial-tasks.mjs'),
+      '--pr',
+      String(pr),
+      '--repo',
+      repo,
+    ]);
+    for (const line of lines) {
+      const task = JSON.parse(line);
+      process.stdout.write(
+        `${JSON.stringify({ source: 'review', ...task })}\n`,
+      );
+    }
   }
 }
 

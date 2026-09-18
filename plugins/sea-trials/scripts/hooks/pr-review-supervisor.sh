@@ -57,7 +57,15 @@ fi
 
 PR="${1:?usage: pr-review-supervisor.sh <pr-number> [retry-delay-seconds]}"
 DELAY="${2:-60}"
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_ROOT="${ST_PLUGIN_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
+REPO_ROOT="${ST_REPO_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || true)}"
+LOOP_HOOK="$PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs"
+
+if [ -z "$REPO_ROOT" ] || [ ! -d "$REPO_ROOT" ]; then
+  echo "pr-review-supervisor: not inside a git repo (set ST_REPO_ROOT)" >&2
+  exit 1
+fi
 
 cd "$REPO_ROOT" || exit 1
 
@@ -67,7 +75,7 @@ while true; do
   printf '[supervisor] attempt %d for PR #%s at %s\n' \
     "$ATTEMPT" "$PR" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-  node scripts/hooks/pr-review-loop.mjs --pr "$PR"
+  node "$LOOP_HOOK" --pr "$PR"
   CODE=$?
 
   if [ "$CODE" -eq 0 ]; then
