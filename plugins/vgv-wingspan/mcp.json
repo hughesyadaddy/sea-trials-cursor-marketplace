@@ -6,7 +6,8 @@
     },
     "vgv-ask-question": {
       "type": "stdio",
-      "command": "./scripts/vgv-ask-question-mcp.sh",
+      "command": "node",
+      "args": ["mcp/vgv-ask-question-mcp/dist/index.js"],
       "cwd": "${PLUGIN_ROOT}"
     }
   }

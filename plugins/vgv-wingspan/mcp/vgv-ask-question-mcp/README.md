@@ -11,44 +11,30 @@ MCP fallback for VGV structured handoffs when host tools are unavailable.
 This server is **tier 3** in `vgv-ask-question.mdc`: agents call
 `ask_user_question` when both host tools are absent from the schema.
 
-When the Cursor client supports MCP **form elicitation**, the user gets a
-native form picker. Otherwise the tool returns a compact numbered fallback
-for chat.
+## Self-contained bundle (marketplace)
 
-## Build
+This directory ships **`dist/` + `node_modules/`** inside the plugin.
+No shell launcher, no workspace-relative paths, no runtime `npm install`.
 
-```bash
-cd tools/vgv-ask-question-mcp
-npm install --omit=dev
-npm run build
-```
-
-Or emit Wingspan (builds + vendors into the plugin):
-
-```bash
-./scripts/cursor-link-vgv-skills.sh --emit-wingspan-shareable
-```
-
-## Launch (stdio)
-
-Plugin `mcp.json` (required shape):
+Plugin `mcp.json`:
 
 ```json
 "vgv-ask-question": {
   "type": "stdio",
-  "command": "./scripts/vgv-ask-question-mcp.sh",
+  "command": "node",
+  "args": ["mcp/vgv-ask-question-mcp/dist/index.js"],
   "cwd": "${PLUGIN_ROOT}"
 }
 ```
 
-`cwd: ${PLUGIN_ROOT}` is required — relative commands without it fail ENOENT.
-
-Local smoke:
+Rebuild after source changes (maintainers):
 
 ```bash
-./scripts/vgv-ask-question-mcp.sh
-# or after emit:
-./tools/cursor-vgv-wingspan/scripts/vgv-ask-question-mcp.sh
+cd plugins/vgv-wingspan/mcp/vgv-ask-question-mcp
+npm install
+npm run build
+npm prune --omit=dev
+# commit dist/ + node_modules/
 ```
 
 Registered on the **VGV Wingspan** plugin (not Sea Trials).
