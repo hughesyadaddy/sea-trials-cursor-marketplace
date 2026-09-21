@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# beforeShellExecution: block git push --no-verify / -n (Sea Trials push gate).
+# beforeShellExecution / PreToolUse: block git push --no-verify / -n.
 set -euo pipefail
 
 input="$(cat || true)"
@@ -34,9 +34,24 @@ deny() {
 
 [[ -z "$command" ]] && allow
 
-if [[ "$command" =~ git[[:space:]]+push ]] && \
-   [[ "$command" =~ (--no-verify|-n|--dry-run) ]]; then
-  deny "Sea Trials: never git push with --no-verify, -n, or --dry-run. Use pnpm pr-review-push."
+# Tokenize and inspect only push subcommand flags (not ref names).
+read -r -a tokens <<<"$command"
+push_idx=-1
+for ((i = 0; i < ${#tokens[@]}; i += 1)); do
+  if [[ "${tokens[i]}" == "push" ]]; then
+    push_idx=$i
+    break
+  fi
+done
+
+if [[ $push_idx -ge 0 ]]; then
+  for ((i = push_idx + 1; i < ${#tokens[@]}; i += 1)); do
+    case "${tokens[i]}" in
+      --no-verify | -n | --dry-run)
+        deny "Sea Trials: never git push with --no-verify, -n, or --dry-run. Use pnpm pr-review-push."
+        ;;
+    esac
+  done
 fi
 
 allow

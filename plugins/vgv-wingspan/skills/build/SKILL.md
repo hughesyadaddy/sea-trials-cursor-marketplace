@@ -225,7 +225,12 @@ Whatever commits this build produced are local. Pushing and opening a PR is outw
   2. **Push and open the PR now**: proceed this once.
   3. **Always push automatically**: proceed, and save the preference to Claude memory (the user's own preference, never the project's CLAUDE.md) so future builds skip this prompt.
 
-To push, call `/create-pr skip-checks` — it pushes and opens the PR. Validation already ran above. The PR body uses the [PR template](references/pr-template.md).
+**Sea Trials monorepo:** use `pnpm pr-review-push` or `/st-pre-push-harden`,
+never `/create-pr skip-checks` (see `st-pr-ship` in the sea-trials plugin).
+
+**Other repos:** call `/create-pr skip-checks` — it pushes and opens the PR.
+Validation already ran above. The PR body uses the
+[PR template](references/pr-template.md).
 
 ### Post-Ship
 

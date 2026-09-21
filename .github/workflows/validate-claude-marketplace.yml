@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Claude Code
-        run: npm install -g @anthropic-ai/claude-code@latest
+        run: npm install -g @anthropic-ai/claude-code@2.1.278
       - name: Validate ${{ matrix.plugin }}
         working-directory: ${{ matrix.plugin }}
         run: claude plugin validate .
