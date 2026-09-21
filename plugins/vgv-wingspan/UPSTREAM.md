@@ -1,8 +1,18 @@
-# VGV Wingspan — Cursor port (vendored)
+# VGV Wingspan — dual-host port (Cursor + Claude)
 
 Upstream: [VeryGoodOpenSource/vgv-wingspan](https://github.com/VeryGoodOpenSource/vgv-wingspan)  
-Pinned tag: **v0.0.4** (skills content)  
-Cursor packaging: dual-manifest port (AskQuestion, flat agents, `/code-review`)
+Cursor packaging: dual-manifest port (AskQuestion, flat agents, `/code-review`)  
+Claude packaging: upstream tree at plugin root (`skills/`, `agents/`, `hooks/`)
+
+## Layout
+
+| Path | Host |
+| --- | --- |
+| `cursor/skills/`, `cursor/agents/`, `cursor/hooks/` | Cursor |
+| `skills/`, `agents/`, `hooks/` | Claude Code |
+| `rules/` | Cursor only (always-on `.mdc`) |
+| `mcp.json` | Cursor (`${CURSOR_PLUGIN_ROOT}`) |
+| `.mcp.json` | Claude (context7 via npx) |
 
 ## What was changed for Cursor
 
@@ -22,9 +32,11 @@ Adapter rules live in `rules/` and install to `~/.cursor/rules/` via
 
 When VGV ships a new Wingspan release:
 
-1. Diff upstream `skills/` and `agents/` against this tree.
-2. Re-apply Cursor port transforms (see internal port notes above).
-3. Bump the version in `.cursor-plugin/plugin.json`.
-4. Re-run `./scripts/install-cursor-vgv.sh` on each dev machine.
+1. Rsync upstream Claude tree into plugin root:
+   `skills/`, `agents/`, `hooks/`, `.claude-plugin/`, `.mcp.json`
+2. Diff upstream against `cursor/skills/` and `cursor/agents/`.
+3. Re-apply Cursor port transforms (see table above).
+4. Bump versions in `.cursor-plugin/plugin.json` and `.claude-plugin/plugin.json`.
+5. Run `claude plugin validate plugins/vgv-wingspan`.
 
 License: MIT (see `LICENSE`).

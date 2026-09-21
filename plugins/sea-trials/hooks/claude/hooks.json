@@ -1,0 +1,17 @@
+{
+  "description": "Sea Trials plugin hooks — block git push --no-verify",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/deny-no-verify-push.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

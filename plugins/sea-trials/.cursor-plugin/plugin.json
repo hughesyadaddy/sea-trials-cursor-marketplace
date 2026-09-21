@@ -13,6 +13,6 @@
   "keywords": ["sea-trials", "vgv", "cursor"],
   "agents": "./agents/",
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
+  "hooks": "./hooks/cursor/hooks.json",
   "mcp": "./mcp.json"
 }

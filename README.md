@@ -65,19 +65,27 @@ After marketplace or submodule updates: Dashboard → **Refresh** → **Cmd+Q**
 
 ## Claude Code
 
-**Wingspan workflow skills** (`/brainstorm`, `/plan`, `/build`, …) from
-upstream VGV — install the official Claude marketplace, not this Cursor
-fork:
+**Sea Trials engineers:** install **this repo only** — same aggregator as
+Cursor, dual-host manifests in one checkout:
 
 ```bash
-claude plugin marketplace add VeryGoodOpenSource/very-good-claude-code-marketplace
-claude plugin install vgv-wingspan
+claude plugin marketplace add hughesyadaddy/sea-trials-cursor-marketplace
 ```
 
-**Sea Trials `st-*` skills** (`/st-pre-push-harden`, `/st-pr-review-loop-*`,
-etc.) are **Cursor Team Marketplace only**. Claude users rely on monorepo
-hooks (`pnpm pr-review-push`, etc.) and upstream Wingspan for generic
-workflows. There is no automated Claude install path for `st-*` today.
+Then install the plugins you need (`vgv-wingspan`, `vgv-ai-flutter-plugin`,
+`sea-trials`) from that marketplace.
+
+**Do not** also import
+`VeryGoodOpenSource/very-good-claude-code-marketplace` — that loads Wingspan
+and Flutter twice (duplicate skills and MCP).
+
+### Host divergence
+
+| Concern | Claude Code | Cursor |
+| --- | --- | --- |
+| Wingspan quality review | `/review` (upstream) | `/code-review` (port) |
+| Structured handoffs | native **AskUserQuestion** | **AskQuestion** (some models) |
+| Root manifest | `.claude-plugin/marketplace.json` | `.cursor-plugin/marketplace.json` |
 
 Structured handoffs on Claude use native **AskUserQuestion** (tier 2).
 Optional MCP tier 3: build from the vendored Wingspan bundle under

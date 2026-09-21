@@ -1,0 +1,27 @@
+{
+  "name": "sea-trials-claude-marketplace",
+  "owner": {
+    "name": "Sea Trials",
+    "email": "alex@seatrials.com"
+  },
+  "metadata": {
+    "description": "Private unified Claude Code marketplace: VGV (vendored from public vgv-cursor-marketplace submodule) + Sea Trials team plugin. Dual-host with Cursor via .cursor-plugin/marketplace.json in the same repo."
+  },
+  "plugins": [
+    {
+      "name": "vgv-wingspan",
+      "source": "./plugins/vgv-wingspan",
+      "description": "VGV Wingspan — vendored from public vgv-cursor-marketplace submodule."
+    },
+    {
+      "name": "vgv-ai-flutter-plugin",
+      "source": "./plugins/vgv-ai-flutter-plugin",
+      "description": "VGV AI Flutter — vendored from public vgv-cursor-marketplace submodule."
+    },
+    {
+      "name": "sea-trials",
+      "source": "./plugins/sea-trials",
+      "description": "Sea Trials team agents and MCP (Atlassian OAuth, chrome-devtools). PR review skills ship on sea-trials."
+    }
+  ]
+}

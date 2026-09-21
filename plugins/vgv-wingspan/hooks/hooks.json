@@ -1,0 +1,17 @@
+{
+  "description": "Wingspan hooks for development workflow automation",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Glob|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/recommend-plugins.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

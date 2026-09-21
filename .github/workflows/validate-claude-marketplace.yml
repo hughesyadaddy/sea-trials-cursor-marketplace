@@ -1,0 +1,28 @@
+name: validate-claude-marketplace
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  validate:
+    name: Claude plugin validate
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        plugin:
+          - plugins/sea-trials
+          - plugins/vgv-wingspan
+          - plugins/vgv-ai-flutter-plugin
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@latest
+      - name: Validate ${{ matrix.plugin }}
+        working-directory: ${{ matrix.plugin }}
+        run: claude plugin validate .
