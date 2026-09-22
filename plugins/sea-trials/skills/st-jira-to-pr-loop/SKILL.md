@@ -24,6 +24,17 @@ user-invocable: true
 
 Compose Atlassian MCP + existing PR review skills.
 
+## When to use something else
+
+| Situation | Skill |
+| --- | --- |
+| No cards yet; plan a sprint from a goal | `/st-sprint-plan` |
+| Cards exist but are vague or stale | `/st-sprint-refine` |
+| Sprint folder ready to push to Jira | `/st-jira-upload` |
+| Cards waiting in review need a QA pass | `/st-jira-test-review` |
+| Board hygiene, status vs branch | `/st-jira-board-vet` |
+| One ticket, one PR, fix review threads | **This skill** |
+
 ## Phase 1 — Jira context
 
 Use **atlassian-seatrials** (or **allinpmprep**) MCP:
@@ -54,6 +65,12 @@ Thread replies should cite ticket ID when closing Codex/Bugbot items.
 ## Phase 4 — Commit hygiene
 
 Commit messages: `fix(scope): summary (JIRA-123)`
+
+## Phase 5 — Handoff
+
+When the PR is green and merged, offer via the structured question
+tool: run `/st-jira-test-review` on the ticket (Recommended) so the
+card gets a QA comment and transition, or stop here.
 
 ## Forbidden
 

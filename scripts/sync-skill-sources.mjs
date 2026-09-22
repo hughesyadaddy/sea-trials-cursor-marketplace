@@ -9,6 +9,12 @@
  * marking it as generated. Skills must ship their own copy because both
  * hosts resolve `references/` relative to the skill directory.
  *
+ * A skill receives a copy only when one of its own markdown files (SKILL.md
+ * or anything under references/ outside references/shared/) links to
+ * `shared/<name>`. Copies nobody links to are orphans: reported by --check,
+ * deleted on a plain run. This keeps each skill's context budget to what it
+ * actually reads.
+ *
  * Usage:
  *   node scripts/sync-skill-sources.mjs           # write copies
  *   node scripts/sync-skill-sources.mjs --check   # exit 1 if any copy is stale
@@ -83,15 +89,61 @@ export function listSources(sourcesDir) {
 }
 
 /**
+ * Markdown files a skill authors itself (everything except generated copies).
+ *
+ * @param {string} skillDir
+ * @returns {string[]} absolute paths
+ */
+function ownMarkdownFiles(skillDir) {
+  const sharedDir = path.join(skillDir, sharedRel);
+  /** @type {string[]} */
+  const out = [];
+  const walk = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        if (full !== sharedDir) walk(full);
+      } else if (e.isFile() && e.name.endsWith('.md')) {
+        out.push(full);
+      }
+    }
+  };
+  walk(skillDir);
+  return out;
+}
+
+/**
+ * Source basenames a skill links to via `shared/<name>`.
+ *
+ * @param {string} skillDir
+ * @param {string[]} sources
+ * @returns {Set<string>}
+ */
+export function referencedSources(skillDir, sources) {
+  const text = ownMarkdownFiles(skillDir)
+    .map((f) => fs.readFileSync(f, 'utf8'))
+    .join('\n');
+  return new Set(sources.filter((name) => text.includes(`shared/${name}`)));
+}
+
+/**
  * @typedef {object} SyncResult
  * @property {string[]} written  copies created or updated (relative)
- * @property {string[]} stale    copies that differ from source (relative)
+ * @property {string[]} removed  orphan copies deleted (relative)
+ * @property {string[]} stale    copies that differ, are missing, or are
+ *                               orphans (relative)
  * @property {string[]} upToDate copies already matching (relative)
  * @property {string[]} sources  source basenames processed
  */
 
 /**
- * Sync (or check) every source into every skill.
+ * Sync (or check) each source into the skills that link to it.
  *
  * @param {{ root?: string, check?: boolean }} [opts]
  * @returns {SyncResult}
@@ -107,15 +159,26 @@ export function syncSkillSources(opts = {}) {
     throw new Error(`no sources found under ${sourcesDir}`);
   }
   const skillDirs = listSkillDirs(skillsDir);
+  const expectedByName = new Map(
+    sources.map((name) => [
+      name,
+      renderCopy(name, fs.readFileSync(path.join(sourcesDir, name), 'utf8')),
+    ]),
+  );
 
   /** @type {SyncResult} */
-  const result = { written: [], stale: [], upToDate: [], sources };
+  const result = {
+    written: [],
+    removed: [],
+    stale: [],
+    upToDate: [],
+    sources,
+  };
 
-  for (const name of sources) {
-    const sourceText = fs.readFileSync(path.join(sourcesDir, name), 'utf8');
-    const expected = renderCopy(name, sourceText);
+  for (const skillDir of skillDirs) {
+    const wanted = referencedSources(skillDir, sources);
 
-    for (const skillDir of skillDirs) {
+    for (const name of wanted) {
       const target = path.join(skillDir, sharedRel, name);
       const rel = path.relative(root, target);
       let current = null;
@@ -125,7 +188,7 @@ export function syncSkillSources(opts = {}) {
         current = null;
       }
 
-      if (current === expected) {
+      if (current === expectedByName.get(name)) {
         result.upToDate.push(rel);
         continue;
       }
@@ -134,8 +197,35 @@ export function syncSkillSources(opts = {}) {
         continue;
       }
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, expected);
+      fs.writeFileSync(target, expectedByName.get(name));
       result.written.push(rel);
+    }
+
+    // Orphans: copies of a known source that this skill no longer links to.
+    const sharedDir = path.join(skillDir, sharedRel);
+    let present = [];
+    try {
+      present = fs.readdirSync(sharedDir).filter((f) => f.endsWith('.md'));
+    } catch {
+      present = [];
+    }
+    for (const name of present) {
+      if (!sources.includes(name) || wanted.has(name)) continue;
+      const target = path.join(sharedDir, name);
+      const rel = path.relative(root, target);
+      if (check) {
+        result.stale.push(rel);
+        continue;
+      }
+      fs.rmSync(target);
+      result.removed.push(rel);
+    }
+    if (!check) {
+      try {
+        if (fs.readdirSync(sharedDir).length === 0) fs.rmdirSync(sharedDir);
+      } catch {
+        // shared dir never existed for this skill
+      }
     }
   }
 
@@ -188,8 +278,10 @@ function main() {
   }
 
   for (const rel of result.written) out.write(`wrote ${rel}\n`);
+  for (const rel of result.removed) out.write(`removed orphan ${rel}\n`);
   out.write(
     `sync-skill-sources: ${result.written.length} written, `
+      + `${result.removed.length} removed, `
       + `${result.upToDate.length} unchanged\n`,
   );
 }

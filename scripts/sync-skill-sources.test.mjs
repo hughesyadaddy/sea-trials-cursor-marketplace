@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import {
   banner,
   parseArgs,
+  referencedSources,
   renderCopy,
   sharedRel,
   skillsRel,
@@ -31,7 +32,11 @@ afterEach(() => {
 });
 
 /**
- * Build a marketplace fixture with two sources and three skills.
+ * Build a marketplace fixture with two sources and four skills.
+ *
+ * st-a links both sources (one from SKILL.md, one from a reference file),
+ * st-b and st-c link only contract.md, st-d links nothing. Expected copies
+ * after a sync: 4 (a×2, b, c).
  *
  * @returns {{ root: string, skillsDir: string, sourcesDir: string }}
  */
@@ -44,13 +49,30 @@ function makeFixture() {
   fs.writeFileSync(path.join(sourcesDir, 'contract.md'), '# Contract\n\nA\n');
   fs.writeFileSync(path.join(sourcesDir, 'body.md'), '# Body\n');
   fs.writeFileSync(path.join(sourcesDir, 'notes.txt'), 'ignored\n');
-  for (const skill of ['st-a', 'st-b', 'st-c']) {
-    fs.mkdirSync(path.join(skillsDir, skill), { recursive: true });
-    fs.writeFileSync(path.join(skillsDir, skill, 'SKILL.md'), '---\n---\n');
+  const link = (name) => `See [x](references/shared/${name}).\n`;
+  for (const skill of ['st-a', 'st-b', 'st-c', 'st-d']) {
+    fs.mkdirSync(path.join(skillsDir, skill, 'references'), {
+      recursive: true,
+    });
+    const body = skill === 'st-d' ? '' : link('contract.md');
+    fs.writeFileSync(
+      path.join(skillsDir, skill, 'SKILL.md'),
+      `---\n---\n${body}`,
+    );
   }
+  fs.writeFileSync(
+    path.join(skillsDir, 'st-a', 'references', 'extra.md'),
+    `Also [body](shared/body.md)\n`,
+  );
   fs.mkdirSync(path.join(skillsDir, 'not-a-skill'));
+  fs.writeFileSync(
+    path.join(skillsDir, 'not-a-skill', 'SKILL.md'),
+    link('contract.md'),
+  );
   return { root, skillsDir, sourcesDir };
 }
+
+const expectedCopies = 4;
 
 /**
  * @param {string} skillsDir
@@ -89,22 +111,39 @@ describe('sync-skill-sources', () => {
     assert.equal(text, banner('contract.md') + '# X\n');
   });
 
-  it('copies every .md source into every st-* skill', () => {
+  it('copies each .md source only into the st-* skills that link it', () => {
     const { root, skillsDir } = makeFixture();
     const result = syncSkillSources({ root });
     assert.deepEqual(result.sources, ['body.md', 'contract.md']);
-    assert.equal(result.written.length, 6);
+    assert.equal(result.written.length, expectedCopies);
     assert.equal(result.stale.length, 0);
     assert.equal(
       readCopy(skillsDir, 'st-c', 'contract.md'),
       renderCopy('contract.md', '# Contract\n\nA\n'),
     );
+    // Linked from a reference file, not SKILL.md.
     assert.equal(
       readCopy(skillsDir, 'st-a', 'body.md'),
       renderCopy('body.md', '# Body\n'),
     );
+    // Unlinked source and unlinking skill get nothing.
+    assert.ok(!fs.existsSync(copyPath(skillsDir, 'st-b', 'body.md')));
+    assert.ok(!fs.existsSync(path.join(skillsDir, 'st-d', sharedRel)));
     assert.ok(!fs.existsSync(path.join(skillsDir, 'not-a-skill', sharedRel)));
     assert.ok(!fs.existsSync(copyPath(skillsDir, 'st-a', 'notes.txt')));
+  });
+
+  it('reports referenced sources per skill', () => {
+    const { skillsDir } = makeFixture();
+    const sources = ['body.md', 'contract.md'];
+    assert.deepEqual(
+      [...referencedSources(path.join(skillsDir, 'st-a'), sources)].sort(),
+      sources,
+    );
+    assert.deepEqual(
+      [...referencedSources(path.join(skillsDir, 'st-d'), sources)],
+      [],
+    );
   });
 
   it('is idempotent and --check passes after a sync', () => {
@@ -112,16 +151,49 @@ describe('sync-skill-sources', () => {
     syncSkillSources({ root });
     const second = syncSkillSources({ root });
     assert.equal(second.written.length, 0);
-    assert.equal(second.upToDate.length, 6);
+    assert.equal(second.removed.length, 0);
+    assert.equal(second.upToDate.length, expectedCopies);
     const check = syncSkillSources({ root, check: true });
     assert.equal(check.stale.length, 0);
+  });
+
+  it('flags orphan copies in --check and deletes them on a plain run', () => {
+    const { root, skillsDir } = makeFixture();
+    syncSkillSources({ root });
+    const orphan = copyPath(skillsDir, 'st-d', 'contract.md');
+    fs.mkdirSync(path.dirname(orphan), { recursive: true });
+    fs.writeFileSync(orphan, 'stale copy nobody links\n');
+    // A file that is not a known source is left alone.
+    const foreign = copyPath(skillsDir, 'st-d', 'foreign.md');
+    fs.writeFileSync(foreign, 'keep\n');
+
+    const check = syncSkillSources({ root, check: true });
+    assert.deepEqual(check.stale, [path.relative(root, orphan)]);
+    assert.ok(fs.existsSync(orphan));
+
+    const apply = syncSkillSources({ root });
+    assert.deepEqual(apply.removed, [path.relative(root, orphan)]);
+    assert.ok(!fs.existsSync(orphan));
+    assert.ok(fs.existsSync(foreign));
+  });
+
+  it('removes the copy when a skill drops its link', () => {
+    const { root, skillsDir } = makeFixture();
+    syncSkillSources({ root });
+    fs.writeFileSync(path.join(skillsDir, 'st-c', 'SKILL.md'), '---\n---\n');
+    const apply = syncSkillSources({ root });
+    assert.deepEqual(apply.removed, [
+      path.relative(root, copyPath(skillsDir, 'st-c', 'contract.md')),
+    ]);
+    // Empty shared dir is pruned.
+    assert.ok(!fs.existsSync(path.join(skillsDir, 'st-c', sharedRel)));
   });
 
   it('--check reports drifted and missing copies without writing', () => {
     const { root, skillsDir } = makeFixture();
     syncSkillSources({ root });
     const drifted = copyPath(skillsDir, 'st-b', 'contract.md');
-    const removed = copyPath(skillsDir, 'st-c', 'body.md');
+    const removed = copyPath(skillsDir, 'st-a', 'body.md');
     fs.appendFileSync(drifted, 'local edit\n');
     fs.rmSync(removed);
 
@@ -173,11 +245,11 @@ describe('sync-skill-sources', () => {
 
     const apply = runCli(['--root', root]);
     assert.equal(apply.status, 0, apply.stderr);
-    assert.match(apply.stdout, /6 written, 0 unchanged/);
-    assert.ok(fs.existsSync(copyPath(skillsDir, 'st-b', 'body.md')));
+    assert.match(apply.stdout, /4 written, 0 removed, 0 unchanged/);
+    assert.ok(fs.existsSync(copyPath(skillsDir, 'st-b', 'contract.md')));
 
     const clean = runCli(['--check', '--root', root]);
     assert.equal(clean.status, 0, clean.stderr);
-    assert.match(clean.stdout, /6 copies up to date/);
+    assert.match(clean.stdout, /4 copies up to date/);
   });
 });

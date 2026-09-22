@@ -68,7 +68,8 @@ Never include `parent` on edit. Never clear fields you did not set.
   "cloudId": "<cloudId>",
   "issueIdOrKey": "<KEY>",
   "responseContentFormat": "adf",
-  "fields": ["summary", "description", "status", "labels", "customfield_10016", "parent", "subtasks"]
+  "fields": ["summary", "description", "status", "labels",
+             "customfield_10016", "parent", "subtasks"]
 }
 ```
 

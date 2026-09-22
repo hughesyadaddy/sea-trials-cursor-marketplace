@@ -1,3 +1,4 @@
+<!-- GENERATED from skills/_sources/review-loop-contract.md — do not edit; run node scripts/sync-skill-sources.mjs -->
 # Review-loop contract (Sea Trials)
 
 Shared by `st-pr-review-loop-inplace`, `st-pr-review-loop-worktree`, and
@@ -36,6 +37,25 @@ pnpm st-build-shard-tasks -- --manifest shards.json --root "$ACTIVE_ROOT"
 
 `/st-build-with-subagents`, `/st-pre-push-harden`, `/st-pr-review-loop-*`,
 `/st-vgv-chain`, and `/st-pr-ship` all inherit this section.
+
+## Dual-host dispatch
+
+Emitters above print one JSON task line per unit of work. Dispatch one
+worker per line on either host — same parallelism rules as above.
+
+| Host | One JSON line → |
+| --- | --- |
+| **Cursor** | `Task({ subagent_type, … })` |
+| **Claude Code** | **Agent** tool or `context: fork` |
+
+Launch all workers in **one parent turn** per wave (batch by 16 on
+Cursor when needed). Subagents never push; parent merges then one
+harden + one push.
+
+Full host-specific walkthrough (shards, gate lanes, prepush order):
+
+`plugins/sea-trials/skills/st-build-with-subagents/references/
+dual-host-dispatch.md`
 
 ## Project directory lock
 
