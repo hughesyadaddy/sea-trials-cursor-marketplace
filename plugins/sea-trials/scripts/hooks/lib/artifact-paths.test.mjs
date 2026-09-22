@@ -7,26 +7,40 @@ import {
   isGeneratedDartPath,
   isLintableDartPath,
 } from './artifact-paths.mjs';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-const repoRoot = path.dirname(
-  path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))),
-);
+// The Rust linter lives in the consuming repo (`tools/sea-trials-lint`),
+// not in the plugin. Parity with it is asserted only when that source
+// is present; the plugin's own checkout skips rather than fails.
+const rustConfigPath = (() => {
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+    encoding: 'utf8',
+  });
+  if (top.status !== 0) return null;
+  const candidate = path.join(
+    (top.stdout ?? '').trim(),
+    'tools/sea-trials-lint/src/config.rs',
+  );
+  return existsSync(candidate) ? candidate : null;
+})();
 
-test('JS artifact segments match Rust IGNORED_DIR_SEGMENTS', () => {
-  const rustSource = readFileSync(
-    path.join(repoRoot, 'tools/sea-trials-lint/src/config.rs'),
-    'utf8',
-  );
-  const match = rustSource.match(
-    /pub const IGNORED_DIR_SEGMENTS: &\[&str\] = &\[([\s\S]*?)\];/,
-  );
-  assert.ok(match, 'IGNORED_DIR_SEGMENTS not found in config.rs');
-  const rustSegments = [...match[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual([...ARTIFACT_DIR_SEGMENTS].sort(), rustSegments.sort());
-});
+test(
+  'JS artifact segments match Rust IGNORED_DIR_SEGMENTS',
+  { skip: !rustConfigPath && 'requires tools/sea-trials-lint in the checkout' },
+  () => {
+    const rustSource = readFileSync(rustConfigPath, 'utf8');
+    const match = rustSource.match(
+      /pub const IGNORED_DIR_SEGMENTS: &\[&str\] = &\[([\s\S]*?)\];/,
+    );
+    assert.ok(match, 'IGNORED_DIR_SEGMENTS not found in config.rs');
+    const rustSegments = [...match[1].matchAll(/"([^"]+)"/g)].map(
+      (m) => m[1],
+    );
+    assert.deepEqual([...ARTIFACT_DIR_SEGMENTS].sort(), rustSegments.sort());
+  },
+);
 
 test('isArtifactPath: Flutter truncated build dir', () => {
   assert.equal(

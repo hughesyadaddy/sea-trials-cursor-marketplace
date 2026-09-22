@@ -1,12 +1,41 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 import { getRepoRoot } from './pr-review-lib.mjs';
+import { coalesceGroups } from './push-gate-run.mjs';
 import {
   buildPushGatePlan,
   serializePushGateTask,
+  workerModelHints,
   PHASE_DIRTY,
+  PHASE_PREPUSH,
 } from './push-gate-tasks.mjs';
+
+/**
+ * The CI phase needs the consuming repo's `scripts/ci/*` lane registry
+ * and an `origin/dev` ref. Outside that repo (plugin CI, a fresh clone
+ * of the marketplace) the integration test is skipped, not failed: the
+ * plugin must test green standalone.
+ */
+function appRepoAvailable() {
+  let root;
+  try {
+    root = getRepoRoot();
+  } catch {
+    return false;
+  }
+  if (!fs.existsSync(path.join(root, 'scripts/ci/pr-lane-registry.mjs'))) {
+    return false;
+  }
+  const dev = spawnSync('git', ['rev-parse', '--verify', 'origin/dev'], {
+    cwd: root,
+    encoding: 'utf8',
+  });
+  return dev.status === 0;
+}
 
 test('serializePushGateTask emits subagent-runnable JSON', () => {
   const line = serializePushGateTask({
@@ -28,15 +57,114 @@ test('serializePushGateTask emits subagent-runnable JSON', () => {
   assert.equal(line.cmd, 'dart');
   assert.deepEqual(line.args, ['format', '--check', 'foo.dart']);
   assert.equal(line.cwd, '/repo/flutter');
+  // Fan-out workers are mechanical: cheap tier on both hosts.
+  assert.equal(line.subagent_type, 'generalPurpose');
+  assert.equal(line.model, 'composer-2.5');
+  assert.equal(line.claudeModel, 'haiku');
 });
 
-test('buildPushGatePlan returns groups for ci-only phase', async () => {
+test('workerModelHints honours env overrides', () => {
+  assert.deepEqual(
+    workerModelHints({
+      ST_WORKER_MODEL: 'gpt-5.6-luna-fast',
+      ST_WORKER_MODEL_CLAUDE: 'sonnet',
+    }),
+    { model: 'gpt-5.6-luna-fast', claudeModel: 'sonnet' },
+  );
+  assert.deepEqual(workerModelHints({}), {
+    model: 'composer-2.5',
+    claudeModel: 'haiku',
+  });
+});
+
+test('coalesceGroups pools consecutive parallel groups and dedupes', () => {
+  const analyze = {
+    label: 'dart analyze (chunk)',
+    cmd: 'dart',
+    args: ['analyze', 'packages/a'],
+    options: { cwd: '/repo/flutter' },
+    weight: 3,
+  };
+  const groups = [
+    {
+      id: 'g1',
+      phase: PHASE_DIRTY,
+      parallel: true,
+      tasks: [
+        analyze,
+        {
+          label: 'flutter test',
+          cmd: 'flutter',
+          args: ['test', 'x_test.dart'],
+          options: { cwd: '/repo/flutter/packages/a' },
+        },
+      ],
+    },
+    {
+      id: 'g2',
+      phase: PHASE_PREPUSH,
+      parallel: true,
+      tasks: [
+        analyze,
+        {
+          label: 'dart format',
+          cmd: 'dart',
+          args: ['format', 'a.dart'],
+          options: { cwd: '/repo/flutter' },
+        },
+      ],
+    },
+    {
+      id: 'g3',
+      phase: 'ci',
+      parallel: false,
+      tasks: [{ label: 'melos bootstrap', cmd: 'melos', args: ['bs'] }],
+    },
+    {
+      id: 'g4',
+      phase: 'ci',
+      parallel: true,
+      tasks: [{ label: 'lane', cmd: 'node', args: ['run-lane.mjs'] }],
+    },
+  ];
+
+  const pools = coalesceGroups(groups, '/repo');
+  assert.equal(pools.length, 3, 'dirty+prepush pooled; bootstrap barrier');
+  assert.deepEqual(pools[0].phases, [PHASE_DIRTY, PHASE_PREPUSH]);
+  assert.equal(pools[0].parallel, true);
+  // The analyze chunk planned by both phases runs once.
+  assert.equal(pools[0].tasks.length, 3);
+  assert.equal(pools.dedupedCount, 1);
+  assert.equal(pools[1].parallel, false);
+  assert.equal(pools[1].tasks[0].label, 'melos bootstrap');
+  assert.equal(pools[2].tasks[0].phase, 'ci');
+});
+
+test(
+  'buildPushGatePlan returns groups for ci-only phase',
+  { skip: !appRepoAvailable() && 'requires the Sea Trials checkout' },
+  async () => {
+    const plan = await buildPushGatePlan({
+      repoRoot: getRepoRoot(),
+      prNumber: null,
+      base: 'origin/dev',
+      phases: new Set(['ci']),
+    });
+    assert.equal(plan.ok, true);
+    assert.ok(Array.isArray(plan.groups));
+  },
+);
+
+test('buildPushGatePlan ci phase degrades without a lane registry', async () => {
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'st-'));
   const plan = await buildPushGatePlan({
-    repoRoot: getRepoRoot(),
+    repoRoot: root,
     prNumber: null,
-    base: 'origin/dev',
+    base: 'HEAD',
     phases: new Set(['ci']),
   });
   assert.equal(plan.ok, true);
-  assert.ok(Array.isArray(plan.groups));
+  assert.equal(plan.groups.length, 0);
+  assert.match(plan.reminders.join('\n'), /PR CI lanes skipped/);
+  fs.rmSync(root, { recursive: true, force: true });
 });

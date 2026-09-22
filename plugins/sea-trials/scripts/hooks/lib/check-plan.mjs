@@ -12,15 +12,16 @@
  * precise and drifted furthest.
  *
  * Deliberately NOT handled here: the web, functions and migration domains
- * (pre-push only), and concurrency weight. Weight is a caller decision —
- * the hook serializes `dart analyze` so it never fights the IDE's analysis
- * server, which CI has no reason to do. See `prepush.mjs`.
+ * (pre-push only). `dart analyze` tasks carry a default concurrency
+ * weight (`analyzeWeight()`) so a few analyzers run side by side without
+ * saturating the machine; callers may override it.
  *
  * All filesystem access is injected so this stays unit-testable, mirroring
  * `resolve-base-ref.mjs`.
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import {
@@ -45,6 +46,32 @@ export const DART_ANALYZE_TIMEOUT_MS = 8 * 60 * 1000;
 
 /** Batch size for path-taking commands. */
 const DART_BATCH = 50;
+
+/**
+ * Task granularity. `coarse` (default) minimises process spawns for a
+ * single machine running the gate in-process. `fine` emits many small
+ * tasks so a subagent fan-out (`--list-tasks`) can hand every failure to
+ * a worker that owns a handful of files: format/lint batches of 10 and
+ * one `dart analyze` per package instead of merged cross-package chunks.
+ */
+export const GRANULARITY = { COARSE: 'coarse', FINE: 'fine' };
+
+const FINE_DART_BATCH = 10;
+
+/**
+ * Concurrency weight for `dart analyze`. Each analysis server is
+ * multi-threaded and uses 0.5–2 GB, so a weight of 1 lets a 10-core
+ * machine spawn 10 servers and freeze the desktop, while a weight equal
+ * to the core count serialises them (the old pre-push behaviour: one
+ * analyzer at a time, ~8 min on multi-package diffs). Middle ground:
+ * roughly a quarter of the cores per analyzer, never fewer than 3 units,
+ * so 8 cores → 2 concurrent, 10 → 3, 20 → 4.
+ *
+ * @param {number} [cpuCount]
+ */
+export function analyzeWeight(cpuCount = os.cpus().length) {
+  return Math.max(3, Math.ceil(Math.max(cpuCount, 1) / 4));
+}
 
 /** Promotion PR targets whose analyze lane must stay bounded. */
 const PROMOTION_BASE_REFS = new Set(['stg', 'main']);
@@ -247,10 +274,13 @@ export function buildFlutterCheckPlan({
   analyzePackageDirsOverride,
   analyzeTimeoutMs = DART_ANALYZE_TIMEOUT_MS,
   allowFullWorkspace = true,
+  granularity = GRANULARITY.COARSE,
   io = realIo,
 }) {
   const flutterCwd = path.join(repoRoot, 'flutter');
   const tasks = [];
+  const fine = granularity === GRANULARITY.FINE;
+  const pathBatch = fine ? FINE_DART_BATCH : DART_BATCH;
 
   const flutterChanged = changedFiles.filter((p) => p.startsWith('flutter/'));
   if (flutterChanged.length === 0) {
@@ -285,7 +315,7 @@ export function buildFlutterCheckPlan({
   // gate share one ruleset. Chunked because a large branch can carry
   // hundreds of files and one spawn would exceed the Windows
   // command-line limit (spawn ENAMETOOLONG).
-  for (const batch of chunk(dartExistingFlutterPaths, DART_BATCH)) {
+  for (const batch of chunk(dartExistingFlutterPaths, pathBatch)) {
     if (batch.length === 0) continue;
     tasks.push({
       kind: TASK_KIND.FORMAT,
@@ -412,10 +442,27 @@ export function buildFlutterCheckPlan({
     if (!analyzeDirPaths.includes(target)) analyzeDirPaths.push(target);
   }
 
-  const analyzeChunks = buildMergedAnalyzeChunks({
-    fileGroups: analyzeFileGroups,
-    dirPaths: analyzeDirPaths,
-  });
+  // Fine granularity: one analyze per package (a fix-worker owns exactly
+  // one package's diagnostics) instead of cross-package merged chunks.
+  // Weight is still declared so `run-gate-task` can throttle analyzers
+  // machine-wide when many subagents run their tasks at once.
+  const analyzeChunks = fine
+    ? [
+        ...analyzeFileGroups.map((files) => ({
+          paths: files,
+          fileCount: files.length,
+          dirCount: 0,
+        })),
+        ...analyzeDirPaths.map((dir) => ({
+          paths: [dir],
+          fileCount: 0,
+          dirCount: 1,
+        })),
+      ]
+    : buildMergedAnalyzeChunks({
+        fileGroups: analyzeFileGroups,
+        dirPaths: analyzeDirPaths,
+      });
   analyzeChunks.forEach((c, i) => {
     tasks.push({
       kind: TASK_KIND.ANALYZE,
@@ -426,6 +473,7 @@ export function buildFlutterCheckPlan({
       args: ['analyze', '--fatal-infos', ...c.paths],
       options: { cwd: flutterCwd },
       timeoutMs: analyzeTimeoutMs,
+      weight: analyzeWeight(),
     });
   });
 
@@ -435,7 +483,7 @@ export function buildFlutterCheckPlan({
     const absDartPaths = dartExistingFlutterPaths.map((p) =>
       path.join(flutterCwd, p),
     );
-    for (const batch of chunk(absDartPaths, DART_BATCH)) {
+    for (const batch of chunk(absDartPaths, pathBatch)) {
       if (batch.length === 0) continue;
       tasks.push({
         kind: TASK_KIND.LINT,

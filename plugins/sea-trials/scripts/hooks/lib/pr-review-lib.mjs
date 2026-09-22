@@ -226,8 +226,49 @@ export function fetchPrMeta(repoRoot, prNumber) {
   ]);
 }
 
+/** @type {Map<string, { owner: string, name: string }>} */
+const ownerRepoCache = new Map();
+
+/**
+ * Owner/name of the GitHub repo the checkout pushes to. `GH_REPO`
+ * wins (same convention as `gh`), then `gh repo view` on the checkout.
+ * Cached per repoRoot: the loop calls this on every poll.
+ *
+ * @param {string} repoRoot
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function resolveGithubOwnerRepo(repoRoot, env = process.env) {
+  const explicit = (env.GH_REPO ?? '').trim();
+  if (explicit && explicit.includes('/')) {
+    const [owner, name] = explicit.split('/', 2);
+    return { owner, name };
+  }
+  const cached = ownerRepoCache.get(repoRoot);
+  if (cached) return cached;
+  const result = ghSpawn(repoRoot, [
+    'repo',
+    'view',
+    '--json',
+    'nameWithOwner',
+    '--jq',
+    '.nameWithOwner',
+  ]);
+  const slug = (result.stdout ?? '').trim();
+  if (result.status !== 0 || !slug.includes('/')) {
+    throw new Error(
+      result.stderr ||
+        'cannot resolve GitHub repo for this checkout; set GH_REPO=owner/name',
+    );
+  }
+  const [owner, name] = slug.split('/', 2);
+  const resolved = { owner, name };
+  ownerRepoCache.set(repoRoot, resolved);
+  return resolved;
+}
+
 export function fetchReviewThreads(repoRoot, prNumber) {
   const queryFile = reviewThreadsQueryFile;
+  const { owner, name } = resolveGithubOwnerRepo(repoRoot);
   const result = ghSpawn(repoRoot, [
     'api',
     'graphql',
@@ -235,9 +276,9 @@ export function fetchReviewThreads(repoRoot, prNumber) {
     '-F',
     `query=@${queryFile}`,
     '-F',
-    'owner=hughesyadaddy',
+    `owner=${owner}`,
     '-F',
-    'repo=sea_trials_universal',
+    `repo=${name}`,
     '-F',
     `number=${prNumber}`,
   ]);

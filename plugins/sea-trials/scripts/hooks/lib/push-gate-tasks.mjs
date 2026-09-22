@@ -8,9 +8,25 @@ import * as dirty from './dirty-tree-tasks.mjs';
 import * as prepush from './prepush-tasks.mjs';
 import * as ci from '../pr-local-ci.mjs';
 
-const PHASE_DIRTY = 'dirty';
-const PHASE_PREPUSH = 'prepush';
-const PHASE_CI = 'ci';
+export const PHASE_DIRTY = 'dirty';
+export const PHASE_PREPUSH = 'prepush';
+export const PHASE_CI = 'ci';
+
+/**
+ * Model routing for fan-out workers. Running a gate command and fixing
+ * a format/lint/analyze failure is mechanical work: pin it to the cheap,
+ * fast tier on each host. Reviewers and planners stay on `inherit`.
+ *
+ * Cursor slugs come from the Task tool's allow-list; Claude aliases from
+ * the subagent `model:` field. `ST_WORKER_MODEL` / `ST_WORKER_MODEL_CLAUDE`
+ * override both when a team standardises on a different cheap model.
+ */
+export function workerModelHints(env = process.env) {
+  return {
+    model: (env.ST_WORKER_MODEL ?? '').trim() || 'composer-2.5',
+    claudeModel: (env.ST_WORKER_MODEL_CLAUDE ?? '').trim() || 'haiku',
+  };
+}
 
 /**
  * @param {Record<string, unknown>} task
@@ -68,6 +84,8 @@ export function serializePushGateTask({
     cwd: runnable.options.cwd,
     weight: runnable.weight,
     kind: task.kind ?? task.lane ?? undefined,
+    subagent_type: 'generalPurpose',
+    ...workerModelHints(),
   };
 }
 
@@ -79,11 +97,13 @@ export function serializePushGateTask({
  *   phases?: Set<string>,
  *   analyzeOnly?: boolean,
  *   testsOnly?: boolean,
+ *   granularity?: string,
  * }} opts
  */
 export async function buildPushGatePlan(opts) {
   const repoRoot = opts.repoRoot;
   const phases = opts.phases ?? new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
+  const granularity = opts.granularity;
   /** @type {Array<{ id: string, phase: string, parallel: boolean, tasks: Array<Record<string, unknown>> }>} */
   const groups = [];
   /** @type {string[]} */
@@ -109,6 +129,7 @@ export async function buildPushGatePlan(opts) {
         changed,
         analyzeOnly: opts.analyzeOnly,
         testsOnly: opts.testsOnly,
+        granularity,
       });
       if (dirtyTasks.length > 0) {
         groupIndex += 1;
@@ -130,7 +151,9 @@ export async function buildPushGatePlan(opts) {
     const { ctx } = prep;
     meta.prepushFileCount = ctx.changed.length;
     if (ctx.changed.length > 0) {
-      const prepushTasks = prepush.buildPrepushTasks(repoRoot, ctx);
+      const prepushTasks = prepush.buildPrepushTasks(repoRoot, ctx, {
+        granularity,
+      });
       if (prepushTasks.length > 0) {
         groupIndex += 1;
         groups.push({
@@ -211,5 +234,3 @@ export function emitPushGateTaskLines(plan, repoRoot) {
     );
   }
 }
-
-export { PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI };

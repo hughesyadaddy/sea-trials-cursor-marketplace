@@ -35,22 +35,43 @@ function resolveRepoRoot() {
 const repoRoot = resolveRepoRoot();
 const repoCiRoot = path.join(repoRoot, 'scripts/ci');
 
-const { matchLanePaths } = await import(
-  pathToFileURL(path.join(repoCiRoot, 'pr-lane-paths.mjs')).href
-);
-const { emptyPassCache, parsePassCache } = await import(
-  pathToFileURL(path.join(repoCiRoot, 'pass-cache.mjs')).href
-);
-const { PR_LANES, registryLanes } = await import(
-  pathToFileURL(path.join(repoCiRoot, 'pr-lane-registry.mjs')).href
-);
-const {
-  emptyTimingCache,
-  parseTimingCache,
-  TIMING_CACHE_FILE,
-} = await import(
-  pathToFileURL(path.join(repoCiRoot, 'test-shard-timing.mjs')).href
-);
+/**
+ * The lane registry, pass cache and shard timing live in the consuming
+ * repo's `scripts/ci/` (repo config, not plugin runtime). They are
+ * loaded on first use so this module — and everything that imports it,
+ * such as the push-gate planner — still loads in a checkout without
+ * them (plugin unit tests, a non-Sea-Trials repo using only the dirty
+ * and prepush phases).
+ */
+let repoCiModules = null;
+
+async function loadRepoCi() {
+  if (repoCiModules) return repoCiModules;
+  const load = (file) =>
+    import(pathToFileURL(path.join(repoCiRoot, file)).href);
+  const [lanePaths, passCache, registry, timing] = await Promise.all([
+    load('pr-lane-paths.mjs'),
+    load('pass-cache.mjs'),
+    load('pr-lane-registry.mjs'),
+    load('test-shard-timing.mjs'),
+  ]);
+  repoCiModules = {
+    matchLanePaths: lanePaths.matchLanePaths,
+    emptyPassCache: passCache.emptyPassCache,
+    parsePassCache: passCache.parsePassCache,
+    PR_LANES: registry.PR_LANES,
+    registryLanes: registry.registryLanes,
+    emptyTimingCache: timing.emptyTimingCache,
+    parseTimingCache: timing.parseTimingCache,
+    TIMING_CACHE_FILE: timing.TIMING_CACHE_FILE,
+  };
+  return repoCiModules;
+}
+
+/** True when the checkout ships the PR lane registry. */
+export function repoCiAvailable(root = repoRoot) {
+  return fs.existsSync(path.join(root, 'scripts/ci/pr-lane-registry.mjs'));
+}
 
 const flutterRoot = path.join(repoRoot, 'flutter');
 const runLaneScript = path.join(repoRoot, 'scripts/ci/run-lane.mjs');
@@ -148,10 +169,13 @@ export function changedFilesVsBase(base, root = repoRoot) {
 
 /**
  * @param {string[]} changedFiles
- * @param {typeof PR_LANES} [lanes]
+ * @param {Array<{ paths: string[] }>} lanes
  */
-export function filterEligibleLanes(changedFiles, lanes = registryLanes()) {
-  return lanes.filter((lane) => matchLanePaths(changedFiles, lane.paths));
+export async function filterEligibleLanes(changedFiles, lanes) {
+  const { matchLanePaths, registryLanes } = await loadRepoCi();
+  return (lanes ?? registryLanes()).filter((lane) =>
+    matchLanePaths(changedFiles, lane.paths),
+  );
 }
 
 /**
@@ -356,9 +380,30 @@ function serializeTaskForList(task) {
 export async function buildPrLocalCiTasks(opts) {
   const root = opts.repoRoot ?? repoRoot;
   const base = opts.base;
+  if (!repoCiAvailable(root)) {
+    return {
+      tasks: [],
+      reminders: [
+        'ci: no scripts/ci/pr-lane-registry.mjs in this checkout — ' +
+          'PR CI lanes skipped (dirty + prepush phases still apply)',
+      ],
+      eligible: [],
+    };
+  }
+  const {
+    registryLanes,
+    emptyPassCache,
+    parsePassCache,
+    emptyTimingCache,
+    parseTimingCache,
+    TIMING_CACHE_FILE,
+  } = await loadRepoCi();
   const changed =
     opts.changedFiles ?? changedFilesVsBase(base, root);
-  const eligible = filterEligibleLanes(changed, opts.lanes ?? registryLanes());
+  const eligible = await filterEligibleLanes(
+    changed,
+    opts.lanes ?? registryLanes(),
+  );
   const laneFilter = opts.laneFilter;
   const selected = laneFilter
     ? eligible.filter((lane) => lane.id === laneFilter)

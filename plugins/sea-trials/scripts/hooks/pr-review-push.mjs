@@ -26,6 +26,11 @@ import {
   PHASE_DIRTY,
   PHASE_PREPUSH,
 } from './lib/push-gate-tasks.mjs';
+import { GRANULARITY } from './lib/check-plan.mjs';
+import {
+  clearGatePassToken,
+  writeGatePassToken,
+} from './lib/gate-pass-token.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -90,10 +95,13 @@ async function main() {
   const artifactPaths = reviewPaths(repoRoot, prNumber);
 
   if (listTasks) {
+    // Fan-out wants many small tasks: each worker owns a few files or
+    // one package and can fix what it finds without stepping on others.
     const plan = await buildPushGatePlan({
       repoRoot,
       prNumber,
       phases,
+      granularity: GRANULARITY.FINE,
     });
     if (!plan.ok) {
       process.stderr.write(`❌ ${plan.error}\n`);
@@ -106,6 +114,8 @@ async function main() {
   const headBeforePush = readHeadOid(repoRoot);
   process.stdout.write(`PR #${prNumber} push gate (${pr.headRefName})\n`);
 
+  // A stale token from an earlier run must never vouch for this tree.
+  clearGatePassToken(repoRoot);
   const local = await runLocalPushGate(repoRoot, {
     prNumber,
     phases,
@@ -130,6 +140,19 @@ async function main() {
       process.stdout.write(`${captured}\n`);
     }
     process.stdout.write(`✅ ${step.name}\n`);
+  }
+
+  // Record the pass so the pre-push hook fired by `git push` below does
+  // not re-run the committed-diff gate on the identical tree. The hook
+  // re-validates HEAD + tree fingerprint + ST_REVIEW_PUSH before trusting
+  // it (see lib/gate-pass-token.mjs). `--check-only` records it too so a
+  // READY verdict followed by an immediate push is still a single run.
+  if (phases.has(PHASE_PREPUSH)) {
+    writeGatePassToken(repoRoot, {
+      headOid: headBeforePush,
+      phases,
+      prNumber,
+    });
   }
 
   if (checkOnly) {

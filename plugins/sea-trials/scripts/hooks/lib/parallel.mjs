@@ -160,6 +160,7 @@ export function runAsync(cmd, args, options = {}) {
       env: options.env,
     });
     lowerPriority(child);
+    if (typeof options.onSpawn === 'function') options.onSpawn(child);
 
     let stdout = '';
     let stderr = '';
@@ -213,21 +214,61 @@ export function runAsync(cmd, args, options = {}) {
  * concurrently instead of 20 (which saturates CPU AND memory and
  * freezes the desktop; observed 2026-07-08 with a 722-file diff).
  */
+/**
+ * Fail-fast is the default: the gate exists to answer "may I push?",
+ * and the first red answer is final. Killing the remaining analyzers
+ * the moment one task fails saves minutes on every failed attempt
+ * (the fixer re-runs anyway). `ST_GATE_FAIL_FAST=0` restores
+ * report-everything mode for humans who want the full list.
+ */
+export function failFastDefault(env = process.env) {
+  const raw = (env.ST_GATE_FAIL_FAST ?? '').trim().toLowerCase();
+  return !(raw === '0' || raw === 'false' || raw === 'no');
+}
+
+/**
+ * @param {Array<{ label: string, cmd: string, args: string[],
+ *   weight?: number, timeoutMs?: number, options?: object }>} tasks
+ * @param {number} [budget]
+ * @param {{ failFast?: boolean }} [opts]
+ */
 export async function runParallelLimited(
   tasks,
   budget = Math.max(os.cpus().length, 2),
+  opts = {},
 ) {
+  const failFast = opts.failFast ?? failFastDefault();
   const results = [];
   const executing = new Set();
+  /** @type {Set<import('node:child_process').ChildProcess>} */
+  const children = new Set();
   let inFlight = 0;
   let doneCount = 0;
+  let aborted = false;
+  let skipped = 0;
+
+  const abortRemaining = () => {
+    if (aborted) return;
+    aborted = true;
+    for (const child of children) {
+      if (child.pid && child.exitCode === null) killProcessTree(child.pid);
+    }
+  };
 
   for (const task of tasks) {
+    if (aborted) {
+      skipped += 1;
+      continue;
+    }
     // A single over-budget task must still run (alone).
     const weight = Math.min(task.weight ?? 1, budget);
 
     while (inFlight + weight > budget && executing.size > 0) {
       await Promise.race(executing);
+    }
+    if (aborted) {
+      skipped += 1;
+      continue;
     }
 
     inFlight += weight;
@@ -240,6 +281,10 @@ export async function runParallelLimited(
       const result = await runAsync(task.cmd, task.args, {
         ...task.options,
         timeoutMs: task.timeoutMs,
+        onSpawn: (child) => {
+          children.add(child);
+          child.on('close', () => children.delete(child));
+        },
       });
       return { label: task.label, ...result };
     })();
@@ -252,10 +297,13 @@ export async function runParallelLimited(
         // previously produced ZERO output until every task settled,
         // which is indistinguishable from a hang.
         doneCount += 1;
+        const killed = aborted && r.code !== 0;
         process.stderr.write(
-          `${r.code === 0 ? '✅' : '❌'} [${doneCount}/${tasks.length}] ${r.label}\n`,
+          `${r.code === 0 ? '✅' : killed ? '⏹' : '❌'} ` +
+            `[${doneCount}/${tasks.length}] ${r.label}\n`,
         );
-        return r;
+        if (r.code !== 0 && failFast) abortRemaining();
+        return { ...r, killed };
       },
       (err) => {
         executing.delete(wrapped);
@@ -273,9 +321,10 @@ export async function runParallelLimited(
   const failures = [];
 
   // Per-task status already streamed incrementally above; this pass
-  // only dumps failure output.
-  for (const { label, code, stdout, stderr } of settled) {
-    if (code !== 0) {
+  // only dumps failure output. Tasks killed by fail-fast are not
+  // failures of their own — their output is noise from a SIGTERM.
+  for (const { label, code, stdout, stderr, killed } of settled) {
+    if (code !== 0 && !killed) {
       failures.push({ label, code, stdout, stderr });
       process.stderr.write(`\n❌ ${label} (exit ${code})\n`);
       if (stdout) process.stdout.write(stdout);
@@ -283,5 +332,14 @@ export async function runParallelLimited(
     }
   }
 
-  return { failures, results: settled };
+  if (aborted) {
+    const killedCount = settled.filter((r) => r.killed).length;
+    process.stderr.write(
+      `⏹ fail-fast: stopped ${killedCount} running and skipped ${skipped} ` +
+        'queued task(s) after the first failure ' +
+        '(ST_GATE_FAIL_FAST=0 to run everything)\n',
+    );
+  }
+
+  return { failures, results: settled, aborted, skipped };
 }

@@ -26,9 +26,20 @@ const repoRoot = (() => {
   return (top.stdout ?? '').trim();
 })();
 
-const packageJson = JSON.parse(
-  fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),
-);
+// Integration tests below assert the *consuming* repo's wiring (its
+// package.json `prepare`, its tracked `.husky/` hooks). In the plugin's
+// own checkout there is no such repo, so those tests skip instead of
+// failing: the plugin must test green standalone.
+const consumerPackageJsonPath = path.join(repoRoot, 'package.json');
+const consumerRepo =
+  fs.existsSync(consumerPackageJsonPath)
+  && fs.existsSync(path.join(repoRoot, HOOKS_DIR));
+const consumer = {
+  skip: !consumerRepo && 'requires a consuming repo checkout (.husky + package.json)',
+};
+const packageJson = consumerRepo
+  ? JSON.parse(fs.readFileSync(consumerPackageJsonPath, 'utf8'))
+  : {};
 
 // Unit fixtures deliberately hardcode the production layout instead of
 // reading HOOKS_DIR. Reusing the constant would make them follow a
@@ -54,7 +65,7 @@ function headEntriesFor(
 // itself. Mutate HOOKS_DIR back to husky's `.husky/_` and this fails,
 // because that directory has no tracked contents.
 
-test('every required hook is tracked at HEAD under the configured hooks dir', () => {
+test('every required hook is tracked at HEAD under the configured hooks dir', consumer, () => {
   const headEntries = listHeadEntries(repoRoot, HOOKS_DIR);
   assert.ok(
     headEntries.length > 0,
@@ -69,7 +80,7 @@ test('every required hook is tracked at HEAD under the configured hooks dir', ()
   assert.ok(ok, problems.join('\n'));
 });
 
-test('a fresh worktree checkout of HEAD contains each hook, executable', () => {
+test('a fresh worktree checkout of HEAD contains each hook, executable', consumer, () => {
   const tracked = new Map(
     listHeadEntries(repoRoot, HOOKS_DIR).map((e) => [e.path, e.mode]),
   );
@@ -86,7 +97,7 @@ test('a fresh worktree checkout of HEAD contains each hook, executable', () => {
   }
 });
 
-test('the prepare script wires hooks and never invokes husky', () => {
+test('the prepare script wires hooks and never invokes husky', consumer, () => {
   const prepare = packageJson.scripts?.prepare ?? '';
   assert.ok(
     prepare.includes('scripts/hooks/install-git-hooks.mjs'),
@@ -103,7 +114,7 @@ test('the prepare script wires hooks and never invokes husky', () => {
   );
 });
 
-test('husky is not a dependency that could re-point core.hooksPath', () => {
+test('husky is not a dependency that could re-point core.hooksPath', consumer, () => {
   for (const field of ['dependencies', 'devDependencies']) {
     assert.equal(
       packageJson[field]?.husky,
@@ -220,7 +231,7 @@ test('invokesHuskyCli detects husky under every common runner', () => {
   }
 });
 
-test('pre-push blocks bare push when an open PR exists without ST_REVIEW_PUSH', () => {
+test('pre-push blocks bare push when an open PR exists without ST_REVIEW_PUSH', consumer, () => {
   const prePush = fs.readFileSync(
     path.join(repoRoot, '.husky/pre-push'),
     'utf8',

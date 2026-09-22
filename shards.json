@@ -1,0 +1,48 @@
+{
+  "shards": [
+    {
+      "id": "sync-script",
+      "paths": [
+        "scripts/sync-vendor-plugins.mjs",
+        "MARKETPLACE_IMPORTS.md",
+        "PLUGIN_SOURCES.md"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "sea-trials-claude-plugin",
+      "paths": [
+        "plugins/sea-trials/.claude-plugin/",
+        "plugins/sea-trials/.mcp.json",
+        "plugins/sea-trials/hooks/"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "marketplace-root-ci",
+      "paths": [
+        ".claude-plugin/",
+        ".github/workflows/",
+        "README.md"
+      ],
+      "dependsOn": []
+    },
+    {
+      "id": "vendor-bump",
+      "paths": [
+        "imports/vgv-cursor-marketplace",
+        "plugins/vgv-wingspan/",
+        "plugins/vgv-ai-flutter-plugin/"
+      ],
+      "dependsOn": ["sync-script"]
+    },
+    {
+      "id": "st-dispatch-docs",
+      "paths": [
+        "plugins/sea-trials/skills/_sources/review-loop-contract.md"
+      ],
+      "dependsOn": []
+    }
+  ],
+  "maxParallel": 4
+}

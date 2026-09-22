@@ -129,6 +129,7 @@ export function buildDirtyTreeTasks({
   changed,
   analyzeOnly = false,
   testsOnly = false,
+  granularity,
 }) {
   const flutterRoot = path.join(repoRoot, 'flutter');
   const changedFlutter = changed.filter((p) => p.startsWith('flutter/'));
@@ -150,17 +151,17 @@ export function buildDirtyTreeTasks({
     ensureSeaTrialsLint(repoRoot, { soft: false });
     const lintCmd = getSeaTrialsLintCmd(repoRoot);
 
+    // Keep the planner's analyze weight: flattening every task to weight
+    // 1 let a dirty tree with N packages spawn N analysis servers at once.
     const { tasks: flutterTasks } = buildFlutterCheckPlan({
       repoRoot,
       changedFiles: changed,
       pubspecDiff,
       lintCmd,
       allowFullWorkspace: false,
+      granularity,
     });
-
-    for (const task of flutterTasks) {
-      tasks.push({ ...task, weight: 1 });
-    }
+    tasks.push(...flutterTasks);
   }
 
   if (!analyzeOnly) {

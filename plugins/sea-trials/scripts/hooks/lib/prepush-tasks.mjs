@@ -2,7 +2,6 @@
  * Committed-diff pre-push tasks — shared by prepush.mjs and push-gate.
  */
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -12,7 +11,7 @@ import {
   needsFullFlutterPackageAnalyze,
   chunk,
 } from './flutter-packages.mjs';
-import { TASK_KIND, buildFlutterCheckPlan } from './check-plan.mjs';
+import { buildFlutterCheckPlan } from './check-plan.mjs';
 import { ensureSeaTrialsLint } from './ensure-sea-trials-lint.mjs';
 import { getSeaTrialsLintCmd } from './resolve-sea-trials-lint.mjs';
 import { resolveBaseRef } from './resolve-base-ref.mjs';
@@ -205,8 +204,9 @@ export function preparePrepushGate(repoRoot) {
 /**
  * @param {string} repoRoot
  * @param {ReturnType<typeof collectPrepushContext>} ctx
+ * @param {{ granularity?: string }} [opts]
  */
-export function buildPrepushTasks(repoRoot, ctx) {
+export function buildPrepushTasks(repoRoot, ctx, opts = {}) {
   const {
     baseRef,
     changed,
@@ -253,22 +253,18 @@ export function buildPrepushTasks(repoRoot, ctx) {
       lintCmd = getSeaTrialsLintCmd(repoRoot);
     }
 
+    // Analyze tasks carry `analyzeWeight()` from the planner: a few
+    // analyzers side by side instead of the old one-at-a-time
+    // serialisation (which cost ~8 min on multi-package diffs).
     const { tasks: flutterTasks } = buildFlutterCheckPlan({
       repoRoot,
       changedFiles: changed,
       pubspecDiff: pubspecDiffForScope,
       lintCmd,
       allowFullWorkspace: false,
+      granularity: opts.granularity,
     });
-
-    const serializeWeight = Math.max(os.cpus().length, 2);
-    for (const task of flutterTasks) {
-      tasks.push(
-        task.kind === TASK_KIND.ANALYZE
-          ? { ...task, weight: serializeWeight }
-          : task,
-      );
-    }
+    tasks.push(...flutterTasks);
   }
 
   if (changedHasFunctions) {

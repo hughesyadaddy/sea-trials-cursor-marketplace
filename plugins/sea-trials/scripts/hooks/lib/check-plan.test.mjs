@@ -3,8 +3,10 @@ import test from 'node:test';
 
 import {
   DART_ANALYZE_TIMEOUT_MS,
+  GRANULARITY,
   LANES,
   TASK_KIND,
+  analyzeWeight,
   buildFlutterCheckPlan,
   isPromotionBaseRef,
   resolvePromotionBaseRef,
@@ -56,19 +58,55 @@ const byKind = (tasks, kind) => tasks.filter((t) => t.kind === kind);
 // Concurrency weight
 // ---------------------------------------------------------------------
 
-test('planner never assigns concurrency weight', () => {
-  // Weight is a caller decision. The hook serializes dart analyze so it
-  // never runs two analysis servers against the IDE at once (that hung
-  // full-package question_card for 18 min); CI has no IDE and should
-  // parallelize. Baking a weight here would force one policy on both.
+test('only analyze tasks carry a concurrency weight', () => {
+  // An analysis server is multi-threaded and memory-hungry; the weight
+  // lets a few run side by side without freezing the machine. Format
+  // and lint are cheap string checks and stay weightless (weight 1).
   const { tasks } = plan(['flutter/packages/app_ui/lib/a.dart']);
   assert.ok(tasks.length > 0);
   for (const task of tasks) {
-    assert.equal(
-      Object.hasOwn(task, 'weight'),
-      false,
-      `${task.label} must not carry a weight`,
-    );
+    if (task.kind === TASK_KIND.ANALYZE) {
+      assert.equal(task.weight, analyzeWeight(), `${task.label} weight`);
+    } else {
+      assert.equal(
+        Object.hasOwn(task, 'weight'),
+        false,
+        `${task.label} must not carry a weight`,
+      );
+    }
+  }
+});
+
+test('analyzeWeight scales with cores but never serialises', () => {
+  assert.equal(analyzeWeight(4), 3);
+  assert.equal(analyzeWeight(8), 3);
+  assert.equal(analyzeWeight(10), 3);
+  assert.equal(analyzeWeight(20), 5);
+  // Never equal to the core count: that was the old one-at-a-time hook.
+  for (const cores of [8, 10, 16, 20, 32]) {
+    assert.ok(analyzeWeight(cores) < cores, `${cores} cores`);
+  }
+});
+
+test('fine granularity: small batches and one analyze per package', () => {
+  const files = [
+    ...Array.from(
+      { length: 25 },
+      (_, i) => `flutter/packages/app_ui/lib/f${i}.dart`,
+    ),
+    'flutter/packages/api_client/lib/u.dart',
+  ];
+  const coarse = plan(files);
+  const fine = plan(files, { granularity: GRANULARITY.FINE });
+
+  assert.equal(byKind(coarse.tasks, TASK_KIND.FORMAT).length, 1);
+  assert.equal(byKind(fine.tasks, TASK_KIND.FORMAT).length, 3);
+  // Coarse merges both packages into one analyzer; fine keeps one each.
+  assert.equal(byKind(coarse.tasks, TASK_KIND.ANALYZE).length, 1);
+  assert.equal(byKind(fine.tasks, TASK_KIND.ANALYZE).length, 2);
+  for (const task of byKind(fine.tasks, TASK_KIND.ANALYZE)) {
+    assert.equal(task.weight, analyzeWeight());
+    assert.ok(task.timeoutMs > 0);
   }
 });
 

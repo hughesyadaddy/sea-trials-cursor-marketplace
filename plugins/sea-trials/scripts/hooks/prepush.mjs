@@ -9,6 +9,7 @@ import {
   serializePushGateTask,
 } from './lib/push-gate-tasks.mjs';
 import { getRepoRoot } from './lib/pr-review-lib.mjs';
+import { checkGatePassToken } from './lib/gate-pass-token.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -104,6 +105,24 @@ acquirePrepushLock();
 
 async function main() {
   const listTasks = parseArgs(process.argv.slice(2));
+
+  // `pnpm pr-review-push` already ran this exact gate on this exact
+  // tree seconds ago and then invoked `git push`, which fired this hook.
+  // Re-running `dart analyze` here doubled every push's wall clock.
+  if (!listTasks) {
+    const pass = checkGatePassToken(repoRoot, {
+      requiredPhase: PHASE_PREPUSH,
+    });
+    if (pass.ok) {
+      const ageSec = Math.round((pass.ageMs ?? 0) / 1000);
+      process.stdout.write(
+        `✅ Pre-push: ${pass.reason} (${ageSec}s ago via pr-review-push). ` +
+          'Skipping duplicate gate. ST_PREPUSH_FORCE=1 to re-run.\n',
+      );
+      process.exit(0);
+    }
+  }
+
   const prep = prepushTasks.preparePrepushGate(repoRoot);
   if (!prep.ok) {
     process.stderr.write(`❌ ${prep.message}\n`);
