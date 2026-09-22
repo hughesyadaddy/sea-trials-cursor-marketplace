@@ -7,6 +7,7 @@ import { test } from 'node:test';
 import {
   contentHash,
   diffAgainstState,
+  extractFiles,
   lintSprint,
   loadSprint,
   parseStory,
@@ -142,6 +143,85 @@ test('a bold line that is not metadata stays in the description', () => {
 test('missing H1 falls back to the filename slug', () => {
   const story = parseStory('Body only', { id: '2', file: '02-us2-my-slug.md' });
   assert.equal(story.summary, 'my slug');
+});
+
+// ===========================================================================
+// KIND / FILES
+// ===========================================================================
+
+test('**Kind:** metadata is parsed, lower-cased, defaults to null', () => {
+  const withKind = parseStory(`# T\n\n**SP:** 2 | **Kind:** Verify\n\n${AC}`, {
+    id: '1',
+    file: 'f.md',
+  });
+  assert.equal(withKind.kind, 'verify');
+  assert.equal(withKind.description.includes('Kind'), false);
+  const noKind = parseStory(`# T\n\n${AC}`, { id: '1', file: 'f.md' });
+  assert.equal(noKind.kind, null);
+});
+
+test('extractFiles reads heading and bold-label file sections', () => {
+  const md = [
+    '## Files to touch',
+    '',
+    '- `flutter/apps/client_app/lib/a.dart` - edit',
+    '- `flutter/apps/client_app/lib/b.dart` - new; holds X',
+    '- web/apps/site/src/page.ts (plain path)',
+    '- Not a path at all',
+    '- `flutter/apps/client_app/lib/a.dart` - duplicate',
+    '',
+    '## Acceptance criteria',
+    '',
+    '- [ ] `not/a/file.dart` is not in a files section',
+    '',
+    '**Files to change**',
+    '',
+    '1. `supabase/migrations/001_x.sql`',
+    '',
+    '**Acceptance criteria**',
+    '',
+    '- [ ] `ignored/too.dart`',
+    '',
+    '```md',
+    '## Files',
+    '- `fenced/skip.dart`',
+    '```',
+  ].join('\n');
+  assert.deepEqual(extractFiles(md), [
+    'flutter/apps/client_app/lib/a.dart',
+    'flutter/apps/client_app/lib/b.dart',
+    'web/apps/site/src/page.ts',
+    'supabase/migrations/001_x.sql',
+  ]);
+  assert.deepEqual(extractFiles('no sections here'), []);
+});
+
+test('story and subtask expose files from their own sections', () => {
+  const story = parseStory(
+    [
+      '# T',
+      '',
+      '## Files to touch',
+      '',
+      '- `lib/story.dart` - x',
+      '',
+      AC,
+      '## Subtasks',
+      '',
+      '### Subtask 1.1: A',
+      '',
+      '**Files to change**',
+      '',
+      '- `lib/sub.dart` - y',
+      '',
+      '**Acceptance criteria**',
+      '',
+      '- [ ] z',
+    ].join('\n'),
+    { id: '1', file: 'f.md' },
+  );
+  assert.deepEqual(story.files, ['lib/story.dart']);
+  assert.deepEqual(story.subtasks[0].files, ['lib/sub.dart']);
 });
 
 // ===========================================================================

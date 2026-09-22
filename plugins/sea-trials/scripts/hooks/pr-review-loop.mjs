@@ -33,6 +33,7 @@ import {
   spawnWebhookForwarder,
   startWebhookReceiver,
 } from './lib/bot-review-settled.mjs';
+import { recordRun } from './lib/gate-telemetry.mjs';
 import {
   GraphqlRateLimitedError,
   buildReviewSnapshot,
@@ -49,6 +50,30 @@ import {
 const repoRoot = getRepoRoot();
 const args = parsePrArgs(process.argv.slice(2));
 const { once, prNumber, json } = args;
+
+/** Set when the watch starts; the terminal telemetry row measures from it. */
+let watchStartedAt = Date.now();
+
+/**
+ * Telemetry row per loop iteration (kind `review-loop`). `ok` means no
+ * unresolved bot thread and no CI failure at the end of the iteration.
+ *
+ * @param {ReturnType<typeof buildReviewSnapshot>} snapshot
+ * @param {{ task: string, phase: string, ms: number }} fields
+ */
+function tellIteration(snapshot, fields) {
+  recordRun({
+    kind: 'review-loop',
+    task: fields.task,
+    phase: fields.phase,
+    ms: fields.ms,
+    ok:
+      (snapshot?.threads?.unresolvedBotCount ?? 0) === 0 &&
+      !snapshot?.ci?.hasFailure,
+    pr: prNumber,
+    repoRoot,
+  });
+}
 
 const artifactPaths = reviewPaths(repoRoot, prNumber);
 const logPath = path.join(repoRoot, artifactPaths.loopLog);
@@ -133,6 +158,11 @@ function pollOnce() {
  */
 function exitForSnapshot(snapshot, reason) {
   const verdict = evaluateSnapshot(snapshot);
+  tellIteration(snapshot, {
+    task: 'final',
+    phase: reason,
+    ms: Date.now() - watchStartedAt,
+  });
   if (snapshot.threads.unresolvedCount > 0) {
     writeQueue(snapshot, 'threads', { threads: snapshot.threads.unresolved });
     logLine(
@@ -207,6 +237,7 @@ async function main() {
     initial.pr.headRefName,
   );
   const t0 = new Date(pushIso).getTime();
+  watchStartedAt = Date.now();
   const cfg = settledConfig();
   const sleeper = createWakeableSleep();
 
@@ -264,6 +295,7 @@ async function main() {
     exitForSnapshot(initial, 'initial poll');
   }
 
+  let iterationStartedAt = Date.now();
   while (true) {
     let result;
     try {
@@ -277,6 +309,14 @@ async function main() {
     if (json) {
       process.stdout.write(`${JSON.stringify(poller.snapshot())}\n`);
     }
+    // One row per poll cycle: `ms` is the full iteration period
+    // (poll + sleep), `phase` the settled-machine state reached.
+    tellIteration(latest, {
+      task: 'iteration',
+      phase: String(machine.state).toLowerCase(),
+      ms: Date.now() - iterationStartedAt,
+    });
+    iterationStartedAt = Date.now();
 
     if (latest.ci.hasFailure) {
       await webhook?.stop();

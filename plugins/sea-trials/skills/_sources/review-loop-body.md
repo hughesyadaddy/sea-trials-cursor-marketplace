@@ -61,8 +61,18 @@ proceed:
 | --- | --- | --- |
 | `0` | `DONE` — settled, threads clear, CI green | Final verification |
 | `2` | `ACTING` — unresolved threads; queue written | Step 2 |
-| `3` | CI failed on HEAD | Fix or re-run flake → Step 4 |
+| `3` | CI failed on HEAD | Attributable to the diff → fix → Step 4; else flake routing below |
 | `8` | CI still pending at the silence cap | Keep watching |
+
+**Flake routing (exit `3` only).** When the local gate passed and the
+red job's failing tests are not in the PR diff, invoke
+`/st-flake-quarantine` (Cursor) / `/sea-trials:st-flake-quarantine`
+(Claude Code) with the PR number. It returns one of two verdicts:
+`quarantined` — a skip citing a tracking issue is committed; run Step
+4 on the new tree and continue — or `real` — treat it as a normal CI
+failure and fix via Step 3/4. Never quarantine a local failure or a
+protected test (`integration_test/`, `scenario_`, `golden`,
+`security`, `auth`, `payment`, `billing`).
 
 Spot-check any time with `node "$ST_REVIEW_STATUS" -- --pr <n>` (prints
 `settled.state`, unresolved bot count, CI per check). Queue and state
@@ -182,6 +192,10 @@ Stop and report (do not keep looping) when any of these hold:
    host structured-question tool.
 5. Mode-specific preflight failed (wrong branch in-place; worktree
    creation failed).
+6. Remote CI red on HEAD, local gate green, and `/st-flake-quarantine`
+   returned `real` (or refused: attributable, protected, or the
+   two-per-PR cap) with no fix in hand — report the failing check and
+   the flake verdict.
 
 Never stop because: one or two polls were clean; "bots usually answer
 by now"; CI is green but threads remain; threads are clear but CI is

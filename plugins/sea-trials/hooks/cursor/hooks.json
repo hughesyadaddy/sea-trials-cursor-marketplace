@@ -1,10 +1,18 @@
 {
   "version": 1,
   "hooks": {
+    "sessionStart": [
+      {
+        "command": "node ./hooks/scripts/session-start.mjs",
+        "timeout": 10
+      }
+    ],
     "beforeShellExecution": [
       {
-        "command": "./hooks/scripts/deny-no-verify-push.sh",
-        "matcher": "git\\s+push"
+        "command": "node ./hooks/scripts/guard-git-push.mjs",
+        "matcher": "git[\\s\\S]*push",
+        "timeout": 10,
+        "failClosed": true
       }
     ]
   }

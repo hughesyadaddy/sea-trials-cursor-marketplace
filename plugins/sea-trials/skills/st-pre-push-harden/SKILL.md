@@ -35,6 +35,8 @@ verdict is **READY**.
 [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
 for the project-directory lock and **Sea Trials plugin CLI** (`$ST_REVIEW*`
 paths) shared with the review loops.
+Gate speed/observability (what is cached, how to bust it, `st-gate-stats`):
+[`references/gate-cache-and-stats.md`](references/gate-cache-and-stats.md).
 
 ## When to run
 

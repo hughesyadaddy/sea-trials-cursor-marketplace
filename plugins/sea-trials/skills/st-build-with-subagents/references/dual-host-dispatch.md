@@ -10,8 +10,9 @@ host. Field names below are the ones the emitters produce.
 | --- | --- | --- |
 | `subagent_type` | `subagent_type` (`st-shard-worker`; use `fallbackSubagentType` = `generalPurpose` if the plugin agent is not installed) | — |
 | `claudeAgent` | — | agent name; plugin agents are namespaced `sea-trials:st-shard-worker` |
-| `model` | `model` (slug) | — |
+| `model` | `model` (slug from the probe list; see `modelVerified`) | — |
 | `claudeModel` | — | `model` alias (`haiku` / `sonnet` / `opus` / `inherit`) |
+| `modelVerified` / `modelSource` | if `false`, the slug came from a static fallback — retry with `inherit` when the Task tool rejects it | same |
 | `prompt` | `prompt` | `prompt` |
 | `description` | `description` | `description` |
 | `run_in_background` | `run_in_background: true` | run in background / do not block on it (host phrasing varies) |
@@ -30,9 +31,12 @@ agent name, the `prompt`, and `claudeModel` as `model`. Claude agent
 Our shard agents deliberately do **not** set `isolation: worktree` —
 the same-branch contract needs one working tree.
 
-Unverified as of this writing (treat as best-effort, check the host
-docs): exact Claude frontmatter key names beyond `model`/`tools`, and
-whether Cursor exposes `run_in_background` on every model.
+Model slugs are never asserted by hand: run
+`node "$ST_PLUGIN_ROOT/scripts/hooks/st-model-probe.mjs" --quiet` at
+phase 0 and let `resolveModel()` pick from the probed list (see
+[model-probe.md](model-probe.md)). Still unverified against host docs:
+exact Claude frontmatter key names beyond `model`/`tools`, and whether
+Cursor exposes `run_in_background` on every model.
 
 ## Rolling window (build shards)
 

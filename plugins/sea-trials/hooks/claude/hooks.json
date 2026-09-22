@@ -1,13 +1,24 @@
 {
-  "description": "Sea Trials plugin hooks — block git push --no-verify",
+  "description": "Sea Trials plugin hooks — enforce the push gate (deny --no-verify, force, and bare git push in gated repos) and warm the model probe",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/scripts/deny-no-verify-push.sh",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-git-push.mjs\"",
             "timeout": 10
           }
         ]

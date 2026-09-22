@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { STORY_MD } from './fixtures/sprint-stories.mjs';
 import {
   adfSize,
   extractSection,
@@ -374,21 +375,45 @@ test('taskList nested under a bullet item after its paragraph', () => {
   ]);
 });
 
-test('task items nested under a task item flatten to a sibling list', () => {
+test('task items nested under a task item become a nested taskList', () => {
   const doc = conv('- [ ] a\n  - [ ] a1\n  - [x] a2\n- [ ] b');
   assert.deepEqual(
     doc.content.map((n) => n.type),
-    ['taskList', 'taskList'],
+    ['taskList'],
   );
-  assert.equal(doc.content[0].content.length, 2);
+  const [a, nested, b] = doc.content[0].content;
+  assert.equal(a.type, 'taskItem');
+  assert.equal(a.content[0].text, 'a');
+  assert.equal(nested.type, 'taskList');
   assert.deepEqual(
-    doc.content[0].content.map((i) => i.content[0].text),
-    ['a', 'b'],
+    nested.content.map((i) => [i.content[0].text, i.attrs.state]),
+    [
+      ['a1', 'TODO'],
+      ['a2', 'DONE'],
+    ],
+  );
+  assert.equal(b.type, 'taskItem');
+  assert.equal(b.content[0].text, 'b');
+  assert.equal(doc.content[0].attrs.localId, 'id-1');
+});
+
+test('non-task blocks under a task item keep source order', () => {
+  const doc = conv(
+    '- [ ] a\n  - plain a1\n- [ ] b\n\n  ```sh\n  ls\n  ```\n- [ ] c',
   );
   assert.deepEqual(
-    doc.content[1].content.map((i) => i.attrs.state),
-    ['TODO', 'DONE'],
+    doc.content.map((n) => n.type),
+    ['taskList', 'bulletList', 'taskList', 'codeBlock', 'taskList'],
   );
+  assert.deepEqual(
+    doc.content
+      .filter((n) => n.type === 'taskList')
+      .map((n) => n.content.map((i) => i.content[0].text)),
+    [['a'], ['b'], ['c']],
+  );
+  assert.equal(doc.content[1].content[0].content[0].content[0].text, 'plain a1');
+  const ids = doc.content.filter((n) => n.type === 'taskList').map((n) => n.attrs.localId);
+  assert.equal(new Set(ids).size, 3);
 });
 
 test('task item with hardBreak keeps inline content', () => {
@@ -589,45 +614,8 @@ test('validateAdf flags each structural rule', () => {
 });
 
 // ===========================================================================
-// GOLDEN
+// GOLDEN (STORY_MD lives in fixtures/sprint-stories.mjs)
 // ===========================================================================
-
-const STORY_MD = `# US3: Reinstall reaches device setup
-
-**Goal:** After a reinstall the user lands on **device setup** with the
-\`OfflineDownloadToggle\` visible, exactly like a fresh install.
-
-| Field | Value |
-|---|---|
-| Story points | 5 |
-| Blocked by | US1 |
-
-## Acceptance criteria
-
-- [ ] **Boot** routes to \`ClientDeviceSetupBootPage\` when \`sync_ready\` is
-  false after reinstall
-- [x] Toggle defaults to **on** for licensed users
-- [ ] Analytics event \`reinstall_setup_shown\` fires once
-  - [ ] Event carries the \`license_id\` property
-
-## Notes
-
-- Legacy path
-  - \`onboarding_offline_download_step.dart\`
-  - \`onboarding_offline_download_footer.dart\`
-- New path
-
-\`\`\`dart
-final gate = LicenseStreamSubscriptionGate(
-  ready: state.syncReady,
-);
-\`\`\`
-
-> [!NOTE]
-> The E2E scenario lives in \`scenario_reinstall_device_setup_test.dart\`.
-
----
-`;
 
 test('golden: realistic sprint story converts to valid ADF', () => {
   const doc = markdownToAdf(STORY_MD, { idFactory: counter() });
@@ -638,7 +626,6 @@ test('golden: realistic sprint story converts to valid ADF', () => {
     'paragraph',
     'table',
     'heading',
-    'taskList',
     'taskList',
     'heading',
     'bulletList',
@@ -665,9 +652,13 @@ test('golden: realistic sprint story converts to valid ADF', () => {
 
   const ac = doc.content[4];
   assert.equal(ac.attrs.localId, 'id-1');
-  assert.equal(ac.content.length, 3);
+  assert.equal(ac.content.length, 4);
   assert.deepEqual(
-    ac.content.map((i) => i.attrs.state),
+    ac.content.map((i) => i.type),
+    ['taskItem', 'taskItem', 'taskItem', 'taskList'],
+  );
+  assert.deepEqual(
+    ac.content.slice(0, 3).map((i) => i.attrs.state),
     ['TODO', 'DONE', 'TODO'],
   );
   assert.deepEqual(ac.content[0].content, [
@@ -678,16 +669,16 @@ test('golden: realistic sprint story converts to valid ADF', () => {
     text('sync_ready', [{ type: 'code' }]),
     text(' is false after reinstall'),
   ]);
-  const nested = doc.content[5];
+  const nested = ac.content[3];
   assert.equal(nested.content.length, 1);
   assert.equal(nested.content[0].content[0].text, 'Event carries the ');
 
-  const notes = doc.content[7];
+  const notes = doc.content[6];
   assert.equal(notes.content.length, 2);
   assert.equal(notes.content[0].content[1].type, 'bulletList');
   assert.equal(notes.content[0].content[1].content.length, 2);
 
-  assert.deepEqual(doc.content[8], {
+  assert.deepEqual(doc.content[7], {
     type: 'codeBlock',
     attrs: { language: 'dart' },
     content: [
@@ -695,13 +686,14 @@ test('golden: realistic sprint story converts to valid ADF', () => {
     ],
   });
 
-  assert.equal(doc.content[9].attrs.panelType, 'info');
-  assert.equal(doc.content[9].content[0].type, 'paragraph');
-  assert.deepEqual(doc.content[10], { type: 'rule' });
+  assert.equal(doc.content[8].attrs.panelType, 'info');
+  assert.equal(doc.content[8].content[0].type, 'paragraph');
+  assert.deepEqual(doc.content[9], { type: 'rule' });
 });
 
 test('golden: --section style extraction round-trips through convert', () => {
   const section = extractSection(STORY_MD, '## Acceptance criteria');
   const doc = conv(section);
-  assert.deepEqual(doc.content.map((n) => n.type), ['taskList', 'taskList']);
+  assert.deepEqual(doc.content.map((n) => n.type), ['taskList']);
+  assert.equal(doc.content[0].content.at(-1).type, 'taskList');
 });

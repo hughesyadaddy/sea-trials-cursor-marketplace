@@ -144,13 +144,14 @@ Planner, integrator and reviewers stay on the parent's model
 tier. Override per shard (`tier`, `model`, `claudeModel`) or per tier
 via environment:
 
-| Tier | Cursor `model` | Claude `claudeModel` | Env override |
+| Tier | Cursor `model` (preferred) | Claude `claudeModel` (preferred) | Env override |
 | --- | --- | --- | --- |
 | `mechanical` | `composer-2.5-fast` | `haiku` | `ST_SHARD_MODEL_MECHANICAL` / `…_CLAUDE` |
 | `code` | `composer-2.5` | `sonnet` | `ST_SHARD_MODEL_CODE` / `…_CLAUDE` |
 | `reasoning` | `inherit` | `inherit` | `ST_SHARD_MODEL_REASONING` / `…_CLAUDE` |
 
-Cursor slugs known to work with the Task tool in this org:
-`composer-2.5`, `composer-2.5-fast`, `gpt-5.6-sol-medium`,
-`grok-4.7-high-fast`, `inherit`. Claude aliases: `haiku`, `sonnet`,
-`opus`, `inherit`.
+The table lists *preferred* picks, not a promise that the slug exists:
+`st-model-probe.mjs` records the slugs this machine can dispatch and
+`resolveModel()` in `scripts/hooks/lib/host-capabilities.mjs` chooses
+the preferred slug only when the probe saw it, falling back to the
+closest available one (see [model-probe.md](model-probe.md)).

@@ -48,11 +48,16 @@ project key, site, board, or account id.
   "repoConventionsPath": "AGENTS.md",
   "reviewStatuses": ["In Review", "Ready for QA"],
   "doneStatus": "Done",
-  "reopenStatus": "In Progress"
+  "reopenStatus": "In Progress",
+  "testProjectKeys": ["SANDBOX"],
+  "activityHours": "08:00-19:30",
+  "timezone": "America/New_York"
 }
 ```
 
-Only `projectKey` is required. `epicKey` absent means the uploader
+Only `projectKey` is required. `testProjectKeys` lists projects where
+the uploader may run with `--fast` (no human cadence); `activityHours`
+and `timezone` feed the activity window in section 5.1. `epicKey` absent means the uploader
 creates the epic. `subtaskIssueType` is `Subtask` on team-managed
 projects and `Sub-task` on most company-managed ones; check with
 `getJiraProjectIssueTypesMetadata` when unsure. `repoConventionsPath`
@@ -233,6 +238,33 @@ emojis.
 A card that needs research is not ready. Do the research while
 authoring, then write the decision into the card.
 
+### 5.1 Cadence and voice in Jira
+
+Applies to every write `st-jira-upload`, its uploaders, and its
+verifiers make. For those writes it replaces the 2-8 s spacing and
+4-writer cap in section 7; the tool is `scripts/sprint/human-cadence.mjs`
+(detail in `st-jira-upload/references/human-cadence.md`).
+
+- Plan before the first write (`human-cadence.mjs plan payload.json`)
+  and execute in that order: one epic at a time, epic card first,
+  stories in folder order, each story's subtasks right after it.
+- Gaps between cards follow the plan: median 12 s, never under 3 s or
+  over 45 s, plus a 60-180 s pause after every 6-10 cards. A 30-card
+  sprint takes 8-15 minutes. Never two writes in the same second.
+- One uploader per project or board at a time. Parallelism only
+  across different projects or sites, each with its own plan.
+- Roughly one create in ten deliberately leaves `labels` off and sets
+  them with a one-field edit 20-90 s later. Content never changes.
+- Writes happen 08:00-19:30 local, Monday to Friday; the run waits for
+  the window instead of skipping. `--ignore-hours` only when the
+  person says they are at the keyboard. `--fast` only for `--dry-run`
+  or a project listed in `sprint.json.testProjectKeys`.
+- Free text (comments, backlog notes, verifier remarks) comes from
+  `human-cadence.mjs vary <kind>`; anything else passes
+  `human-cadence.mjs check` first. No exclamation marks, no em dashes,
+  no emojis, no sign-offs, never a word about tooling, automation, or
+  how the card was produced.
+
 ## 6. No-links rule
 
 All information lives in the card. Never link to or name a markdown
@@ -256,8 +288,9 @@ transitions must read as if that person typed them.
 - No sign-offs, no "Summary:" headers in comments, no bullet walls
   when two sentences do the job.
 - Never pass `historyMetadata` on a transition.
-- Space bulk writes: sleep 2-8 seconds (random) between creates and
-  comments. Cap concurrent writers at 4 per site.
+- Space bulk writes per section 5.1: one writer per board, gaps from
+  `human-cadence plan`, writes only inside the activity window.
+  Parallel writers are allowed only across different boards.
 
 ## 8. Sizing
 

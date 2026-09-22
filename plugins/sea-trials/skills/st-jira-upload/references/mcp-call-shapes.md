@@ -61,6 +61,59 @@ and report.
 
 Never include `parent` on edit. Never clear fields you did not set.
 
+## Edit after create (planned typo pass)
+
+When the schedule marks a create with `deferField: "labels"`, the
+create above goes out **without** `additional_fields.labels`. Its
+`<id>#edit` entry, 20-90 s later at the scheduled offset, sets only
+that one field:
+
+```json
+{
+  "cloudId": "<cloudId>",
+  "issueIdOrKey": "<KEY just created>",
+  "fields": { "labels": ["billing", "sprint-12"] }
+}
+```
+
+One field, nothing else, no comment. A person fixing what they forgot
+does not narrate it. If the card has no labels to set, skip the edit
+and report `EDIT <id>: skipped (no labels)`. Only `labels` and
+`<storyPointsFieldId>` are safe to defer; never defer `summary`,
+`description`, or `parent`.
+
+## Comment (update bucket)
+
+At most one comment per card in the `update` bucket, and only when the
+change touched acceptance criteria or scope. Body text is the line the
+parent took from `human-cadence.mjs vary comment-opener` for that
+card; never write your own. The call follows the card's read-back and
+counts as a write for cadence (call `wait` first).
+
+```json
+{
+  "cloudId": "<cloudId>",
+  "issueIdOrKey": "<KEY>",
+  "contentFormat": "adf",
+  "commentBody": "{\"type\":\"doc\",\"version\":1,\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Updated the AC after standup.\"}]}]}"
+}
+```
+
+The v1 schema types `commentBody` as a string, so the ADF document is
+serialised (`JSON.stringify`), not passed as an object like
+`description`. Build it from the `vary` line:
+
+```bash
+node -e 'const t=process.argv[1];console.log(JSON.stringify({type:"doc",
+version:1,content:[{type:"paragraph",content:[{type:"text",text:t}]}]}))' \
+  "$(node "$SPRINT/human-cadence.mjs" vary comment-opener)"
+```
+
+Other free text goes the same way: `vary moved-to-backlog` for a card
+leaving the sprint, `vary verifier-remark` when the parent asks for a
+verification note. Anything not produced by `vary` must pass
+`node "$SPRINT/human-cadence.mjs" check "<text>"` before it is sent.
+
 ## Read back (parity)
 
 ```json
@@ -114,23 +167,38 @@ an ambiguous failure: `project = <KEY> AND summary ~ "\"<H1>\""`.
 ## Uploader worker prompt
 
 ```text
-You are st-jira-uploader. Upload story {id} only.
+You are st-jira-uploader. Upload story {id} only, on the schedule below.
 
 SPRINT={SPRINT}   SCRATCH={scratch}/{id}   PAYLOAD={scratch}/payload.json
 cloudId={cloudId} projectKey={projectKey} epicKey={epicKey}
 storyIssueType={storyIssueType} subtaskIssueType={subtaskIssueType}
 storyPointsFieldId={spField} labels={labels} assigneeAccountId={assignee}
+T0={iso timestamp of the run's first write}
+Window: hours={08:00-19:30} weekends={no} tz={zone} ignoreHours={no}
+
+Schedule slice (execute in this order; before each write run
+  node "$SPRINT/human-cadence.mjs" wait --start "$T0" --offset <ms>):
+  {id}        create  offset=612340  deferField=labels
+  {id}.1      create  offset=627113
+  {prev}.3#edit  edit  offset=633902  field=labels  key={KEY}
+  {id}.2      create  offset=649870
+  ...
 
 Buckets from --diff:
   story {id}: {create|update KEY|unchanged KEY}
   subtask {id}.1: {create|update KEY|unchanged KEY}
   ...
 Key map for Blocked by resolution: {json of storyId -> KEY}
+Comment lines for update cards (use each once, verbatim):
+  {id}: "{vary comment-opener output}"
 
 Rules: contentFormat "adf" always; description is the ADF object;
-parent.key for the epic; top-level parent for subtasks; 2-8 s jitter
-between writes; honour Retry-After; read back and check parity; never
-create a card that has a key above. Return only your return block.
+parent.key for the epic; top-level parent for subtasks; never write
+before an entry's offset, never two writes in one second, at least 3 s
+between your writes even when behind; a create with deferField leaves
+that field out and its #edit sets it; honour Retry-After; read back and
+check parity; never create a card that has a key above; no free text of
+your own in Jira. Return only your return block.
 ```
 
 ## Verifier worker prompt

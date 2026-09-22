@@ -4,12 +4,27 @@
  *
  *   node scripts/hooks/run-gate-task.mjs '{"cmd":"dart","args":[...],"cwd":"..."}'
  *   echo '{"cmd":"dart",...}' | node scripts/hooks/run-gate-task.mjs
+ *   node scripts/hooks/run-gate-task.mjs --no-cache '<json>'
  *
  * Tasks with `weight > 1` (every `dart analyze`) take machine-wide slots
  * first, so many workers launched in one wave cannot each spawn an
  * analysis server at the same moment. `ST_GATE_NO_SLOTS=1` disables it.
+ *
+ * format / lint / analyze tasks are looked up in the content-hash gate
+ * cache first (lib/gate-cache.mjs; `ST_GATE_CACHE=0` or `--no-cache`
+ * disables) and recorded on success. Every run lands in the telemetry
+ * ledger (lib/gate-telemetry.mjs; `ST_GATE_TELEMETRY=0` disables).
  */
 import { spawn } from 'node:child_process';
+import {
+  cacheKeyForTask,
+  describeSkip,
+  findRepoRoot,
+  isCacheableTask,
+  lookup,
+  record,
+} from './lib/gate-cache.mjs';
+import { recordRun } from './lib/gate-telemetry.mjs';
 import { acquireSlots } from './lib/machine-slots.mjs';
 
 const isWindows = process.platform === 'win32';
@@ -38,7 +53,10 @@ function run(cmd, args, cwd) {
 }
 
 async function main() {
-  const raw = process.argv[2] ?? (await readStdin());
+  const argv = process.argv.slice(2);
+  const noCache = argv.includes('--no-cache');
+  const raw =
+    argv.find((arg) => !arg.startsWith('--')) ?? (await readStdin());
   if (!raw) {
     process.stderr.write('run-gate-task: pass JSON task on argv or stdin\n');
     process.exit(2);
@@ -55,13 +73,43 @@ async function main() {
   const cwd = task.cwd ?? process.cwd();
   const label = task.label ?? cmd;
   const weight = typeof task.weight === 'number' ? task.weight : 1;
+  const repoRoot = process.env.ST_REPO_ROOT || findRepoRoot(cwd) || cwd;
+  const startedAt = Date.now();
+
+  const tell = (fields) => {
+    recordRun({
+      kind: 'gate',
+      task: label,
+      phase: task.phase,
+      taskKind: task.kind,
+      weight,
+      pr: task.pr,
+      repoRoot,
+      taskJson: task,
+      ...fields,
+    });
+  };
+
+  let cacheKey = null;
+  if (!noCache && isCacheableTask(task)) {
+    try {
+      cacheKey = cacheKeyForTask({ ...task, cwd }, { repoRoot });
+    } catch {
+      cacheKey = null;
+    }
+    if (cacheKey && lookup(cacheKey).hit) {
+      process.stdout.write(`${describeSkip(task)}\n`);
+      tell({ ms: 0, ok: true, cacheHit: true, exitCode: 0 });
+      process.exit(0);
+    }
+  }
 
   let release = () => {};
   const useSlots =
     weight > 1 && (process.env.ST_GATE_NO_SLOTS ?? '').trim() !== '1';
   if (useSlots) {
     const slots = await acquireSlots({
-      repoRoot: process.env.ST_REPO_ROOT || cwd,
+      repoRoot,
       weight,
     });
     release = slots.release;
@@ -74,24 +122,31 @@ async function main() {
     for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
       process.on(sig, () => {
         release();
+        tell({ ms: Date.now() - startedAt, ok: false, killed: true });
         process.exit(130);
       });
     }
   }
 
   process.stderr.write(`▶ ${label}\n`);
+  const runStartedAt = Date.now();
   let status;
   try {
     status = await run(cmd, args, cwd);
   } finally {
     release();
   }
+  const ms = Date.now() - runStartedAt;
 
   if (status !== 0) {
+    tell({ ms, ok: false, exitCode: status });
     process.stderr.write(`❌ ${label} (exit ${status})\n`);
     process.exit(status || 1);
   }
 
+  // Success only — a red verdict is never remembered.
+  if (cacheKey) record(cacheKey, { kind: task.kind, label, ms });
+  tell({ ms, ok: true, exitCode: 0 });
   process.stdout.write(`✅ ${label}\n`);
 }
 

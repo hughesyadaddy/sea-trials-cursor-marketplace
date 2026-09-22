@@ -3,6 +3,9 @@ import { existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import * as gateCache from './gate-cache.mjs';
+import * as gateTelemetry from './gate-telemetry.mjs';
+
 const isWindows = process.platform === 'win32';
 
 function scoopFlutterBinDir() {
@@ -227,10 +230,23 @@ export function failFastDefault(env = process.env) {
 }
 
 /**
+ * Cache + telemetry seams. Tasks that carry a check-plan `kind`
+ * (`format` / `lint` / `analyze`) are looked up in the content-hash
+ * cache before spawning and recorded on success; every task — cache
+ * hits and fail-fast kills included — lands in the telemetry ledger.
+ *
  * @param {Array<{ label: string, cmd: string, args: string[],
- *   weight?: number, timeoutMs?: number, options?: object }>} tasks
+ *   weight?: number, timeoutMs?: number, options?: object,
+ *   kind?: string, phase?: string }>} tasks
  * @param {number} [budget]
- * @param {{ failFast?: boolean }} [opts]
+ * @param {{
+ *   failFast?: boolean,
+ *   repoRoot?: string,
+ *   noCache?: boolean,
+ *   cache?: typeof gateCache | null,
+ *   telemetry?: { recordRun: typeof gateTelemetry.recordRun } | null,
+ *   runner?: typeof runAsync,
+ * }} [opts]
  */
 export async function runParallelLimited(
   tasks,
@@ -238,6 +254,13 @@ export async function runParallelLimited(
   opts = {},
 ) {
   const failFast = opts.failFast ?? failFastDefault();
+  const cache =
+    opts.noCache || opts.cache === null ? null : (opts.cache ?? gateCache);
+  const telemetry =
+    opts.telemetry === null ? null : (opts.telemetry ?? gateTelemetry);
+  const runner = opts.runner ?? runAsync;
+  const repoRoot = opts.repoRoot;
+  const repo = gateTelemetry.repoBasename(repoRoot);
   const results = [];
   const executing = new Set();
   /** @type {Set<import('node:child_process').ChildProcess>} */
@@ -246,6 +269,7 @@ export async function runParallelLimited(
   let doneCount = 0;
   let aborted = false;
   let skipped = 0;
+  let cacheHits = 0;
 
   const abortRemaining = () => {
     if (aborted) return;
@@ -255,11 +279,70 @@ export async function runParallelLimited(
     }
   };
 
+  const tell = (task, r) => {
+    if (!telemetry) return;
+    try {
+      telemetry.recordRun({
+        kind: 'gate',
+        task: task.label,
+        phase: task.phase,
+        taskKind: task.kind,
+        ms: r.durationMs,
+        ok: r.code === 0,
+        cacheHit: r.cacheHit === true,
+        killed: r.killed === true,
+        exitCode: r.code,
+        weight: task.weight,
+        files: Array.isArray(task.files) ? task.files.length : undefined,
+        repo,
+        repoRoot: repoRoot ?? task.options?.cwd,
+        taskJson: task,
+      });
+    } catch {
+      // telemetry never fails a gate
+    }
+  };
+
+  const cacheKeyFor = (task) => {
+    if (!cache || !cache.isCacheableTask(task)) return null;
+    try {
+      return cache.cacheKeyForTask(task, { repoRoot });
+    } catch {
+      return null;
+    }
+  };
+
   for (const task of tasks) {
     if (aborted) {
       skipped += 1;
       continue;
     }
+
+    // Content-hash cache: an identical input set already verified
+    // green (any branch, any worktree) is not re-run. Checked before
+    // the budget wait so a hit never queues behind a live analyzer.
+    const cacheKey = cacheKeyFor(task);
+    if (cacheKey && cache.lookup(cacheKey).hit) {
+      doneCount += 1;
+      cacheHits += 1;
+      process.stderr.write(
+        `${cache.describeSkip(task)} [${doneCount}/${tasks.length}]\n`,
+      );
+      const hit = {
+        label: task.label,
+        code: 0,
+        stdout: '',
+        stderr: '',
+        durationMs: 0,
+        killed: false,
+        cacheHit: true,
+        skipped: 'cache',
+      };
+      tell(task, hit);
+      results.push(Promise.resolve(hit));
+      continue;
+    }
+
     // A single over-budget task must still run (alone).
     const weight = Math.min(task.weight ?? 1, budget);
 
@@ -278,7 +361,7 @@ export async function runParallelLimited(
       `▶  …/${tasks.length} ${task.label}\n`,
     );
     const p = (async () => {
-      const result = await runAsync(task.cmd, task.args, {
+      const result = await runner(task.cmd, task.args, {
         ...task.options,
         timeoutMs: task.timeoutMs,
         onSpawn: (child) => {
@@ -303,7 +386,17 @@ export async function runParallelLimited(
             `[${doneCount}/${tasks.length}] ${r.label}\n`,
         );
         if (r.code !== 0 && failFast) abortRemaining();
-        return { ...r, killed };
+        const settledResult = { ...r, killed };
+        // Success only — a red verdict is never remembered.
+        if (r.code === 0 && cacheKey && cache) {
+          cache.record(cacheKey, {
+            kind: task.kind,
+            label: task.label,
+            ms: r.durationMs,
+          });
+        }
+        tell(task, settledResult);
+        return settledResult;
       },
       (err) => {
         executing.delete(wrapped);
@@ -341,5 +434,5 @@ export async function runParallelLimited(
     );
   }
 
-  return { failures, results: settled, aborted, skipped };
+  return { failures, results: settled, aborted, skipped, cacheHits };
 }

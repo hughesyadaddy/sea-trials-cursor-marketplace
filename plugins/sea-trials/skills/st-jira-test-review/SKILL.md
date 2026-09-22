@@ -33,6 +33,8 @@ test what the card says, write what you saw, move the card.
   (sections 7, 9, 10.5)
 - [`references/execution-runbook.md`](references/execution-runbook.md)
 - [`references/qa-comment-voice.md`](references/qa-comment-voice.md)
+- [`references/scheduled-run.md`](references/scheduled-run.md) when
+  running unattended
 
 ## Autonomy
 
@@ -171,6 +173,22 @@ git worktree remove "$WT"; git worktree prune
 
 Summary table: `Key | Summary | Verdict | Transitioned to | Comment
 posted | Attachments`. List anything left manual.
+
+---
+
+## Scheduled (nightly sweep)
+
+`references/scheduled-run.md` runs this skill unattended on both hosts:
+
+```bash
+node "$SPRINT/jira-test-review-sweep.mjs" --project <KEY> --tasks
+bash "$SPRINT/nightly-test-review.sh"   # cron / launchd wrapper
+```
+
+The sweep emits one task line per card changed in the last 24 h that has
+no QA comment naming the current PR head short SHA (the marker from
+`qa-comment-voice.md`), capped at 10. Workers run 3-9 minutes apart,
+never ask questions, and `NEEDS DISCUSSION` never transitions.
 
 ---
 

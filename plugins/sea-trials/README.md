@@ -22,7 +22,8 @@ Shared components (loaded by both hosts):
   app repos that delegate via `.husky/st-plugin-run.sh`)
 - **MCP:** Atlassian (`atlassian-seatrials`, `atlassian-allinpmprep`, HTTP
   OAuth) and `chrome-devtools` (stdio)
-- **Hooks:** deny `git push --no-verify` / `-n` / `--dry-run`
+- **Hooks:** session-start model probe; block bare / `--no-verify` /
+  `--force` `git push` unless a fresh gate-pass token exists
 
 `mcp.json` and `.mcp.json` must stay byte-identical; every remote server
 declares `"type": "http"` because Claude hard-errors on a bare `url`.
@@ -91,9 +92,30 @@ and docs should use the namespaced form when addressing Claude explicitly.
 | Structured questions | **AskQuestion** (some models) | **AskUserQuestion** |
 | Context resets | Same-chat handoffs only | Clear-context handoffs allowed |
 
-Both hook files call the same script, `hooks/scripts/deny-no-verify-push.sh`,
-which reads `command` from the JSON on stdin and answers with
-`{"permission":"allow"}` or `{"permission":"deny",…}` (exit 2).
+Both hook files call the same Node scripts. `hooks/scripts/guard-git-push.mjs`
+reads the tool-call JSON on stdin, parses the `git push` argv (flags, `-C`,
+`&&` chains) and denies `--no-verify`, `--force`, `-f`, `--force-with-lease`
+and any bare push whose branch has an open PR — unless
+`pr-review-push` wrote a fresh gate-pass token for the current HEAD and
+tree. Cursor gets `{"permission":"allow|deny"}`; Claude gets
+`hookSpecificOutput.permissionDecision`. `hooks/scripts/session-start.mjs`
+refreshes the model probe (`st-model-probe`) once per session so shard and
+gate fan-outs pin slugs the host actually accepts. See
+`skills/st-pre-push-harden/references/hooks.md`.
+
+## Speed and quality layers
+
+| Capability | Entry point | Notes |
+| --- | --- | --- |
+| Single push gate (dirty → committed → CI lanes) | `st-run pr-review-push -- --pr N` | Coalesces duplicate tasks across phases, fails fast, writes the gate-pass token so the husky pre-push does not rerun |
+| Fine-grained fan-out | `pr-review-push --list-tasks --granularity fine` | One JSON line per worker; `run-gate-task` honours machine-wide analyzer slots |
+| Content-hash gate cache | automatic; `ST_GATE_CACHE=0` to disable | Dependency-aware `dart analyze` keys; shared across worktrees |
+| Worker telemetry | `st-run st-gate-stats` | p50/p95 per task kind, slowest packages, cache hit rate |
+| Adaptive PR review loop | `st-run pr-review-loop -- --pr N [--webhook]` | Settled-state machine on Codex/Bugbot/CI signals; ETag probes, rate-limit backoff |
+| Flaky-test quarantine | `/st-flake-quarantine`, `flake-quarantine.mjs` | Classifies, retries, quarantines with `skip:` + tracking issue |
+| Build sharding | `st-run st-build-shard-tasks`, `sprint-to-shards.mjs` | Disjoint file ownership; sprint folders become `shards.json` |
+| Host model probe | `st-run st-model-probe` | Detects host + accepted model slugs; `resolveModel()` picks worker tiers |
+| Sprint → Jira | `/st-sprint-plan`, `/st-jira-upload`, `/st-jira-test-review`, `/st-sprint-retro` | Markdown ↔ ADF round-trip lint, REST fallbacks, human-cadence writes |
 
 ### Plugin root resolution (`scripts/lib/resolve-st-plugin-root.mjs`)
 

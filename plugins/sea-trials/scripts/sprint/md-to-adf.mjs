@@ -813,32 +813,47 @@ function buildPlainList(run, ordered, ctx) {
 }
 
 /**
- * taskItem content is inline-only, so any block nested under a task item
- * (a nested task list, a bullet list, a code block) is hoisted to a
- * sibling after the taskList. A nested taskList may not be the first
- * child of a taskList, so flattening one level is the safe shape.
+ * taskItem content is inline-only, so blocks nested under a task item
+ * cannot live inside it. A nested task list keeps its place: ADF lets a
+ * `taskList` hold another `taskList` as any child but the first, which
+ * is the shape Jira writes for indented tasks. Any other block (bullet
+ * list, code, paragraph) closes the current taskList, is emitted in
+ * source order, and the following task items open a fresh taskList, so
+ * nothing is reordered away from the item it belongs to.
  */
 function buildTaskList(run, ctx) {
-  const listId = ctx.id();
-  const items = [];
-  const after = [];
+  // The first list's id is minted before its items, as before.
+  let listId = ctx.id();
+  const nodes = [];
+  let list = null;
+  const open = () => {
+    if (list) return;
+    const localId = listId ?? ctx.id();
+    listId = null;
+    list = { type: 'taskList', attrs: { localId }, content: [] };
+    nodes.push(list);
+  };
+  const close = () => {
+    list = null;
+  };
   for (const item of run) {
     const m = TASK_RE.exec(item.text);
     const blocks = parseBlocks([m[2], ...item.body.slice(1)], ctx);
     let inline = [];
     if (blocks[0]?.type === 'paragraph') inline = blocks.shift().content ?? [];
-    if (inline.length) items.push(taskItem(m[1], inline, ctx));
-    after.push(...blocks);
+    if (inline.length) {
+      open();
+      list.content.push(taskItem(m[1], inline, ctx));
+    }
+    for (const block of blocks) {
+      if (block.type === 'taskList' && list) {
+        list.content.push(block);
+      } else {
+        close();
+        nodes.push(block);
+      }
+    }
   }
-  const nodes = [];
-  if (items.length) {
-    nodes.push({
-      type: 'taskList',
-      attrs: { localId: listId },
-      content: items,
-    });
-  }
-  nodes.push(...after);
   return nodes;
 }
 

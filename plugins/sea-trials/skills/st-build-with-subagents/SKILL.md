@@ -94,6 +94,25 @@ node "$ST_PLUGIN_ROOT/skills/st-build-with-subagents/scripts/validate-shard-mani
   shared branch. Fix the manifest until it prints `✅`.
 - `maxParallel`: default 6, cap 12.
 
+### From a sprint folder
+
+When the work is a `sprint_planning/<sprint>/` folder rather than a
+plan doc, derive the manifest from the story cards instead:
+
+```bash
+node "$ST_PLUGIN_ROOT/scripts/sprint/sprint-to-shards.mjs" sprint_planning/<sprint> \
+  --epic <id> --repo-root "$ACTIVE_ROOT" --out shards.json --out-map shards-map.md
+```
+
+One shard per story: `paths` from the card's "Files to touch" lists
+(or inferred from the text), `dependsOn` from `**Blocked by:**` plus
+implicit ordering when two stories overlap a path, `tier` from
+`**Kind:**`, and shared `pubspec.yaml` / barrel / `.arb` files lifted
+to `sharedFiles`. The output is already validated; a `needs paths`
+warning on stderr means the card listed no files. Fill those in before
+Phase 1. `--out-map` writes the `## Parallel execution map` table so
+the plan doc can embed it.
+
 ---
 
 ## Phase 1 — Rolling-window fan-out

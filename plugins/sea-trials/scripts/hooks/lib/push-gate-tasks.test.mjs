@@ -51,30 +51,96 @@ test('serializePushGateTask emits subagent-runnable JSON', () => {
     },
     repoRoot: '/repo',
     index: 1,
+    env: {},
+    caps: null,
   });
   assert.equal(line.source, 'push-gate');
   assert.equal(line.phase, PHASE_DIRTY);
   assert.equal(line.cmd, 'dart');
   assert.deepEqual(line.args, ['format', '--check', 'foo.dart']);
   assert.equal(line.cwd, '/repo/flutter');
-  // Fan-out workers are mechanical: cheap tier on both hosts.
+  // Fan-out workers are mechanical: cheap tier on both hosts. With no
+  // probe file the static default is used and flagged unverified.
   assert.equal(line.subagent_type, 'generalPurpose');
-  assert.equal(line.model, 'composer-2.5');
+  assert.equal(line.model, 'composer-2.5-fast');
   assert.equal(line.claudeModel, 'haiku');
+  assert.equal(line.modelVerified, false);
+  assert.equal(line.modelSource, 'static-fallback');
 });
 
-test('workerModelHints honours env overrides', () => {
-  assert.deepEqual(
-    workerModelHints({
-      ST_WORKER_MODEL: 'gpt-5.6-luna-fast',
-      ST_WORKER_MODEL_CLAUDE: 'sonnet',
-    }),
-    { model: 'gpt-5.6-luna-fast', claudeModel: 'sonnet' },
-  );
-  assert.deepEqual(workerModelHints({}), {
-    model: 'composer-2.5',
-    claudeModel: 'haiku',
+test('serializePushGateTask uses the probe list when present', () => {
+  const caps = {
+    host: 'cursor',
+    cursor: {
+      models: ['inherit', 'grok-4.7-high-fast', 'composer-2.5'],
+      source: 'agent --list-models',
+      verified: true,
+    },
+    claude: {
+      models: ['inherit', 'haiku', 'sonnet', 'opus'],
+      source: 'claude cli aliases',
+      verified: true,
+    },
+  };
+  const line = serializePushGateTask({
+    phase: PHASE_DIRTY,
+    group: 1,
+    parallel: true,
+    task: { label: 'x', cmd: 'true', args: [] },
+    repoRoot: '/repo',
+    index: 1,
+    env: {},
+    caps,
   });
+  assert.equal(line.model, 'grok-4.7-high-fast', 'closest *-fast slug');
+  assert.equal(line.claudeModel, 'haiku');
+  assert.equal(line.modelVerified, true);
+  assert.equal(line.modelSource, 'probe');
+});
+
+test('workerModelHints honours env overrides and reads the probe file', () => {
+  assert.deepEqual(
+    workerModelHints(
+      {
+        ST_WORKER_MODEL: 'gpt-5.6-luna-fast',
+        ST_WORKER_MODEL_CLAUDE: 'sonnet',
+      },
+      null,
+    ),
+    {
+      model: 'gpt-5.6-luna-fast',
+      claudeModel: 'sonnet',
+      modelVerified: false,
+      modelSource: 'env',
+    },
+  );
+  assert.deepEqual(workerModelHints({}, null), {
+    model: 'composer-2.5-fast',
+    claudeModel: 'haiku',
+    modelVerified: false,
+    modelSource: 'static-fallback',
+  });
+
+  // `caps` omitted → read hostCapabilitiesPath() (ST_STATE_DIR here).
+  const root = fs.mkdtempSync(path.join(process.env.TMPDIR ?? '/tmp', 'st-'));
+  const file = path.join(root, 'host', 'capabilities.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    JSON.stringify({
+      host: 'cursor',
+      cursor: {
+        models: ['inherit', 'composer-2.5-fast'],
+        source: 'agent --list-models',
+        verified: true,
+      },
+    }),
+  );
+  const fromDisk = workerModelHints({ ST_STATE_DIR: root });
+  assert.equal(fromDisk.model, 'composer-2.5-fast');
+  assert.equal(fromDisk.modelVerified, true);
+  assert.equal(fromDisk.modelSource, 'probe');
+  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('coalesceGroups pools consecutive parallel groups and dedupes', () => {

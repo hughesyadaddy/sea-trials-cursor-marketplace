@@ -1,6 +1,7 @@
 /**
  * Execute push-gate task groups with maximum in-process parallelism.
  */
+import { prune as pruneGateCache } from './gate-cache.mjs';
 import { runParallelLimited } from './parallel.mjs';
 import { taskToRunnable } from './push-gate-tasks.mjs';
 
@@ -52,7 +53,9 @@ export function coalesceGroups(groups, repoRoot) {
         continue;
       }
       seen.add(key);
-      tasks.push({ ...runnable, phase: group.phase });
+      // `kind` survives so the content-hash cache can recognise
+      // format / lint / analyze runnables (taskToRunnable drops it).
+      tasks.push({ ...runnable, kind: task.kind, phase: group.phase });
     }
     if (tasks.length === 0) continue;
 
@@ -69,9 +72,19 @@ export function coalesceGroups(groups, repoRoot) {
 }
 
 /**
+ * One-line cache summary for the whole run.
+ *
+ * @param {number} taskCount
+ * @param {number} cacheHits
+ */
+export function cacheSummaryLine(taskCount, cacheHits) {
+  return `⏭ gate cache: ${taskCount} task(s), ${cacheHits} cache hit(s)`;
+}
+
+/**
  * @param {Awaited<ReturnType<import('./push-gate-tasks.mjs').buildPushGatePlan>>} plan
  * @param {string} repoRoot
- * @param {{ failFast?: boolean }} [opts]
+ * @param {{ failFast?: boolean, noCache?: boolean }} [opts]
  */
 export async function runPushGatePlan(plan, repoRoot, opts = {}) {
   if (!plan.ok) {
@@ -84,7 +97,7 @@ export async function runPushGatePlan(plan, repoRoot, opts = {}) {
   }
 
   if (plan.groups.length === 0) {
-    return { ok: true, failures: [], groupCount: 0 };
+    return { ok: true, failures: [], groupCount: 0, cacheHits: 0 };
   }
 
   const pools = coalesceGroups(plan.groups, repoRoot);
@@ -95,22 +108,49 @@ export async function runPushGatePlan(plan, repoRoot, opts = {}) {
     );
   }
 
+  let taskCount = 0;
+  let cacheHits = 0;
+  const finish = () => {
+    process.stderr.write(`${cacheSummaryLine(taskCount, cacheHits)}\n`);
+    if (!opts.noCache) {
+      try {
+        pruneGateCache();
+      } catch {
+        // best-effort housekeeping
+      }
+    }
+  };
+
   for (const pool of pools) {
     const budget = pool.parallel ? undefined : 1;
-    const { failures } = await runParallelLimited(pool.tasks, budget, opts);
+    const result = await runParallelLimited(pool.tasks, budget, {
+      ...opts,
+      repoRoot,
+    });
+    taskCount += pool.tasks.length;
+    cacheHits += result.cacheHits ?? 0;
+    const { failures } = result;
     if (failures.length > 0) {
       const failedLabels = new Set(failures.map((f) => f.label));
       const failedPhase =
         pool.tasks.find((t) => failedLabels.has(t.label))?.phase ??
         pool.phases[0];
+      finish();
       return {
         ok: false,
         failedGroup: { phase: failedPhase, phases: pool.phases },
         failures,
         groupCount: plan.groups.length,
+        cacheHits,
       };
     }
   }
 
-  return { ok: true, failures: [], groupCount: plan.groups.length };
+  finish();
+  return {
+    ok: true,
+    failures: [],
+    groupCount: plan.groups.length,
+    cacheHits,
+  };
 }

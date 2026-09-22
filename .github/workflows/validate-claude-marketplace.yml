@@ -24,7 +24,8 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t files < <(
-            find plugins/sea-trials/scripts scripts \
+            find plugins/sea-trials/scripts plugins/sea-trials/hooks \
+              plugins/sea-trials/skills scripts \
               -name '*.test.mjs' -not -path '*/node_modules/*' | sort
           )
           if [ "${#files[@]}" -eq 0 ]; then

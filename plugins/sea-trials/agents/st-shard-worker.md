@@ -14,13 +14,17 @@ shard.
 
 This file is read by both Cursor and Claude Code, so `model` is
 `inherit`; the dispatching emitter passes the real model per task line.
-Recommended tiers when a human dispatches by hand:
+Preferred tiers when a human dispatches by hand:
 
 | Tier | Cursor | Claude Code | Use for |
 | --- | --- | --- | --- |
 | mechanical | `composer-2.5-fast` | `haiku` | l10n, codegen, renames |
 | code | `composer-2.5` | `sonnet` | normal lib + test work |
 | reasoning | `inherit` | `inherit` | rare; the parent's model |
+
+Do not assume these slugs exist on the current host: run
+`node "$ST_PLUGIN_ROOT/scripts/hooks/st-model-probe.mjs" --json` and
+pick via `resolveModel()` (`skills/st-build-with-subagents/references/model-probe.md`).
 
 ## Inputs (from your prompt)
 

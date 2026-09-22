@@ -300,8 +300,15 @@ proceed:
 | --- | --- | --- |
 | `0` | `DONE`: settled, threads clear, CI green | Final verify |
 | `2` | `ACTING`: unresolved bot threads | Read `pr-review-queue.json`; fix **all**; single gate; push; reply+resolve; restart watcher |
-| `3` | CI failure on HEAD | Fix or re-run flake; single gate; push; restart watcher |
+| `3` | CI failure on HEAD | Attributable to the diff → fix; else `/st-flake-quarantine` (Cursor) / `/sea-trials:st-flake-quarantine` (Claude Code) — it quarantines (skip + issue committed; loop continues) or returns `real` (loop fixes); single gate; push; restart watcher |
 | `8` | CI pending at the silence cap | Restart watcher; report CI as the blocker if it persists |
+
+The flake skill never runs on a red **local** gate lane, never
+quarantines a test in a file the PR touched, refuses protected tests
+(`integration_test/`, `scenario_`, `golden`, `security`, `auth`,
+`payment`, `billing`), and caps at two quarantines per PR without a
+human. Its commit rejoins this contract: single gate, then
+`pr-review-push`, never bare `git push`.
 
 After every fix round: gate → `node "$ST_REVIEW_PUSH" -- --pr <n>` →
 reply+resolve every addressed thread citing the pushed SHA → restart
@@ -323,6 +330,8 @@ Forbidden early exits:
 - Declaring done because CI is green while threads remain open
 - Declaring done because threads are clear while CI is failing or
   pending on HEAD
+- Stopping on a red CI job without first deciding attributable
+  (fix) vs not attributable (`/st-flake-quarantine`)
 - Ending the turn and asking the user to "check back later" instead of
   continuing the loop
 

@@ -20,6 +20,17 @@ specific, first person, no ceremony.
 - Checkboxes in comments are fine (`- [ ]` for open repro items); they
   need `contentFormat: "adf"` like any other body.
 
+## Commit marker (idempotence)
+
+Every QA comment names the tested commit's 7-character short SHA
+exactly once, as a person would: in the opener ("Ran this on
+`feature/us3-pdf` at `4f2c1a9`") or, when the opener does not fit,
+in parentheses at the very end ("Moving to Done. (4f2c1a9)"). The
+nightly sweep (`references/scheduled-run.md`) reads the comments and
+treats any 7-40 hex token that prefixes the PR head as "already
+reviewed on this head". No labels, no `QA:` prefix, no hidden text.
+A card that is re-pushed gets a new head, so it is reviewed again.
+
 ## Openers (rotate, never reuse within one run)
 
 - Ran this on `<branch>` at `<sha>` ...

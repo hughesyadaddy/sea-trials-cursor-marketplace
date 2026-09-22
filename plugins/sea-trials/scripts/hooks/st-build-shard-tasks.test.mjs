@@ -227,30 +227,52 @@ test('inferTier: l10n / generated shards are mechanical', () => {
   );
 });
 
-test('resolveModels: shard > env > tier defaults', () => {
-  assert.deepEqual(resolveModels({ paths: ['x/lib/'] }, {}), {
-    tier: 'code',
-    model: TIER_MODELS.code.cursor,
-    claudeModel: TIER_MODELS.code.claude,
-  });
+test('resolveModels: shard > env > probe > tier defaults', () => {
+  // caps=null skips the on-disk probe so the test is machine-independent.
+  const noCaps = resolveModels({ paths: ['x/lib/'] }, {}, null);
+  assert.equal(noCaps.tier, 'code');
+  assert.equal(noCaps.model, TIER_MODELS.code.cursor);
+  assert.equal(noCaps.claudeModel, TIER_MODELS.code.claude);
+  assert.equal(noCaps.modelVerified, false);
+  assert.equal(noCaps.modelSource, 'static-fallback');
   assert.equal(TIER_MODELS.code.cursor, 'composer-2.5');
   assert.equal(TIER_MODELS.code.claude, 'sonnet');
   assert.equal(TIER_MODELS.mechanical.claude, 'haiku');
+
   const env = {
     ST_SHARD_MODEL_CODE: 'grok-4.7-high-fast',
     ST_SHARD_MODEL_CODE_CLAUDE: 'opus',
   };
-  assert.deepEqual(resolveModels({ paths: ['x/lib/'] }, env), {
-    tier: 'code',
-    model: 'grok-4.7-high-fast',
-    claudeModel: 'opus',
-  });
+  const fromEnv = resolveModels({ paths: ['x/lib/'] }, env, null);
+  assert.equal(fromEnv.model, 'grok-4.7-high-fast');
+  assert.equal(fromEnv.claudeModel, 'opus');
+  assert.equal(fromEnv.modelSource, 'env');
+
+  // A probed list wins over static defaults when no env override exists.
+  const caps = {
+    host: 'cursor',
+    cursor: { models: ['inherit', 'composer-2.5'], source: 'probe' },
+    claude: { models: ['inherit', 'haiku', 'sonnet'], source: 'probe' },
+  };
+  const probed = resolveModels(
+    { paths: ['docs/'], tier: 'mechanical' },
+    {},
+    caps,
+  );
+  assert.equal(probed.tier, 'mechanical');
+  assert.equal(probed.model, 'composer-2.5'); // no *-fast slug available
+  assert.equal(probed.claudeModel, 'haiku');
+  assert.equal(probed.modelVerified, true);
+
   const explicit = resolveModels(
     { paths: ['x/lib/'], model: 'gpt-5.6-sol-medium', claudeModel: 'haiku' },
     env,
+    null,
   );
   assert.equal(explicit.model, 'gpt-5.6-sol-medium');
   assert.equal(explicit.claudeModel, 'haiku');
+  assert.equal(explicit.modelSource, 'shard');
+  assert.equal(explicit.modelVerified, false);
 });
 
 test('resolveSubagentType prefers the plugin worker agent', () => {

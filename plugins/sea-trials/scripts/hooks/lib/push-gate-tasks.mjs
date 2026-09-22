@@ -7,6 +7,7 @@
 import * as dirty from './dirty-tree-tasks.mjs';
 import * as prepush from './prepush-tasks.mjs';
 import * as ci from '../pr-local-ci.mjs';
+import { readCapabilities, resolveModel } from './host-capabilities.mjs';
 
 export const PHASE_DIRTY = 'dirty';
 export const PHASE_PREPUSH = 'prepush';
@@ -17,14 +18,22 @@ export const PHASE_CI = 'ci';
  * a format/lint/analyze failure is mechanical work: pin it to the cheap,
  * fast tier on each host. Reviewers and planners stay on `inherit`.
  *
- * Cursor slugs come from the Task tool's allow-list; Claude aliases from
- * the subagent `model:` field. `ST_WORKER_MODEL` / `ST_WORKER_MODEL_CLAUDE`
- * override both when a team standardises on a different cheap model.
+ * Delegates to `resolveModel({ tier: 'mechanical' })`: env overrides
+ * (`ST_SHARD_MODEL_MECHANICAL[_CLAUDE]`, `ST_WORKER_MODEL[_CLAUDE]`)
+ * win, then the slugs `st-model-probe.mjs` saw on this machine, then a
+ * static default flagged `modelVerified: false`.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {Record<string, any>|null} [caps] probe output; `undefined`
+ *   reads `hostCapabilitiesPath()`, `null` skips the read
  */
-export function workerModelHints(env = process.env) {
+export function workerModelHints(env = process.env, caps) {
+  const r = resolveModel({ tier: 'mechanical', env, caps });
   return {
-    model: (env.ST_WORKER_MODEL ?? '').trim() || 'composer-2.5',
-    claudeModel: (env.ST_WORKER_MODEL_CLAUDE ?? '').trim() || 'haiku',
+    model: r.model,
+    claudeModel: r.claudeModel,
+    modelVerified: r.verified,
+    modelSource: r.source,
   };
 }
 
@@ -60,7 +69,9 @@ export function taskToRunnable(task, repoRoot) {
  *   task: Record<string, unknown>,
  *   repoRoot: string,
  *   index: number,
- * }} ctx
+ *   env?: NodeJS.ProcessEnv,
+ *   caps?: Record<string, unknown> | null,
+ * }} ctx `env` / `caps` are forwarded to `workerModelHints`
  */
 export function serializePushGateTask({
   phase,
@@ -69,6 +80,8 @@ export function serializePushGateTask({
   task,
   repoRoot,
   index,
+  env,
+  caps,
 }) {
   const runnable = taskToRunnable(task, repoRoot);
   const id = `${phase}-${index}`;
@@ -85,7 +98,7 @@ export function serializePushGateTask({
     weight: runnable.weight,
     kind: task.kind ?? task.lane ?? undefined,
     subagent_type: 'generalPurpose',
-    ...workerModelHints(),
+    ...workerModelHints(env, caps),
   };
 }
 
@@ -209,6 +222,8 @@ export async function buildPushGatePlan(opts) {
  */
 export function emitPushGateTaskLines(plan, repoRoot) {
   let index = 0;
+  // Read the probe file once: every line shares the same snapshot.
+  const caps = readCapabilities();
   for (const [groupIdx, group] of plan.groups.entries()) {
     for (const task of group.tasks) {
       index += 1;
@@ -219,6 +234,7 @@ export function emitPushGateTaskLines(plan, repoRoot) {
         task,
         repoRoot,
         index,
+        caps,
       });
       process.stdout.write(`${JSON.stringify(line)}\n`);
     }

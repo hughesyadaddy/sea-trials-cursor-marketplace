@@ -21,6 +21,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { recordRun } from './lib/gate-telemetry.mjs';
+import { resolveModel, TIER_DEFAULTS } from './lib/host-capabilities.mjs';
+
 /** Default `maxParallel` when the manifest omits it. */
 export const DEFAULT_MAX_PARALLEL = 6;
 /** Hard cap; more than this overwhelms the Cursor extension host. */
@@ -31,15 +34,11 @@ export const TIERS = ['mechanical', 'code', 'reasoning'];
 export const DEFAULT_TIER = 'code';
 
 /**
- * Model tiering defaults. `cursor` values are Task-tool slugs; `claude`
- * values are Claude Code aliases. Override per tier with
- * `ST_SHARD_MODEL_<TIER>` (Cursor) / `ST_SHARD_MODEL_<TIER>_CLAUDE`.
+ * Model tiering defaults (single source: host-capabilities.mjs). At run
+ * time `resolveModels` prefers `ST_SHARD_MODEL_<TIER>[_CLAUDE]` env
+ * overrides, then the list probed by `st-model-probe`, then these.
  */
-export const TIER_MODELS = Object.freeze({
-  mechanical: { cursor: 'composer-2.5-fast', claude: 'haiku' },
-  code: { cursor: 'composer-2.5', claude: 'sonnet' },
-  reasoning: { cursor: 'inherit', claude: 'inherit' },
-});
+export const TIER_MODELS = TIER_DEFAULTS;
 
 /** Cursor subagent type used when the plugin agent file is installed. */
 export const WORKER_AGENT = 'st-shard-worker';
@@ -141,13 +140,44 @@ export function parseResult(text) {
       `--result ${parsed.shard}: status must be "done" or "blocked"`,
     );
   }
+  const ms = Number(parsed.ms ?? parsed.durationMs);
   return {
     shard: parsed.shard,
     status: parsed.status,
     filesChanged: asStringArray(parsed.filesChanged),
     needsIntegration: asStringArray(parsed.needsIntegration),
     notes: typeof parsed.notes === 'string' ? parsed.notes : '',
+    // Optional worker-reported wall time, forwarded to telemetry only.
+    ...(Number.isFinite(ms) && ms >= 0 ? { ms } : {}),
   };
+}
+
+/**
+ * Telemetry for one worker result (kind `shard`). Model comes from the
+ * shard's resolved tier so `st-gate-stats` can compare tiers. Never
+ * throws.
+ *
+ * @param {ReturnType<typeof parseResult>} result
+ * @param {{ shards: object[], root: string, env?: NodeJS.ProcessEnv }} ctx
+ */
+export function recordShardResult(result, ctx) {
+  const shard = (ctx.shards ?? []).find((s) => s.id === result.shard);
+  const env = ctx.env ?? process.env;
+  const models = shard ? resolveModels(shard, env) : null;
+  return recordRun(
+    {
+      kind: 'shard',
+      task: result.shard,
+      phase: result.status,
+      taskKind: models?.tier,
+      model: models?.model,
+      ok: result.status === 'done',
+      ms: result.ms,
+      files: result.filesChanged.length,
+      repoRoot: ctx.root,
+    },
+    { env },
+  );
 }
 
 function asStringArray(value) {
@@ -326,23 +356,32 @@ export function inferTier(shard) {
 
 /**
  * Resolve Cursor + Claude models for a shard: explicit `model` /
- * `claudeModel` on the shard win, then env overrides, then tier defaults.
+ * `claudeModel` on the shard win; otherwise `resolveModel` from
+ * host-capabilities applies env overrides, then the probed model list
+ * (`st-model-probe`), then the static tier defaults.
  *
  * @param {object} shard
  * @param {NodeJS.ProcessEnv} [env]
- * @returns {{tier: string, model: string, claudeModel: string}}
+ * @param {Record<string, any>|null} [caps] probe output; `undefined`
+ *   reads it from disk, `null` skips the read
+ * @returns {{
+ *   tier: string, model: string, claudeModel: string,
+ *   modelVerified: boolean, modelSource: string,
+ * }}
  */
-export function resolveModels(shard, env = process.env) {
+export function resolveModels(shard, env = process.env, caps) {
   const tier = inferTier(shard);
-  const key = tier.toUpperCase();
-  const defaults = TIER_MODELS[tier];
+  const resolved = resolveModel({ tier, env, caps });
+  const explicitCursor = Boolean(shard.model);
+  const explicitClaude = Boolean(shard.claudeModel);
   return {
     tier,
-    model: shard.model || env[`ST_SHARD_MODEL_${key}`] || defaults.cursor,
-    claudeModel:
-      shard.claudeModel ||
-      env[`ST_SHARD_MODEL_${key}_CLAUDE`] ||
-      defaults.claude,
+    model: shard.model || resolved.model,
+    claudeModel: shard.claudeModel || resolved.claudeModel,
+    modelVerified:
+      explicitCursor || explicitClaude ? false : resolved.verified,
+    modelSource:
+      explicitCursor || explicitClaude ? 'shard' : resolved.source,
   };
 }
 
@@ -413,7 +452,8 @@ export function buildTask(shard, ctx) {
       ...(shard.sharedFiles ?? []),
     ]),
   ].sort();
-  const { tier, model, claudeModel } = resolveModels(shard, ctx.env);
+  const { tier, model, claudeModel, modelVerified, modelSource } =
+    resolveModels(shard, ctx.env, ctx.caps);
   return {
     source: 'build-shard',
     taskId: shard.id,
@@ -424,6 +464,8 @@ export function buildTask(shard, ctx) {
     tier,
     model,
     claudeModel,
+    modelVerified,
+    modelSource,
     run_in_background: true,
     description: `Build shard ${shard.id}`,
     prompt: buildPrompt(shard, {
@@ -574,7 +616,10 @@ function main() {
   markDone(state, args.done);
   const results = [...args.results];
   for (const file of args.resultFiles) results.push(...readResultFile(file));
-  for (const result of results) applyResult(state, result);
+  for (const result of results) {
+    applyResult(state, result);
+    recordShardResult(result, { shards, root: args.root });
+  }
 
   if (args.status) {
     const status = computeStatus(shards, state, maxParallel);

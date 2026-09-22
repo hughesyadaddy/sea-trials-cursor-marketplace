@@ -11,8 +11,10 @@
  *
  * Story file: `# Title`, optional metadata lines right after the title
  * (`**Jira:** STD-1 | **SP:** 5`, `**Blocked by:** US3`, `**Labels:** a`,
- * `**Assignee:** name`), description, then subtasks as
- * `## Subtask 1.1: Title` or `### Subtask 1.1: Title` under `## Subtasks`.
+ * `**Assignee:** name`, `**Kind:** verify`), description, then subtasks
+ * as `## Subtask 1.1: Title` or `### Subtask 1.1: Title` under
+ * `## Subtasks`. Paths listed under `## Files to touch` (story) or
+ * `**Files to change**` (subtask) are exposed as `files`.
  *
  * Usage:
  *   node parse-sprint-folder.mjs <dir> [--out payload.json] [--lint] [--diff]
@@ -44,7 +46,16 @@ const KNOWN_META = new Set([
   'blocked by',
   'labels',
   'assignee',
+  'kind',
 ]);
+// `## Files to touch`, `## Files`, `## Touches` headings and the bold
+// `**Files to change**` label used inside subtasks.
+const FILES_SECTION_RE =
+  /^(?:#{2,6}\s+|\*\*)(files(?:\s+to\s+(?:touch|change))?|touches)(?:\*\*)?\s*:?\s*$/i;
+const BOLD_LABEL_RE = /^\*\*[^*]+\*\*\s*:?\s*$/;
+const LIST_ITEM_RE = /^\s*(?:[-*+]|\d{1,9}[.)])\s+(.*)$/;
+const CODE_SPAN_RE = /`([^`\n]+)`/;
+const PATHISH_RE = /^(?:\.{0,2}\/)?[\w@.-]+(?:\/[\w@.-]+)*\/?$/;
 const SUBTASK_H2_RE = /^##\s+Subtask\s+([\w.]+?):\s*(.*?)\s*$/i;
 const SUBTASK_H3_RE = /^###\s+Subtask\s+([\w.]+?):\s*(.*?)\s*$/i;
 const SUBTASKS_HEADING_RE = /^##\s+Subtasks?\s*$/i;
@@ -165,7 +176,53 @@ function metaFields(meta) {
     blockedBy: blocked ? splitList(blocked).map(normalizeStoryId) : [],
     labels: meta.labels ? splitList(meta.labels) : [],
     assignee: meta.assignee ?? null,
+    kind: meta.kind ? meta.kind.toLowerCase() : null,
   };
+}
+
+/**
+ * Paths listed under a files section (`## Files to touch`, `## Files`,
+ * `## Touches`, or the bold `**Files to change**` label inside a
+ * subtask). Each list item contributes its first code span, or its
+ * first token when it has no code span and looks like a path. The
+ * section ends at the next heading or bold label. Fenced code is
+ * ignored. Order is kept; duplicates are dropped.
+ *
+ * @param {string} text story or subtask markdown
+ * @returns {string[]}
+ */
+export function extractFiles(text) {
+  const out = [];
+  let inFence = false;
+  let inSection = false;
+  for (const raw of normalize(text).split('\n')) {
+    if (FENCE_RE.test(raw)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const line = raw.trim();
+    if (FILES_SECTION_RE.test(line)) {
+      inSection = true;
+      continue;
+    }
+    if (!inSection) continue;
+    if (HEADING_RE.test(line) || BOLD_LABEL_RE.test(line)) {
+      inSection = false;
+      continue;
+    }
+    const item = LIST_ITEM_RE.exec(line);
+    if (!item) continue;
+    const code = CODE_SPAN_RE.exec(item[1]);
+    let candidate = code ? code[1].trim() : item[1].split(/\s+/)[0];
+    candidate = candidate.replace(/^\(|[),;:]+$/g, '');
+    if (!candidate || !PATHISH_RE.test(candidate)) continue;
+    if (!code && !candidate.includes('/') && !/\.\w+$/.test(candidate)) {
+      continue;
+    }
+    if (!out.includes(candidate)) out.push(candidate);
+  }
+  return out;
 }
 
 /** Title from the first H1 line; falls back to `fallback`. */
@@ -244,6 +301,7 @@ export function parseStory(text, info) {
     description: desc,
     hash: contentHash(desc),
     ...metaFields(meta),
+    files: extractFiles(desc),
     subtasks: subtasks.map((s) => {
       const { meta: sm, rest: sBody } = extractMeta(s.lines);
       const sDesc = sBody.join('\n').trim();
@@ -256,6 +314,7 @@ export function parseStory(text, info) {
         hash: contentHash(sDesc),
         storyPoints: fields.storyPoints,
         blockedBy: fields.blockedBy,
+        files: extractFiles(sDesc),
       };
     }),
   };

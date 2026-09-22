@@ -180,6 +180,20 @@ node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --diff
 
 Everything should be in `create` for a new folder.
 
+Finally, emit shards for the build so `/st-build-with-subagents` can
+skip its Phase 0 heuristics:
+
+```bash
+node "$SPRINT/sprint-to-shards.mjs" "<folder>" --repo-root "$ACTIVE_ROOT" --dry-run
+```
+
+`--dry-run` prints the manifest to stdout without writing files; drop
+it and add `--out shards.json` when the build is about to start. It
+exits 1 when the story cards would not form a valid shard manifest
+(overlapping paths, an undeclared shared file, a dependency cycle) and
+warns `needs paths` for any card whose "Files to touch" is empty. Treat
+both as lint: fix the card, not the manifest.
+
 ---
 
 ## Phase 7 — Handoff
