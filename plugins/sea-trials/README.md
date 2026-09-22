@@ -152,14 +152,19 @@ copy at `skills/st-*/references/shared/<name>.md` because both hosts resolve
 ## Source of truth
 
 **Edit this directory** in `sea-trials-cursor-marketplace` — not
-`sea_trials_universal`. App repos keep **CI config only**
-(`scripts/ci/pr-lane-registry.mjs`, lane runners). They do **not** ship
-push-gate or PR-review orchestration.
+`sea_trials_universal`. Orchestration **and** the CI lane runners live
+here (`scripts/hooks/`, `scripts/ci/`). App repos keep only
+`scripts/ci/pr-lane-registry.mjs` (lane data), the `scripts/ci/st-plugin.mjs`
+import shim plus their config-parity tests (`scripts/ci/*.test.mjs`), and
+`.husky/` wiring. Their GitHub workflows check this marketplace out and run
+the runners from it via [`ci/setup`](ci/README.md).
 
 | Layer | Location |
 | --- | --- |
-| Orchestration | `plugins/sea-trials/scripts/hooks/` (this plugin) |
-| Repo CI config | checkout `scripts/ci/` (per app repo) |
+| Orchestration (push gate, PR review loop) | `plugins/sea-trials/scripts/hooks/` (this plugin) |
+| CI lane runners + shared hook libs | `plugins/sea-trials/scripts/ci/`, `scripts/hooks/lib/` (this plugin) |
+| GitHub Actions entry point | `plugins/sea-trials/ci/setup` — exports `ST_PLUGIN_ROOT` / `ST_PLUGIN_SHA` ([ci/README.md](ci/README.md)) |
+| Repo CI config | checkout `scripts/ci/pr-lane-registry.mjs`, `scripts/ci/st-plugin.mjs`, `scripts/ci/*.test.mjs` (per app repo) |
 | Git hook wiring | checkout `.husky/st-plugin-run.sh` (resolves plugin path) |
 
 ## Publish checklist

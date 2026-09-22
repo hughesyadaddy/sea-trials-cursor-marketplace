@@ -16,7 +16,7 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getRepoRoot } from './lib/pr-review-lib.mjs';
+import { getRepoRoot, resolveGithubOwnerRepo } from './lib/pr-review-lib.mjs';
 
 const hooksDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = getRepoRoot();
@@ -26,7 +26,7 @@ const GRANULARITIES = new Set(['fine', 'coarse']);
 function parseArgs(argv) {
   const out = {
     pr: null,
-    repo: 'hughesyadaddy/sea_trials_universal',
+    repo: null,
     phases: new Set(['prepush', 'ci', 'review']),
     granularity: null,
   };
@@ -131,12 +131,16 @@ function main() {
     if (!pr || Number.isNaN(pr)) {
       throw new Error('review phase requires --pr <n>');
     }
+    const target = repo ?? (() => {
+      const { owner, name } = resolveGithubOwnerRepo(repoRoot);
+      return `${owner}/${name}`;
+    })();
     const lines = runJsonLines('node', [
       path.join(hooksDir, 'pr-review-adversarial-tasks.mjs'),
       '--pr',
       String(pr),
       '--repo',
-      repo,
+      target,
     ]);
     for (const line of lines) {
       const task = JSON.parse(line);

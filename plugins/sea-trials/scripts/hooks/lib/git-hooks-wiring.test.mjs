@@ -99,11 +99,12 @@ test('a fresh worktree checkout of HEAD contains each hook, executable', consume
 
 test('the prepare script wires hooks and never invokes husky', consumer, () => {
   const prepare = packageJson.scripts?.prepare ?? '';
-  assert.ok(
-    prepare.includes('scripts/hooks/install-git-hooks.mjs'),
-    'package.json `prepare` must run scripts/hooks/install-git-hooks.mjs so '
-      + 'a fresh clone + pnpm install wires core.hooksPath with no manual '
-      + `step. Got: ${prepare}`,
+  assert.match(
+    prepare,
+    /install-git-hooks/,
+    'package.json `prepare` must run the plugin\'s install-git-hooks hook '
+      + '(`sh .husky/st-plugin-run.sh install-git-hooks`) so a fresh clone + '
+      + `pnpm install wires core.hooksPath with no manual step. Got: ${prepare}`,
   );
   assert.equal(
     invokesHuskyCli(prepare),

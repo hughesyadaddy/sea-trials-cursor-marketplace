@@ -23,6 +23,7 @@ import {
   REQUIRED_HOOKS,
   verifyHooksWiring,
 } from './lib/git-hooks-wiring.mjs';
+import { resolveRepoRoot } from './lib/plugin-paths.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -34,13 +35,8 @@ function git(args, options = {}) {
   });
 }
 
-const repoRoot = (() => {
-  const top = git(['rev-parse', '--show-toplevel']);
-  if (top.status === 0 && (top.stdout ?? '').trim()) {
-    return (top.stdout ?? '').trim();
-  }
-  return process.cwd();
-})();
+// Never this file's own location: the plugin lives outside the repo.
+const repoRoot = resolveRepoRoot();
 
 function fail(lines) {
   process.stderr.write(`\n❌ Git hooks are not wired.\n${lines}\n`);

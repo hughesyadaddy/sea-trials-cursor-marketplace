@@ -1,0 +1,53 @@
+name: Setup sea-trials plugin
+description: >
+  Export ST_PLUGIN_ROOT and ST_PLUGIN_SHA for a checked-out sea-trials
+  plugin so app-repo workflows can run plugin-owned CI scripts
+  (`node "$ST_PLUGIN_ROOT/scripts/ci/<name>"`). Run it right after the
+  actions/checkout step that placed the marketplace at `.st-plugin`.
+  Node is not installed here — the calling job already owns its
+  toolchain. See ci/README.md for the consumer snippet.
+
+outputs:
+  plugin-root:
+    description: Absolute path to plugins/sea-trials (same as ST_PLUGIN_ROOT)
+    value: ${{ steps.resolve.outputs.plugin-root }}
+  plugin-sha:
+    description: Commit SHA of the marketplace checkout (same as ST_PLUGIN_SHA)
+    value: ${{ steps.resolve.outputs.plugin-sha }}
+
+runs:
+  using: composite
+  steps:
+    - id: resolve
+      shell: bash
+      run: |
+        set -euo pipefail
+        # This file lives at <plugin>/ci/setup/action.yml, so the plugin
+        # root is two levels up and the marketplace root two more.
+        root="$(cd "${GITHUB_ACTION_PATH}/../.." && pwd -P)"
+        if [ ! -f "$root/scripts/st-run.mjs" ]; then
+          echo "::error::sea-trials plugin root '$root' has no scripts/st-run.mjs"
+          exit 1
+        fi
+        marketplace="$(cd "$root/../.." && pwd -P)"
+        # The plugin is checked out inside the app repo's workspace, so a
+        # missing .git here would make git answer for the APP repo and
+        # silently key caches on the wrong SHA. Require the marketplace
+        # checkout to be its own repository.
+        top="$(git -C "$marketplace" rev-parse --show-toplevel 2>/dev/null \
+          || true)"
+        if [ "$top" != "$marketplace" ]; then
+          echo "::error::'$marketplace' is not a git checkout of the" \
+            "sea-trials marketplace (got toplevel '$top')"
+          exit 1
+        fi
+        sha="$(git -C "$marketplace" rev-parse HEAD)"
+        {
+          echo "ST_PLUGIN_ROOT=$root"
+          echo "ST_PLUGIN_SHA=$sha"
+        } >> "$GITHUB_ENV"
+        {
+          echo "plugin-root=$root"
+          echo "plugin-sha=$sha"
+        } >> "$GITHUB_OUTPUT"
+        echo "sea-trials plugin: ST_PLUGIN_ROOT=$root ST_PLUGIN_SHA=${sha:0:12}"

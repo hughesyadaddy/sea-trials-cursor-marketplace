@@ -139,7 +139,7 @@ export function assessHooksWiring({
     problems.push(
       'core.hooksPath is not set, so git falls back to `.git/hooks` — '
         + 'which is untracked and empty in every fresh clone and worktree. '
-        + 'Run `pnpm install` (or `node scripts/hooks/install-git-hooks.mjs`).',
+        + 'Run `pnpm install` (or `sh .husky/st-plugin-run.sh install-git-hooks`).',
     );
     return { ok: false, problems };
   }

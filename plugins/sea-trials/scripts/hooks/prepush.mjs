@@ -95,7 +95,7 @@ function acquirePrepushLock() {
     process.stderr.write(
       '\n❌ Git hooks wiring is broken — a worktree would push unchecked.\n'
         + wiring.problems.map((problem) => `   • ${problem}`).join('\n')
-        + '\n   Fix: node scripts/hooks/install-git-hooks.mjs\n',
+        + '\n   Fix: sh .husky/st-plugin-run.sh install-git-hooks\n',
     );
     process.exit(1);
   }

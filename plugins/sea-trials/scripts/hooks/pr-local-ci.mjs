@@ -15,70 +15,51 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import {
+  expandLocalRun as expandLocalRunWithPlugin,
+  loadLaneRegistry,
+  resolveLaneRegistryPath,
+} from '../ci/lane-registry.mjs';
+import { matchLanePaths } from '../ci/pr-lane-paths.mjs';
+import { emptyPassCache, parsePassCache } from '../ci/pass-cache.mjs';
+import {
+  emptyTimingCache,
+  parseTimingCache,
+  TIMING_CACHE_FILE,
+} from '../ci/test-shard-timing.mjs';
 import { resolvePromotionBaseRef } from './lib/check-plan.mjs';
 import { runParallelLimited } from './lib/parallel.mjs';
+import {
+  pluginPath,
+  pluginRoot as resolvePluginRoot,
+  resolveRepoRoot,
+} from './lib/plugin-paths.mjs';
 
 const isWindows = process.platform === 'win32';
 
-function resolveRepoRoot() {
-  if (process.env.ST_REPO_ROOT?.trim()) {
-    return path.resolve(process.env.ST_REPO_ROOT.trim());
-  }
-  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], {
-    encoding: 'utf8',
-    shell: isWindows,
-  });
-  if (top.status === 0) return (top.stdout ?? '').trim();
-  return process.cwd();
-}
-
 const repoRoot = resolveRepoRoot();
-const repoCiRoot = path.join(repoRoot, 'scripts/ci');
+const pluginRoot = resolvePluginRoot();
 
 /**
- * The lane registry, pass cache and shard timing live in the consuming
- * repo's `scripts/ci/` (repo config, not plugin runtime). They are
- * loaded on first use so this module — and everything that imports it,
- * such as the push-gate planner — still loads in a checkout without
- * them (plugin unit tests, a non-Sea-Trials repo using only the dirty
- * and prepush phases).
+ * True when the checkout ships a PR lane registry (its own
+ * `scripts/ci/pr-lane-registry.mjs`, or one named by `ST_LANE_REGISTRY`).
+ * The registry is the only CI input the repo still owns; every lane
+ * runner it names lives in this plugin.
  */
-let repoCiModules = null;
-
-async function loadRepoCi() {
-  if (repoCiModules) return repoCiModules;
-  const load = (file) =>
-    import(pathToFileURL(path.join(repoCiRoot, file)).href);
-  const [lanePaths, passCache, registry, timing] = await Promise.all([
-    load('pr-lane-paths.mjs'),
-    load('pass-cache.mjs'),
-    load('pr-lane-registry.mjs'),
-    load('test-shard-timing.mjs'),
-  ]);
-  repoCiModules = {
-    matchLanePaths: lanePaths.matchLanePaths,
-    emptyPassCache: passCache.emptyPassCache,
-    parsePassCache: passCache.parsePassCache,
-    PR_LANES: registry.PR_LANES,
-    registryLanes: registry.registryLanes,
-    emptyTimingCache: timing.emptyTimingCache,
-    parseTimingCache: timing.parseTimingCache,
-    TIMING_CACHE_FILE: timing.TIMING_CACHE_FILE,
-  };
-  return repoCiModules;
-}
-
-/** True when the checkout ships the PR lane registry. */
 export function repoCiAvailable(root = repoRoot) {
-  return fs.existsSync(path.join(root, 'scripts/ci/pr-lane-registry.mjs'));
+  return resolveLaneRegistryPath(root) !== null;
 }
 
-const flutterRoot = path.join(repoRoot, 'flutter');
-const runLaneScript = path.join(repoRoot, 'scripts/ci/run-lane.mjs');
-const testShardsScript = path.join(repoRoot, 'scripts/ci/test-shards.mjs');
-const guardrailsAnalyzeScript = path.join(
-  repoRoot,
+const runLaneScript = pluginPath('scripts/ci/run-lane.mjs');
+const testShardsScript = pluginPath('scripts/ci/test-shards.mjs');
+const guardrailsAnalyzeScript = pluginPath(
   'scripts/ci/guardrails-analyze-packages.mjs',
+);
+const architectureScript = pluginPath(
+  'scripts/ci/run-dart-static-architecture-local.sh',
+);
+const analyzeExtrasScript = pluginPath(
+  'scripts/ci/run-dart-analyze-extras-local.sh',
 );
 
 /**
@@ -169,29 +150,27 @@ export function changedFilesVsBase(base, root = repoRoot) {
 
 /**
  * @param {string[]} changedFiles
- * @param {Array<{ paths: string[] }>} lanes
+ * @param {Array<{ paths: string[] }>} [lanes] defaults to the checkout's
+ *   registry lanes (empty when the checkout has none)
  */
 export async function filterEligibleLanes(changedFiles, lanes) {
-  const { matchLanePaths, registryLanes } = await loadRepoCi();
-  return (lanes ?? registryLanes()).filter((lane) =>
+  const candidates =
+    lanes ?? (await loadLaneRegistry(repoRoot))?.registryLanes() ?? [];
+  return candidates.filter((lane) =>
     matchLanePaths(changedFiles, lane.paths),
   );
 }
 
 /**
- * @param {import('../ci/pr-lane-registry.mjs').LocalRun} localRun
- * @param {{ base: string, repoRoot: string }} ctx
+ * @param {import('../ci/lane-registry.mjs').LocalRun} localRun
+ * @param {{ base: string, repoRoot: string, pluginRoot?: string }} ctx
  */
-export function expandLocalRun(localRun, { base, repoRoot: root }) {
-  const args = (localRun.args ?? []).map((arg) =>
-    arg.replaceAll('{base}', base),
-  );
-  return {
-    cmd: localRun.cmd,
-    args,
-    cwd: localRun.cwd ? path.join(root, localRun.cwd) : root,
-    shell: localRun.shell ?? false,
-  };
+export function expandLocalRun(localRun, ctx) {
+  return expandLocalRunWithPlugin(localRun, {
+    base: ctx.base,
+    repoRoot: ctx.repoRoot,
+    pluginRoot: ctx.pluginRoot ?? pluginRoot,
+  });
 }
 
 function capture(cmd, args, opts = {}) {
@@ -249,7 +228,7 @@ function architectureFullTreeTask(root, base) {
     lane: 'dart-static-architecture',
     label: 'pr-local-ci:architecture-lint-full-tree',
     cmd: 'bash',
-    args: ['scripts/ci/run-dart-static-architecture-local.sh', base],
+    args: [architectureScript, base],
     weight: 1,
     options: { cwd: root },
   };
@@ -260,7 +239,7 @@ function dartAnalyzeExtrasTask(base, root) {
     lane: 'dart-analyze-extras',
     label: 'pr-local-ci:dart-analyze-extras',
     cmd: 'bash',
-    args: ['scripts/ci/run-dart-analyze-extras-local.sh', base],
+    args: [analyzeExtrasScript, base],
     weight: 1,
     options: { cwd: root },
   };
@@ -373,14 +352,15 @@ function serializeTaskForList(task) {
  *   laneFilter?: string | null,
  *   skipBootstrap?: boolean,
  *   changedFiles?: string[],
- *   lanes?: typeof PR_LANES,
+ *   lanes?: import('../ci/lane-registry.mjs').PrLane[],
  *   env?: NodeJS.ProcessEnv,
  * }} opts
  */
 export async function buildPrLocalCiTasks(opts) {
   const root = opts.repoRoot ?? repoRoot;
   const base = opts.base;
-  if (!repoCiAvailable(root)) {
+  const registry = opts.lanes ? null : await loadLaneRegistry(root);
+  if (!opts.lanes && !registry) {
     return {
       tasks: [],
       reminders: [
@@ -390,27 +370,17 @@ export async function buildPrLocalCiTasks(opts) {
       eligible: [],
     };
   }
-  const {
-    registryLanes,
-    emptyPassCache,
-    parsePassCache,
-    emptyTimingCache,
-    parseTimingCache,
-    TIMING_CACHE_FILE,
-  } = await loadRepoCi();
+  const allLanes = opts.lanes ?? registry.registryLanes();
   const changed =
     opts.changedFiles ?? changedFilesVsBase(base, root);
-  const eligible = await filterEligibleLanes(
-    changed,
-    opts.lanes ?? registryLanes(),
-  );
+  const eligible = await filterEligibleLanes(changed, allLanes);
   const laneFilter = opts.laneFilter;
   const selected = laneFilter
     ? eligible.filter((lane) => lane.id === laneFilter)
     : eligible;
 
   if (laneFilter && selected.length === 0) {
-    const known = registryLanes().map((l) => l.id).join(', ');
+    const known = allLanes.map((l) => l.id).join(', ');
     throw new Error(
       `Lane '${laneFilter}' not path-eligible or unknown. ` +
         `Eligible: ${eligible.map((l) => l.id).join(', ') || '(none)'}. ` +
@@ -422,7 +392,7 @@ export async function buildPrLocalCiTasks(opts) {
   const tasks = [];
   /** @type {string[]} */
   const reminders = [];
-  const ctx = { base, repoRoot: root };
+  const ctx = { base, repoRoot: root, pluginRoot };
   const env = opts.env ?? process.env;
 
   const laneBase = laneBaseForRunLane(base, root);

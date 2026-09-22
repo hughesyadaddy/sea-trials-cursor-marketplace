@@ -1,8 +1,9 @@
 /**
  * Push-gate task planner — self-contained plugin runtime.
  *
- * Dirty/prepush planners ship in this plugin. CI lanes load lane registry
- * from the checkout's scripts/ci/ at runtime (repo config only).
+ * Dirty/prepush planners and every CI lane runner ship in this plugin.
+ * The only CI input read from the checkout at runtime is its lane
+ * registry (`scripts/ci/pr-lane-registry.mjs`, data only).
  */
 import * as dirty from './dirty-tree-tasks.mjs';
 import * as prepush from './prepush-tasks.mjs';

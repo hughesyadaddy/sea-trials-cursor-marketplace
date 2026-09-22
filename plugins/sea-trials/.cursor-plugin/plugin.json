@@ -1,7 +1,7 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.09.22",
+  "version": "2026.09.22-1",
   "description": "Sea Trials team agents, MCP (Atlassian, chrome-devtools), st-* PR review skills, and push-gate hooks for Cursor.",
   "author": {
     "name": "Sea Trials",
