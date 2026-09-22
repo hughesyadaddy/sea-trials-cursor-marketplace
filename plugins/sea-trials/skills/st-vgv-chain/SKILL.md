@@ -45,16 +45,26 @@ vgv_next:
 Same-chat only — no context reset commands. After each phase,
 use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) with the skill's standard handoff options.
 
-**Parallel default:** each chained `st-*` step uses maximum Task fan-out
-(`st-parallel-tasks`, `st-build-shard-tasks`, adversarial + fix
-emitters). Parent integrates between waves — do not serialize gate lanes
-or build shards when JSON task lines exist.
+**Parallel default:** each chained `st-*` step fans out one subagent
+per emitted JSON line (`st-parallel-tasks`, `st-build-shard-tasks`,
+adversarial + fix emitters) — Cursor `Task`, Claude Code `Agent`.
+Build shards run as a **rolling window**: when any worker returns,
+re-run the emitter with `--result`/`--done` and launch what became
+ready. Do not serialize gate lanes or shards when task lines exist.
+
+**Model tiering:** the parent (planner, integrator, this chat) stays
+on the user's model; shard workers run on the cheap execution tier
+stamped on each task line (`model` / `claudeModel`). The user may
+override per shard in `shards.json` or via `ST_SHARD_MODEL_<TIER>`.
+
+**One push:** step 3 never pushes. Step 4 hardens once; the push is
+`pr-review-push` — never bare `git push`.
 
 ## Phase pick: build vs build-with-subagents
 
 | Plan scope | Skill |
 | --- | --- |
-| Multi-package / parallel waves | `/st-build-with-subagents` |
+| Multi-package / plan has a ```` ```shards ```` block or `## Parallel execution map` | `/st-build-with-subagents` |
 | Single package | `/build` |
 
 ## Stop conditions

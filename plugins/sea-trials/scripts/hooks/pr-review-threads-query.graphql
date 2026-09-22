@@ -1,6 +1,12 @@
 query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
+  rateLimit {
+    cost
+    remaining
+    resetAt
+  }
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
+      headRefOid
       reviewThreads(first: 100, after: $endCursor) {
         pageInfo {
           hasNextPage
@@ -9,25 +15,30 @@ query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
         nodes {
           id
           isResolved
+          isOutdated
           path
           line
+          originalLine
+          subjectType
           firstComment: comments(first: 1) {
             nodes {
-              databaseId
+              fullDatabaseId
               author {
                 login
               }
               createdAt
+              url
               body
             }
           }
           latestComment: comments(last: 1) {
             nodes {
-              databaseId
+              fullDatabaseId
               author {
                 login
               }
               createdAt
+              url
               body
             }
           }

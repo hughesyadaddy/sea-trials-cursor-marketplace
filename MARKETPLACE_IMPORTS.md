@@ -54,7 +54,9 @@ example `cursor/`), never at `plugins/vgv-wingspan/` or
 
 ## Sea Trials plugin
 
-Edit `plugins/sea-trials/` directly in this repo. After changing PR review
-hooks in `sea_trials_universal`, copy
-`scripts/hooks/pr-review-*.mjs` (and `lib/`) into
-`plugins/sea-trials/scripts/hooks/`.
+Edit `plugins/sea-trials/` directly in this repo — it is the source of
+truth for push-gate and PR-review orchestration (app repos keep CI config
+only). Shared skill text lives once in
+`plugins/sea-trials/skills/_sources/`; regenerate the per-skill copies with
+`node scripts/sync-skill-sources.mjs` (CI runs `--check`). Bump `version`
+in both `plugin.json` files before publishing — Claude caches by version.

@@ -47,16 +47,31 @@ function readHeadOid(repoRoot) {
 }
 
 function parsePushArgs(argv) {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    printHelp();
+    process.exit(0);
+  }
   const base = parsePrArgs(argv);
   const phases = new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
   let listTasks = false;
   let checkOnly = false;
+  // Fan-out defaults to fine: each worker owns a few files or one package.
+  let granularity = GRANULARITY.FINE;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list-tasks') listTasks = true;
     else if (arg === '--check-only') checkOnly = true;
-    else if (arg === '--phases') {
+    else if (arg === '--granularity') {
+      const value = (argv[++i] ?? '').trim();
+      if (!Object.values(GRANULARITY).includes(value)) {
+        process.stderr.write(
+          `❌ --granularity must be one of: ${Object.values(GRANULARITY).join(', ')}\n`,
+        );
+        process.exit(2);
+      }
+      granularity = value;
+    } else if (arg === '--phases') {
       phases.clear();
       for (const part of (argv[++i] ?? '').split(',')) {
         const trimmed = part.trim();
@@ -68,7 +83,7 @@ function parsePushArgs(argv) {
     }
   }
 
-  return { ...base, listTasks, checkOnly, phases };
+  return { ...base, listTasks, checkOnly, phases, granularity };
 }
 
 function printHelp() {
@@ -79,6 +94,7 @@ Canonical push gate (one entry point).
   pnpm pr-review-push -- --pr <n> --list-tasks
   pnpm pr-review-push -- --pr <n> --check-only
   pnpm pr-review-push -- --pr <n> --phases dirty,prepush,ci
+  pnpm pr-review-push -- --pr <n> --list-tasks --granularity fine|coarse
 
 Subagents: one Task per JSON line from --list-tasks; run via
   pnpm run-gate-task -- '<json>'
@@ -88,20 +104,17 @@ Parent re-runs pr-review-push after fixes (never bare git push).
 
 async function main() {
   const repoRoot = getRepoRoot();
-  const { prNumber, listTasks, checkOnly, phases } = parsePushArgs(
-    process.argv.slice(2),
-  );
+  const { prNumber, listTasks, checkOnly, phases, granularity } =
+    parsePushArgs(process.argv.slice(2));
   const pr = fetchPrMeta(repoRoot, prNumber);
   const artifactPaths = reviewPaths(repoRoot, prNumber);
 
   if (listTasks) {
-    // Fan-out wants many small tasks: each worker owns a few files or
-    // one package and can fix what it finds without stepping on others.
     const plan = await buildPushGatePlan({
       repoRoot,
       prNumber,
       phases,
-      granularity: GRANULARITY.FINE,
+      granularity,
     });
     if (!plan.ok) {
       process.stderr.write(`❌ ${plan.error}\n`);

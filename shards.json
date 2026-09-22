@@ -7,7 +7,9 @@
         "MARKETPLACE_IMPORTS.md",
         "PLUGIN_SOURCES.md"
       ],
-      "dependsOn": []
+      "dependsOn": [],
+      "tier": "code",
+      "summary": "Vendor sync script and its import docs"
     },
     {
       "id": "sea-trials-claude-plugin",
@@ -16,7 +18,8 @@
         "plugins/sea-trials/.mcp.json",
         "plugins/sea-trials/hooks/"
       ],
-      "dependsOn": []
+      "dependsOn": [],
+      "tier": "code"
     },
     {
       "id": "marketplace-root-ci",
@@ -25,7 +28,8 @@
         ".github/workflows/",
         "README.md"
       ],
-      "dependsOn": []
+      "dependsOn": [],
+      "tier": "mechanical"
     },
     {
       "id": "vendor-bump",
@@ -34,15 +38,19 @@
         "plugins/vgv-wingspan/",
         "plugins/vgv-ai-flutter-plugin/"
       ],
-      "dependsOn": ["sync-script"]
+      "dependsOn": ["sync-script"],
+      "tier": "mechanical",
+      "summary": "Re-vendor upstream plugins after the sync script lands"
     },
     {
       "id": "st-dispatch-docs",
       "paths": [
         "plugins/sea-trials/skills/_sources/review-loop-contract.md"
       ],
-      "dependsOn": []
+      "dependsOn": [],
+      "tier": "reasoning"
     }
   ],
-  "maxParallel": 4
+  "sharedFiles": [],
+  "maxParallel": 6
 }

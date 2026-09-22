@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isBotLogin } from './bot-review-settled.mjs';
 
 const isWindows = process.platform === 'win32';
 const hooksDir = path.dirname(fileURLToPath(import.meta.url));
@@ -51,11 +52,22 @@ export function getRepoRoot() {
   return process.cwd();
 }
 
+/**
+ * Shared CLI flags. `--interval` / `--silence` keep working as explicit
+ * overrides of the adaptive poller (`intervalExplicit` /
+ * `silenceExplicit` tell the loop whether the user set them).
+ *
+ * `--webhook [port]` opts into `gh webhook forward` (falls back to
+ * polling when the extension is missing). `--bots codex,bugbot` pins
+ * which reviewers must settle; default is every bot seen on the PR.
+ */
 export function parsePrArgs(argv, defaults = {}) {
   const args = argv ?? process.argv.slice(2);
   const prFlag = args.indexOf('--pr');
   const intervalFlag = args.indexOf('--interval');
   const silenceFlag = args.indexOf('--silence');
+  const botsFlag = args.indexOf('--bots');
+  const webhookFlag = args.indexOf('--webhook');
   let prNumber;
   if (prFlag >= 0) {
     prNumber = Number(args[prFlag + 1]);
@@ -64,14 +76,30 @@ export function parsePrArgs(argv, defaults = {}) {
   } else {
     prNumber = resolvePrNumberFromBranch(getRepoRoot());
   }
+  let webhookPort = null;
+  if (webhookFlag >= 0) {
+    const next = args[webhookFlag + 1];
+    webhookPort = next && /^\d+$/.test(next) ? Number(next) : 0;
+  }
   return {
     once: args.includes('--once'),
     json: args.includes('--json'),
     prNumber,
     intervalSec:
       intervalFlag >= 0 ? Number(args[intervalFlag + 1]) : (defaults.interval ?? 15),
+    intervalExplicit: intervalFlag >= 0,
     silenceMin:
       silenceFlag >= 0 ? Number(args[silenceFlag + 1]) : (defaults.silence ?? 30),
+    silenceExplicit: silenceFlag >= 0,
+    bots:
+      botsFlag >= 0
+        ? (args[botsFlag + 1] ?? '')
+          .split(',')
+          .map((b) => b.trim())
+          .filter(Boolean)
+        : null,
+    webhook: webhookFlag >= 0,
+    webhookPort,
   };
 }
 
@@ -174,7 +202,27 @@ function splitTopLevelJsonObjects(text) {
   return parts;
 }
 
-export function parseGhPaginatedGraphql(stdout) {
+/**
+ * Thrown when GitHub GraphQL answers HTTP 200 with a `RATE_LIMITED`
+ * error. Callers back off instead of treating it as "no threads".
+ */
+export class GraphqlRateLimitedError extends Error {
+  /** @param {{ resetAt?: string, remaining?: number } | null} rateLimit */
+  constructor(rateLimit) {
+    super('GitHub GraphQL rate limited');
+    this.name = 'GraphqlRateLimitedError';
+    this.rateLimit = rateLimit;
+  }
+}
+
+/**
+ * Split `gh api graphql --paginate` output into page objects. gh may
+ * print one JSON document per line or concatenate them on one line.
+ *
+ * @param {string} stdout
+ * @returns {Array<Record<string, any>>}
+ */
+export function parseGhPaginatedGraphqlPages(stdout) {
   const trimmed = (stdout ?? '').trim();
   if (!trimmed) {
     return [];
@@ -193,15 +241,46 @@ export function parseGhPaginatedGraphql(stdout) {
       jsonChunks.push(...splitTopLevelJsonObjects(line));
     }
   }
+  return jsonChunks.map((chunk) => JSON.parse(chunk));
+}
 
+/**
+ * Merge review-thread nodes across pages. Throws
+ * `GraphqlRateLimitedError` when any page carries the typed error, so a
+ * throttled poll can never read as "zero threads".
+ *
+ * @param {string} stdout
+ */
+export function parseGhPaginatedGraphql(stdout) {
+  return parseGhPaginatedGraphqlResult(stdout).nodes;
+}
+
+/**
+ * @param {string} stdout
+ * @returns {{
+ *   nodes: Array<Record<string, any>>,
+ *   rateLimit: { cost?: number, remaining?: number, resetAt?: string } | null,
+ *   headRefOid: string | null,
+ * }}
+ */
+export function parseGhPaginatedGraphqlResult(stdout) {
+  const pages = parseGhPaginatedGraphqlPages(stdout);
   const nodes = [];
-  for (const chunk of jsonChunks) {
-    const page = JSON.parse(chunk);
+  let rateLimit = null;
+  let headRefOid = null;
+  for (const page of pages) {
+    if (page?.errors?.some((e) => e?.type === 'RATE_LIMITED')) {
+      throw new GraphqlRateLimitedError(page?.data?.rateLimit ?? null);
+    }
     const batch =
       page?.data?.repository?.pullRequest?.reviewThreads?.nodes ?? [];
     nodes.push(...batch);
+    if (page?.data?.rateLimit) rateLimit = page.data.rateLimit;
+    if (page?.data?.repository?.pullRequest?.headRefOid) {
+      headRefOid = page.data.repository.pullRequest.headRefOid;
+    }
   }
-  return nodes;
+  return { nodes, rateLimit, headRefOid };
 }
 
 function ghJson(repoRoot, cmdArgs, { allowExitCodes = [] } = {}) {
@@ -285,9 +364,21 @@ export function fetchReviewThreads(repoRoot, prNumber) {
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout || 'gh graphql failed');
   }
-  const nodes = parseGhPaginatedGraphql(result.stdout);
+  const { nodes, rateLimit, headRefOid } = parseGhPaginatedGraphqlResult(
+    result.stdout,
+  );
   const unresolved = nodes.filter((t) => !t.isResolved);
-  return { total: nodes.length, unresolved, nodes };
+  return { total: nodes.length, unresolved, nodes, rateLimit, headRefOid };
+}
+
+/**
+ * Unresolved threads opened by a reviewer bot (Codex, Bugbot, …). Bot
+ * logins arrive without `[bot]` from GraphQL and with it from REST.
+ *
+ * @param {Array<{ author?: string | null }>} unresolved mapped threads
+ */
+export function countBotThreads(unresolved) {
+  return unresolved.filter((t) => isBotLogin(t.author)).length;
 }
 
 /**
@@ -434,7 +525,22 @@ export function remoteHeadPushIso(repoRoot, branch, headRefOid) {
   ).trim();
 }
 
-function mapUnresolvedThread(t) {
+/**
+ * REST comment id from a GraphQL comment node. `fullDatabaseId` is the
+ * non-deprecated field; older callers/tests may still hand us
+ * `databaseId`.
+ *
+ * @param {Record<string, any> | null | undefined} comment
+ * @returns {number | null}
+ */
+export function commentDatabaseId(comment) {
+  const raw = comment?.fullDatabaseId ?? comment?.databaseId ?? null;
+  if (raw == null || raw === '') return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+export function mapUnresolvedThread(t) {
   const legacyNodes = t.comments?.nodes ?? [];
   const findingComment =
     t.firstComment?.nodes?.[0] ??
@@ -444,23 +550,30 @@ function mapUnresolvedThread(t) {
     t.latestComment?.nodes?.[0] ??
     legacyNodes[legacyNodes.length - 1] ??
     null;
+  const findingId = commentDatabaseId(findingComment);
+  const latestId = commentDatabaseId(latestComment);
+  const author = findingComment?.author?.login ?? null;
   const mapped = {
     id: t.id,
     path: t.path,
-    line: t.line,
-    databaseId: findingComment?.databaseId ?? null,
-    latestDatabaseId: latestComment?.databaseId ?? null,
-    author: findingComment?.author?.login ?? null,
+    line: t.line ?? t.originalLine ?? null,
+    isOutdated: Boolean(t.isOutdated),
+    subjectType: t.subjectType ?? null,
+    databaseId: findingId,
+    latestDatabaseId: latestId,
+    author,
+    isBot: isBotLogin(author),
+    url: findingComment?.url ?? null,
+    createdAt: findingComment?.createdAt ?? null,
     preview: (findingComment?.body ?? '')
       .replace(/\s+/g, ' ')
       .slice(0, 160),
     body: findingComment?.body ?? '',
   };
-  const hasReply =
-    latestComment?.databaseId != null &&
-    latestComment.databaseId !== findingComment?.databaseId;
+  const hasReply = latestId != null && latestId !== findingId;
   if (hasReply) {
     mapped.latestAuthor = latestComment?.author?.login ?? null;
+    mapped.latestCreatedAt = latestComment?.createdAt ?? null;
     mapped.latestPreview = (latestComment?.body ?? '')
       .replace(/\s+/g, ' ')
       .slice(0, 160);
@@ -473,6 +586,7 @@ export function buildReviewSnapshot(repoRoot, prNumber) {
   const pr = fetchPrMeta(repoRoot, prNumber);
   const threads = fetchReviewThreads(repoRoot, prNumber);
   const ci = fetchCiChecks(repoRoot, prNumber);
+  const unresolved = threads.unresolved.map(mapUnresolvedThread);
 
   return {
     at: new Date().toISOString(),
@@ -487,9 +601,11 @@ export function buildReviewSnapshot(repoRoot, prNumber) {
     },
     threads: {
       total: threads.total,
-      unresolvedCount: threads.unresolved.length,
-      unresolved: threads.unresolved.map(mapUnresolvedThread),
+      unresolvedCount: unresolved.length,
+      unresolvedBotCount: countBotThreads(unresolved),
+      unresolved,
     },
+    rateLimit: threads.rateLimit ?? null,
     ci: {
       total: ci.total,
       excludedCount: ci.excludedCount,

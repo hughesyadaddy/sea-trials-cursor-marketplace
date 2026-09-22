@@ -1,41 +1,71 @@
 # Dual-host subagent dispatch
 
-## Cursor (Task tool) — maximum parallel default
+Every emitter in this plugin prints one JSON object per line. The
+parent launches **one subagent per line, all in one turn**, on either
+host. Field names below are the ones the emitters produce.
 
-Sea Trials **`st-*`** skills fan out by default. Serialize only when
-there is literally one task line.
+## Field → host mapping
 
-### Build shards
+| Task-line field | Cursor (`Task` tool) | Claude Code (`Agent` tool) |
+| --- | --- | --- |
+| `subagent_type` | `subagent_type` (`st-shard-worker`; use `fallbackSubagentType` = `generalPurpose` if the plugin agent is not installed) | — |
+| `claudeAgent` | — | agent name; plugin agents are namespaced `sea-trials:st-shard-worker` |
+| `model` | `model` (slug) | — |
+| `claudeModel` | — | `model` alias (`haiku` / `sonnet` / `opus` / `inherit`) |
+| `prompt` | `prompt` | `prompt` |
+| `description` | `description` | `description` |
+| `run_in_background` | `run_in_background: true` | run in background / do not block on it (host phrasing varies) |
 
-```bash
-pnpm st-build-shard-tasks -- --manifest shards.json --root "$ACTIVE_ROOT"
+Cursor call shape:
+
+```text
+Task({ subagent_type, model, description, prompt, run_in_background: true })
 ```
 
-Launch **one Task per JSON line** in a **single parent turn** per wave
-(`subagent_type: generalPurpose`). Re-run the emitter after parent
-integration for dependent shards.
+Claude Code call shape: invoke the **Agent** tool with the namespaced
+agent name, the `prompt`, and `claudeModel` as `model`. Claude agent
+**files** (`agents/*.md`) additionally honour frontmatter `tools`,
+`maxTurns`, `isolation: worktree`, and `background: true`; Cursor reads
+`name`, `description`, `model` from the same file and ignores the rest.
+Our shard agents deliberately do **not** set `isolation: worktree` —
+the same-branch contract needs one working tree.
 
-### Gate lanes (prepush + CI)
+Unverified as of this writing (treat as best-effort, check the host
+docs): exact Claude frontmatter key names beyond `model`/`tools`, and
+whether Cursor exposes `run_in_background` on every model.
+
+## Rolling window (build shards)
 
 ```bash
-pnpm st-parallel-tasks -- --pr <n> --phases prepush,ci
+EMIT="node $ST_PLUGIN_ROOT/scripts/hooks/st-build-shard-tasks.mjs \
+  --manifest shards.json --root $ACTIVE_ROOT --state-file .st/shards.json"
+
+$EMIT                      # launch every line
+$EMIT --result '<json>'    # when ANY worker returns; launch every new line
+$EMIT --status             # who is pending / in flight / done / blocked
 ```
 
-Launch **one Task per JSON line** — parent shell runs `pnpm prepush`
-(serial, committed diff) after all dirty-tree tasks pass.
+Do **not** wait for a whole wave. The moment one worker returns,
+record its result and launch whatever became ready. The stderr summary
+(`ready= emitted-now= in-flight= slots=`) tells you when the window
+has room; `COMPLETE` ends the loop.
 
-Do **not** run `agent-prepush` / `pr-local-ci` lanes serially in the
-parent when `--list-tasks` emits multiple lines.
+## Gate lanes (prepush + CI)
 
-### Concurrency cap
+```bash
+node "$ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs" --pr <n> --phases prepush,ci
+```
 
-Cursor allows ~**16** concurrent subagents. When task count > 16, batch
-into rounds of 16 in separate parent turns — never one-at-a-time.
+One subagent per line (`run-gate-task`). Fields from `pr-review-push
+--list-tasks` are forwarded untouched. After all dirty-tree lanes pass
+the parent runs the serial committed-diff gate through
+`pr-review-push` — never bare `git push`.
 
-## Claude Code
+## Concurrency
 
-Use the **Agent** tool or `context: fork` for isolated build shards and
-gate lanes the same way (one Agent per JSON line).
+| Host | Practical limit | Why |
+| --- | --- | --- |
+| Cursor | `maxParallel` ≤ 12 (default 6) | no hard cap, but ~40 concurrent subagents stall the extension host |
+| Claude Code | same manifest value | parallel subagents are fine; keep the number for predictable integration |
 
-Gate checks: `pnpm st-parallel-tasks` output drives fan-out; parent runs
-`pnpm prepush` after dirty-tree workers finish.
+The emitter enforces the window; you never need to batch by hand.

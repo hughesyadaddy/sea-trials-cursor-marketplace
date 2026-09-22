@@ -1,4 +1,4 @@
-name: validate-claude-marketplace
+name: validate-marketplace
 
 on:
   pull_request:
@@ -8,8 +8,46 @@ on:
     branches:
       - main
 
+# Zero-dependency checks: everything below runs on bare Node 22 (no
+# pnpm install). Only the Claude CLI step installs a package.
 jobs:
-  validate:
+  node-tests:
+    name: node --test (plugin + marketplace scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run node:test suites
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(
+            find plugins/sea-trials/scripts scripts \
+              -name '*.test.mjs' -not -path '*/node_modules/*' | sort
+          )
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "no *.test.mjs files found" >&2
+            exit 1
+          fi
+          printf 'running %d test file(s)\n' "${#files[@]}"
+          node --test "${files[@]}"
+
+  manifests:
+    name: Dual-host manifests + skill-source sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate plugin + marketplace manifests
+        run: node scripts/validate-manifests.mjs
+      - name: Shared skill references match skills/_sources
+        run: node scripts/sync-skill-sources.mjs --check
+
+  claude-plugin-validate:
     name: Claude plugin validate
     runs-on: ubuntu-latest
     strategy:
@@ -21,6 +59,9 @@ jobs:
           - plugins/vgv-ai-flutter-plugin
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@2.1.278
       - name: Validate ${{ matrix.plugin }}

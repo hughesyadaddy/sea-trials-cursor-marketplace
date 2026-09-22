@@ -1,6 +1,6 @@
 {
   "name": "sea-trials",
-  "version": "2026.09.21",
+  "version": "2026.09.22",
   "description": "Sea Trials team agents, MCP (Atlassian, chrome-devtools), st-* PR review skills, and push-gate hooks for Claude Code.",
   "homepage": "https://github.com/hughesyadaddy/sea_trials_universal",
   "repository": "https://github.com/hughesyadaddy/sea_trials_universal",
@@ -20,5 +20,6 @@
     "chrome-devtools"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/claude/hooks.json"
+  "hooks": "./hooks/claude/hooks.json",
+  "mcpServers": "./.mcp.json"
 }
