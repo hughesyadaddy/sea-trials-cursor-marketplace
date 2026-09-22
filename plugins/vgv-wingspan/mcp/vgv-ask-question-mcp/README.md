@@ -101,4 +101,4 @@ npm prune --omit=dev
 # commit dist/ + node_modules/
 ```
 
-Registered on the **VGV Wingspan** plugin (not Sea Trials).
+Registered on the **VGV Wingspan** plugin (not on consumer plugins).

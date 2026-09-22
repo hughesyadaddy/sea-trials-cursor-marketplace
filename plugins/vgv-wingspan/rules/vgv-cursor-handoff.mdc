@@ -154,7 +154,7 @@ repo-local link script or `.cursor/skill-custom` wiring.
 **vgv-wingspan** (or your org aggregator). **Cmd+Q** and reopen after
 updates.
 
-Consumer monorepos (e.g. Sea Trials) may aggregate this plugin with
+Consumer monorepos may aggregate this plugin with
 team-specific plugins; skills still resolve from the marketplace
 install, not from checked-in `.cursor/skills/` copies.
 

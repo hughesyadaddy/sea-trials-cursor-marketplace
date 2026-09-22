@@ -2,8 +2,8 @@
 
 | Plugin | Source | SHA / note |
 | --- | --- | --- |
-| vgv-wingspan | git submodule `imports/vgv-cursor-marketplace` → `hughesyadaddy/vgv-cursor-marketplace` | `a8e7641` |
-| vgv-ai-flutter-plugin | git submodule `imports/vgv-cursor-marketplace` → `hughesyadaddy/vgv-cursor-marketplace` | `a8e7641` |
+| vgv-wingspan | git submodule `imports/vgv-cursor-marketplace` → `hughesyadaddy/vgv-cursor-marketplace` | `beaf81d` |
+| vgv-ai-flutter-plugin | git submodule `imports/vgv-cursor-marketplace` → `hughesyadaddy/vgv-cursor-marketplace` | `beaf81d` |
 | sea-trials | this repo `plugins/sea-trials/` (committed SoT; self-contained runtime) | (update on publish) |
 
 Vendored `plugins/vgv-*` are copied from `imports/vgv-cursor-marketplace`

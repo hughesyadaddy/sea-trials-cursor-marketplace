@@ -414,7 +414,7 @@ Whatever commits this build produced are local. Pushing and opening a PR is outw
   2. **Push and open the PR now**: proceed this once.
   3. **Always push automatically**: proceed, and save the preference to Claude memory (the user's own preference, never the project's AGENTS.md) so future builds skip this prompt.
 
-**Sea Trials monorepo:** follow [sea-trials-push-gate](references/sea-trials-push-gate.md) — use `pnpm pr-review-push` or `/pre-push-harden`, never `/create-pr skip-checks`.
+**Repos with their own push gate** (a `pr-review-push` / `push-gate` script, an `AGENTS.md` push-gate section, or a consumer plugin ship skill): follow [consumer-push-gate](references/consumer-push-gate.md) — run that gate, never `/create-pr skip-checks`.
 
 **Other repos:** call `/create-pr skip-checks` — it pushes and opens the PR. Validation already ran above. The PR body uses the [PR template](references/pr-template.md).
 

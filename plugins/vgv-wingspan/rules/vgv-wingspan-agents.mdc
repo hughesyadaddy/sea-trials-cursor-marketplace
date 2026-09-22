@@ -31,11 +31,11 @@ one level deep):
 | --- | --- | --- |
 | `vgv-wingspan` | 10 review/research agents | 4 adapter rules + `vgv-ask-question` MCP |
 | `vgv-ai-flutter-plugin` | `flutter-reviewer` (readonly) | — |
-| `sea-trials` | `powersync-migration-operator`, `macos-appstore-signing` | Team MCP (dart, Atlassian, …) |
+| consumer plugin (optional) | repo-specific agents, listed in that plugin's own rules | that plugin's MCP |
 
 From repo after clone: enable plugins in **Cursor Settings → Plugins** (Team
-Marketplace). **Sea Trials monorepo:** all three. **Other repos:** Wingspan
-(+ Flutter if Dart). Then **Cmd+Q** and reopen.
+Marketplace). Wingspan (+ Flutter if Dart), plus any consumer plugin your
+org aggregates. Then **Cmd+Q** and reopen.
 
 ## Subagent prompt checklist
 
@@ -64,8 +64,7 @@ Do not rely on `@agent` syntax or agent name alone in the prompt.
 | official-docs-research-agent | `official-docs-research-agent` | (inline) |
 | best-practices-research-agent | `best-practices-research-agent` | (inline) |
 | flutter-reviewer | `flutter-reviewer` | (inline table, readonly) |
-| powersync-migration-operator | `powersync-migration-operator` | — |
-| macos-appstore-signing | `macos-appstore-signing` | — |
+| consumer-plugin agents | exact `name:` from that agent file | per that plugin |
 
 ## Parallel fan-out (one turn, multiple Task calls)
 
