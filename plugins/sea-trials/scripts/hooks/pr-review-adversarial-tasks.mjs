@@ -42,10 +42,10 @@ function parseArgs(argv) {
   return out;
 }
 
-function main() {
+async function main() {
   const { pr, repo: repoSlug } = parseArgs(process.argv.slice(2));
   const repo = resolveRepo(repoSlug);
-  const threads = fetchThreads(pr, repo).filter((t) => !t.isResolved);
+  const threads = (await fetchThreads(pr, repo)).filter((t) => !t.isResolved);
 
   for (const thread of threads) {
     const excerpt = (thread.body ?? '').slice(0, 500);
@@ -71,4 +71,7 @@ function main() {
   }
 }
 
-main();
+main().catch((err) => {
+  process.stderr.write(`pr-review-adversarial-tasks: ${err.message}\n`);
+  process.exit(1);
+});

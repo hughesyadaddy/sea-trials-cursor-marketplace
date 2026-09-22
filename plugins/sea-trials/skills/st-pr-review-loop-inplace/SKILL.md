@@ -25,278 +25,106 @@ user-invocable: true
 
 # PR Review Loop (In-Place)
 
-Autonomous resolution for every unresolved PR review thread, working
-**directly in this project's checkout** (`$REPO_ROOT`). No worktree.
-No temp dirs. Leave the checkout clean and fully pushed when done.
+Resolve every unresolved PR review thread **directly in this project's
+checkout** (`$REPO_ROOT`). No worktree, no temp dirs. Leave the
+checkout clean and fully pushed when done.
 
-**Before Phase 0:** read
-[`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md).
-Resolve `$ST_REVIEW`, `$ST_REVIEW_LOOP`, `$ST_REVIEW_STATUS`, and
-`$ST_REVIEW_PUSH` per the contract's **Sea Trials plugin CLI** section.
-That contract is binding — especially the **30-minute silence** and
-**project directory lock**.
+**Read first, in order:**
 
-## Autonomy policy
+1. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
+   — `$ST_REVIEW*` paths, fan-out rules, bot reply format, hard stops.
+2. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
+   — the loop itself. **Follow it exactly.** This file only adds the
+   in-place mode rules below; it never overrides the body.
 
-**Default: do not ask. Just finish.**
+## Mode: in-place
 
-- Infer PR number/URL from the user message or
-  `gh pr view --json number`.
-- Sync, merge, harden, fix, commit, push, and poll **without** asking.
-- Use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) only for irreversible / unknowable blockers
-  (dirty-tree preflight unless autonomy was already granted; discard
-  confirm). Never invent plain-chat option lists.
-- Never ask about non-fast-forward / origin ahead — use Sync recovery.
-- Never ask permission to push review-fix commits from this skill.
+| Setting | Value |
+| --- | --- |
+| `$ACTIVE_ROOT` | `$REPO_ROOT` (`git rev-parse --show-toplevel`) |
+| Staging | **Full tree:** `git add -A` from `$REPO_ROOT` (see below) |
+| Branch policy | Must already be on the PR branch; never switch |
+| Cleanup | None — checkout stays on `$PR_BRANCH`, clean, pushed |
 
-## When to use which skill
+### When to use which skill
 
 | Situation | Skill |
 | --- | --- |
 | Clean tree, already on PR branch, fix here | **This skill** |
-| Dirty tree, wrong branch, or isolation required | `pr-review-loop-worktree` |
-| About to push any branch (proactive) | `pre-push-harden` |
+| Dirty tree, wrong branch, or isolation required | `st-pr-review-loop-worktree` |
+| About to push any branch (proactive) | `st-pre-push-harden` |
 
-If Phase 0 fails on branch mismatch → stop (do not auto-switch). Tell
-the user to switch or run `pr-review-loop-worktree`.
+### Preflight (before Step 1 of the body)
 
-## Context
+1. `REPO_ROOT=$(git rev-parse --show-toplevel)`; `cd "$REPO_ROOT"`.
+2. `CURRENT_BRANCH=$(git branch --show-current)` — empty (detached) →
+   stop.
+3. `PR_BRANCH=$(gh pr view <n> --json headRefName -q .headRefName)`.
+   If `"$CURRENT_BRANCH" != "$PR_BRANCH"` → stop; suggest the worktree
+   skill. Do **not** auto-switch.
+4. Dirty tree (`git status --porcelain` non-empty):
+   - Autonomy already granted → commit the full working tree (Commit
+     policy) and continue.
+   - Else ask **once** via the host structured-question tool: Commit
+     all (Recommended) / Stash / Discard / Use worktree / Abort.
+     Discard needs a second confirm. Tree must be clean afterward.
+5. `git fetch origin "$PR_BRANCH"` — remote ahead/diverged → Sync
+   recovery from the contract (gate included). Do not push yet unless
+   nothing else is pending.
 
-- **Working directory:** `$REPO_ROOT` only (Sea Trials monorepo root)
-- **Scope:** every unresolved review thread
-- **Standard:** minimal diff, zero regression, zero open threads,
-  30 minutes silence after last push, harden-green before every push
-
-## Commit policy (in-place only)
+### Commit policy (in-place only)
 
 In-place runs share one checkout with parallel agents and local WIP.
 **Every push must include the entire pending working tree**, not only
 files touched for review threads.
 
-Before each review-round commit (Phase 4, Sync recovery, Phase 0 dirty-tree
-commit):
+1. Inspect `git status --porcelain` from `$REPO_ROOT`.
+2. Stage **all** repo changes with `git add -A` — never path-by-path
+   for review fixes alone.
+3. **Never** stage secrets or local-only env: `.secrets/**`, untracked
+   `.env`, `*.pem`, credential JSON. If status is *only* forbidden
+   paths, skip `git add -A` and leave them untracked.
+4. One commit per push round (review fixes + any other agent edits).
+   Split only merge-recovery from review work when both exist.
 
-1. From `$REPO_ROOT`, inspect `git status --porcelain`.
-2. Stage **all** repo changes: `git add -A` (tracked + untracked that
-   belong in git). Do **not** stage path-by-path for review fixes alone.
-1. **Never** stage secrets or local-only env:
-   - `.secrets/**`, untracked `.env`, `*.pem`, credentials JSON, etc.
-   - If status is *only* forbidden paths, skip `git add -A`; resolve or
-     leave them untracked — do not commit secrets.
-4. One commit per push round is the default (bundle review fixes + any
-   other agent edits). Split commits only for merge-recovery vs review
-   work when both exist in one batch.
+The worktree skill keeps **explicit-path** staging; only in-place uses
+this full-tree policy.
 
-Worktree skill (`pr-review-loop-worktree`) keeps **explicit-path**
-staging — only in-place uses this full-tree policy.
+### Autonomy policy
 
-## Execution model
+**Default: do not ask. Just finish.**
 
-- `gh` for discovery / reply / resolve
-- **Repo hooks** for threads + CI gates (mandatory on Sea Trials):
-  - `node "$ST_REVIEW_STATUS" -- --pr <n>` — one-shot snapshot
-  - `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30` — background watch
-  - `node "$ST_REVIEW_PUSH" -- --pr <n>` — `agent-prepush` → `git push`
-- **Task** subagents: **3 adversarial agents per unresolved thread**
-  (all threads, all parallel); parent applies edits after synthesis.
-- Do **not** write custom one-off poll scripts; use the hooks above.
-- Before every push: run **`pre-push-harden`**, then
-  **`node "$ST_REVIEW_PUSH" -- --pr <n>`** (or `agent-prepush` + `git push`
-  from `$REPO_ROOT`).
+- Infer PR number/URL from the message or `gh pr view --json number`.
+- Sync, merge, gate, fix, commit, push, and watch **without** asking.
+- Structured question only for irreversible/unknowable blockers
+  (dirty-tree preflight above; discard confirm). Never plain-chat
+  option lists.
+- Never ask about non-fast-forward / origin ahead — Sync recovery.
+- Never ask permission to push review-fix commits.
 
----
+## Run the body
 
-## Sync & push recovery
+Execute `references/shared/review-loop-body.md` Steps 1–6 from
+`$REPO_ROOT` until a hard stop condition holds. Every Shell
+`working_directory`, Read/Edit path, and `pnpm`/`melos`/`dart`/`flutter`
+call uses absolute paths under `$REPO_ROOT`.
 
-Whenever local `$PR_BRANCH` and `origin/$PR_BRANCH` diverge, or push is
-rejected as non-fast-forward:
+## Final verification
 
-1. `git fetch origin "$PR_BRANCH"`
-2. `git merge --ff-only "origin/$PR_BRANCH"` when possible
-3. Else `git merge --no-edit "origin/$PR_BRANCH"` (never rebase+force)
-4. Resolve conflicts with the smallest correct merge
-5. Run **`pre-push-harden`**; fix until READY; commit per **Commit policy**
-6. `git push origin HEAD:$PR_BRANCH` (no `--force`, no `--no-verify`)
-7. Retry up to **5** times on races; then report the exact error
-
----
-
-## Phase 0 — Pre-flight
-
-1. `REPO_ROOT=$(git rev-parse --show-toplevel)` and `cd "$REPO_ROOT"`.
-2. `CURRENT_BRANCH=$(git branch --show-current)` — empty (detached) →
-   abort.
-3. `PR_BRANCH=$(gh pr view <n> --json headRefName -q .headRefName)`.
-4. If `"$CURRENT_BRANCH" != "$PR_BRANCH"` → abort (suggest worktree).
-5. Dirty tree (`git status --porcelain` non-empty):
-   - Autonomy already granted → commit full working tree (Commit policy),
-     continue.
-   - Else **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) once: Commit all (Recommended) / Stash /
-     Discard / Use worktree / Abort. Discard needs a second confirm.
-   Tree must be empty afterward (everything committed or stashed).
-6. `git fetch origin "$PR_BRANCH"` — if remote ahead/diverged, run Sync
-   recovery (harden included). Do not push yet unless nothing else to do.
-
----
-
-## Phase 1 — Full discovery
-
-1. `gh pr view <n> --json title,body,state,headRefName,baseRefName`
-2. List every review thread (paginated threads **and** full comment
-   chains) via the canonical helper — do **not** hand-roll `gh api`:
-
-   ```bash
-   node "$ST_REVIEW" list --pr <n> \
-     --repo hughesyadaddy/sea_trials_universal
-   ```
-
-   Add `--json` when you need machine-readable output. The helper
-   paginates past 100 threads and loads every reply in each chain.
-
-3. Manifest = **unresolved** only. Zero → still Phase 5 once, then 6.
-
----
-
-## Phase 2 — Parallel triage & fix
-
-1. List threads; parent classifies each (a)–(d) from diff + HEAD.
-2. For code-change threads, fan out path-scoped fix workers:
-
-   ```bash
-   pnpm pr-review-fix-tasks -- --pr <n> \
-     --repo hughesyadaddy/sea_trials_universal
-   ```
-
-   One Task per JSON line in one parent turn (batch by 16).
-3. Parent integrates → one harden → one push per bot round.
-
-Constraints: minimal fixes, no drive-bys, architecture preserved.
-
----
-
-## Phase 3 — Reply & resolve
-
-**Before replying:** run adversarial vet — **mandatory for every thread**:
-
-```bash
-pnpm pr-review-adversarial-tasks -- --pr <n> \
-  --repo hughesyadaddy/sea_trials_universal
-```
-
-Launch **one Task per JSON line in a single parent turn** (3 × thread
-count). Synthesize per contract → Adversarial vet.
-
-Every reply MUST use `format` + `close` so Codex sees **VALID / REJECT /
-STALE**. See `shared/review-loop-contract.md` → Bot reply format.
-
-```bash
-BODY=$(pnpm pr-review-threads -- format \
-  --verdict reject \
-  --summary "<evidence-based rebuttal>")
-
-node "$ST_REVIEW" close --pr <n> \
-  --repo hughesyadaddy/sea_trials_universal \
-  --thread <PRRT_kwDO...> --body "$BODY"
-```
-
-Every thread: reply + resolve. No exceptions. Do **not** call
-`gh api` REST/GraphQL for reply or resolve directly.
-
----
-
-## Phase 4 — Harden, commit, push
-
-1. `git status --porcelain` — review fixes **and** any other pending
-   edits (other agents, WIP in this checkout).
-2. Stage per **Commit policy** (`git add -A` from `$REPO_ROOT`, minus
-   secrets). Include untracked files that belong in the repo.
-3. Commit with a clear review-round message (mention review threads;
-   note bundled non-review files in the body if present).
-4. Run **`pre-push-harden`** from `$REPO_ROOT` until READY.
-1. **`node "$ST_REVIEW_PUSH" -- --pr <n>`** from `$REPO_ROOT` (runs
-   `agent-prepush`, then `git push` with prepush hook). Exit `8` after push
-   means CI pending — continue to Phase 5, do not treat as failure.
-6. On rejection → Sync recovery. No AskQuestion (Cursor; AskUserQuestion on Claude Code).
-7. Record push timestamp (UTC). **This resets the 30-minute timer.**
-
----
-
-## Phase 5 — Bot review + CI polling (30-minute silence)
-
-**Start background watch** (leave running for the full silence window):
-
-```bash
-node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30
-```
-
-While the loop runs (or between agent turns if hooks unavailable):
-
-1. Record last push timestamp (UTC).
-1. **`node "$ST_REVIEW_STATUS" -- --pr <n>`** — threads + CI on HEAD.
-3. Triage **every unresolved thread** — do **not** require
-   `thread.createdAt > last_push`. Bots often reply on existing threads.
-   Also treat reopened threads (any comment after last push + unresolved)
-   as new work.
-1. **CI gate:** all checks must pass on current `headRefOid`. Pending
-   is OK during the window; **fail** → fix or re-run flake, then push
-   and reset timer. Light jobs (`ci-script-tests`, `dart-static`,
-   `lint-migrations`, etc.) surface first in status output.
-5. New thread or CI fail → Phase 2–4 → reset timer from the new push.
-6. Complete only when **30 continuous minutes** elapsed since last push
-   **and** every poll showed zero unresolved threads **and** CI green
-   on HEAD.
-
-If `node "$ST_REVIEW_LOOP"` exits `2` or `3`, read
-`docs/vgv-code-review/<scope>/pr-review-queue.json` and resume fixes
-**autonomously** (no AskQuestion). Fix every queued thread, push,
-reply+resolve, then **restart** the background watcher.
-
-When a background terminal is already running the watcher, treat exit
-`2`/`3` as the signal to wake this skill — same as the user saying
-"fix the new Codex reviews". Never ask permission to continue.
-
-Do **not** exit early. Do **not** stop after one clean poll. Do **not**
-substitute a 10/15-minute window. Do **not** declare done with CI
-pending or failing on HEAD.
-
----
-
-## Phase 6 — Final verification
-
-1. `node "$ST_REVIEW_STATUS" -- --pr <n>` → exit `0` (threads clear, CI green)
-2. `git status --porcelain` → empty
-3. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0
-4. `git rev-list origin/$PR_BRANCH..HEAD --count` → 0
-5. `git branch --show-current` → `$PR_BRANCH`
-6. `pwd` / toplevel → `$REPO_ROOT`
-
----
-
-## Non-negotiable rules
-
-1. Do not skip any unresolved thread.
-2. No unrelated refactors.
-3. No regressions; harden before every push.
-4. Zero unresolved threads at completion.
-5. Evaluate independently — do not rubber-stamp bots.
-6. Do not switch branches.
-7. Prefer zero questions (AskQuestion (Cursor; AskUserQuestion on Claude Code) only as Phase 0 allows).
-8. In-place: **full working tree** commits per Commit policy (not
-   path-scoped `git add`). Worktree skill keeps explicit paths.
-9. Full **30-minute** silence after last push — no shorter substitute.
-10. Never `--force` / `--no-verify`.
-11. Stay inside `$REPO_ROOT` for all file and tool operations.
-
----
+1. `node "$ST_REVIEW_STATUS" -- --pr <n>` → exit `0` (threads clear,
+   CI green, `settled.state` = `DONE`).
+2. `git status --porcelain` → empty.
+3. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0 and
+   `git rev-list origin/$PR_BRANCH..HEAD --count` → 0.
+4. `git branch --show-current` → `$PR_BRANCH`; toplevel → `$REPO_ROOT`.
 
 ## Final report
 
-- Pre-flight + dirty-tree handling
+- Preflight + dirty-tree handling
 - Sync/merge recoveries (count, SHAs)
-- Threads fixed / replied / resolved
-- Remaining unresolved (must be 0)
-- Harden runs: pass/fail summary before each push
-- Push gate: `ST_REVIEW_PUSH` exit codes
-- Polling: `ST_REVIEW_LOOP` / status iterations, CI pass/fail/pending,
-  new reviews, final silence duration
-- Phase 6 checks
+- Threads fixed / replied / resolved; remaining unresolved (must be 0)
+- Gate lanes per round: pass/fail summary
+- Push gate exit codes and pushed SHA(s)
+- Watcher: settled states reached, CI pass/fail/pending, final quiet
+  window duration
+- Final verification results

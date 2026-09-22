@@ -12,6 +12,7 @@ import {
   evaluateSnapshot,
   getRepoRoot,
   parsePrArgs,
+  readSettledSnapshot,
   reviewPaths,
   runLocalPrepush,
   writeJson,
@@ -40,6 +41,7 @@ if (withLocal) {
 }
 
 const artifactPaths = reviewPaths(repoRoot, args.prNumber);
+const statePath = path.join(repoRoot, artifactPaths.state);
 
 const snapshot = buildReviewSnapshot(repoRoot, args.prNumber);
 if (local) {
@@ -47,8 +49,11 @@ if (local) {
 }
 const verdict = evaluateSnapshot(snapshot);
 snapshot.verdict = verdict;
+// Carry the background loop's settled-machine view (if one is running
+// for this head) so `--json` shows where detection stands.
+snapshot.settled = readSettledSnapshot(statePath, snapshot.pr.headRefOid);
 
-writeReviewState(path.join(repoRoot, artifactPaths.state), snapshot);
+writeReviewState(statePath, snapshot);
 
 if (args.json) {
   console.log(JSON.stringify(snapshot, null, 2));
@@ -61,8 +66,16 @@ if (args.json) {
       + `mergeState=${pr.mergeStateStatus}`,
   );
   console.log(
-    `threads=${threads.total} unresolved=${threads.unresolvedCount}`,
+    `threads=${threads.total} unresolved=${threads.unresolvedCount} `
+      + `(bot=${threads.unresolvedBotCount ?? 0})`,
   );
+  if (snapshot.settled) {
+    console.log(
+      `loop: ${snapshot.settled.state} next=${Math.round(
+        (snapshot.settled.nextPollMs ?? 0) / 1000,
+      )}s`,
+    );
+  }
   console.log(
     `ci total=${ci.total} pass=${ci.total - ci.pending.length - ci.failed.length} `
       + `pending=${ci.pending.length} fail=${ci.failed.length}`,

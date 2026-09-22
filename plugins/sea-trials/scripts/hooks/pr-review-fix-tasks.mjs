@@ -5,6 +5,9 @@
  * Run AFTER parent Phase 2 triage for (a) valid-fix threads only.
  *
  *   pnpm pr-review-fix-tasks -- --pr 1657 --threads PRRT_kw...,PRRT_kw...
+ *
+ * `--repo owner/name` is optional: falls back to GH_REPO, then to the
+ * checkout's GitHub remote.
  */
 import { fetchThreads, resolveRepo } from './pr-review-threads.mjs';
 
@@ -35,10 +38,10 @@ function parseArgs(argv) {
   return out;
 }
 
-function main() {
+async function main() {
   const { pr, repo: repoSlug, threads: allowed } = parseArgs(process.argv.slice(2));
   const repo = resolveRepo(repoSlug);
-  const threads = fetchThreads(pr, repo).filter(
+  const threads = (await fetchThreads(pr, repo)).filter(
     (t) => !t.isResolved && allowed.has(t.id),
   );
 
@@ -76,9 +79,7 @@ function main() {
   }
 }
 
-try {
-  main();
-} catch (err) {
+main().catch((err) => {
   process.stderr.write(`pr-review-fix-tasks: ${err.message}\n`);
   process.exit(1);
-}
+});

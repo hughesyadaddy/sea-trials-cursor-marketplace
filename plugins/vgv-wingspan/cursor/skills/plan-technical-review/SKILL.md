@@ -33,6 +33,21 @@ Follow the [plan review procedure](references/plan-review.md) with `<PLAN_PATH>`
 plan file. It runs the simplicity, VGV, and scope-splitting agents in parallel, applies their
 findings to the plan inline, and resolves any scope-splitting recommendation.
 
+### Parallel execution map check
+
+Every Standard or Extensive plan must carry a `## Parallel execution map`
+with a `shards` JSON block (spec:
+[parallel-execution-map.md](../plan/references/parallel-execution-map.md)).
+Validate it as part of this review and fix it inline: shard `paths` are
+disjoint by prefix and do not nest; every `dependsOn` id exists and the
+graph is acyclic; no `sharedFiles` entry lies under a shard's `paths`;
+each shard compiles and tests on its own given its dependencies; 4 to 12
+shards; `maxParallel` is 1 to 12; tiers are sane (`mechanical` only for
+boilerplate, `reasoning` only for cross-cutting design). If the plan has
+no map, add one from its tasks and files before handing off. Parallel
+shards on one branch stay the default; do not convert them into separate
+PRs unless the user asks.
+
 ## Handoff
 
 After the review completes, use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) to present next steps:

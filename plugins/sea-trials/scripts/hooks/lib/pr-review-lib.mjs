@@ -652,6 +652,27 @@ export function writeReviewState(statePath, snapshot) {
   writeJson(statePath, mergeRecordedLastPush(statePath, snapshot));
 }
 
+/**
+ * Settled-machine view the background loop last wrote for `headRefOid`,
+ * or null when absent / for another head.
+ *
+ * @param {string} statePath
+ * @param {string} headRefOid
+ */
+export function readSettledSnapshot(statePath, headRefOid) {
+  if (!fs.existsSync(statePath)) return null;
+  try {
+    const prior = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    const settled = prior?.settled;
+    if (settled && typeof settled === 'object' && settled.head === headRefOid) {
+      return settled;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function evaluateSnapshot(snapshot) {
   if (snapshot.threads.unresolvedCount > 0) {
     return { ok: false, reason: 'threads', exitCode: 2 };

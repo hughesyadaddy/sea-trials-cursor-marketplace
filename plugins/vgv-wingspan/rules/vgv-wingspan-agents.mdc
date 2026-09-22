@@ -76,6 +76,7 @@ Do not rely on `@agent` syntax or agent name alone in the prompt.
 | `/plan` flow analysis | `user-flow-analysis-agent` |
 | `/plan` embedded review | `code-simplicity-review-agent`, `vgv-review-agent`, `plan-splitting-agent` |
 | `/plan-technical-review` | same three as plan review |
+| `/build` parallel mode (shards) | `generalPurpose` workers, one per ready shard — see Model tiers |
 | `/build` Phase 3 | all five reviewers (see table above) |
 | `/code-review` | vgv, architecture, test-quality, simplicity (+ pr-readiness if shipping) |
 | `/hotfix` review | `vgv-review-agent`, `test-quality-review-agent` |
@@ -95,6 +96,56 @@ Launch parallel Tasks in **one assistant turn** when the skill says
 Parent chat for handoffs: **Composer 2.5** (schema-gated) — see
 `vgv-cursor-handoff.mdc`. Subagent Task sessions may lack host
 `AskQuestion` even when the parent uses Composer 2.5.
+
+## Model tiers
+
+`/plan` writes a `## Parallel execution map` (shards with a `tier`) and
+`/build` fans the shards out to workers. Pick the model by role:
+
+| Role | Tier | Cursor `model:` | Notes |
+| --- | --- | --- | --- |
+| Planner, technical reviewer, integrator | high-reasoning | inherit (parent chat) | Use a high-reasoning chat model for `/plan` |
+| Review agents (Phase 3, plan review) | pinned | as pinned in each agent file | Never override on `Task` |
+| `reasoning` shard worker | high-reasoning | inherit | Rare; most shards are `code` |
+| `code` shard worker | fast coding | `composer-2.5` | Default for fan-out |
+| `mechanical` shard worker | cheapest | `composer-2.5` or `gpt-5.6-luna-fast` | See slug note |
+
+Slug status: `composer-2.5` is confirmed in the Task tool's model list.
+`gpt-5.6-luna-fast`, `claude-opus-5-5`, and `gpt-5.6-sol` were reported
+available on 2026-09-22 but are **unverified** in the current schema —
+confirm with `agent --list-models` (or the chat model picker) before
+pinning. If a slug is rejected, fall back to `composer-2.5` or omit
+`model` to inherit. The user may override any tier; honour
+`> Model override:` lines under the plan's map.
+
+Shard workers are generic executors, not review agents:
+
+```text
+Task({
+  subagent_type: "generalPurpose",
+  description: "Shard <id>",
+  model: "composer-2.5",
+  run_in_background: true,
+  prompt: "<worker prompt template from the build skill>"
+})
+```
+
+## Rolling-window fan-out
+
+`/build` parallel mode keeps up to `maxParallel` workers running: launch
+every ready shard in **one** turn, and as soon as any worker returns,
+launch the shards it unblocked while the rest keep running. Practical
+ceiling is about 12 concurrent Tasks; dozens overwhelm the host.
+
+Anti-patterns:
+
+- **Batch-and-wait** — launching a batch, then idling until every worker
+  in it returns before launching the next batch
+- **Serial shards** — one worker at a time on a plan that has a map
+- **One giant worker** — a single Task owning most of the shard paths
+- Workers editing `sharedFiles`, pushing, or switching branches
+- Overriding a review agent's pinned model on `Task`
+- Launching workers before validating the map (overlaps, cycles)
 
 ## Tool scoping
 

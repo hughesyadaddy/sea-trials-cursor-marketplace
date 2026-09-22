@@ -177,7 +177,9 @@ async function startWebhook(repo, wake) {
       await receiver.close();
       return null;
     }
-    logLine(`webhook: forwarding ${repo.owner}/${repo.name} → ${receiver.url}`);
+    logLine(
+      `webhook: forwarding ${repo.owner}/${repo.name} → ${receiver.url}`,
+    );
     return {
       stop: async () => {
         forwarder.stop();
@@ -227,8 +229,11 @@ async function main() {
     } catch (err) {
       if (err instanceof GraphqlRateLimitedError) {
         const resetAt = err.rateLimit?.resetAt;
-        rateLimitedUntil = resetAt ? new Date(resetAt).getTime() : Date.now() + 60_000;
-        logLine(`graphql rate limited; backing off until ${new Date(rateLimitedUntil).toISOString()}`);
+        rateLimitedUntil = resetAt
+          ? new Date(resetAt).getTime()
+          : Date.now() + 60_000;
+        const untilIso = new Date(rateLimitedUntil).toISOString();
+        logLine(`graphql rate limited; backing off until ${untilIso}`);
         return { rateLimited: true, rateLimit: err.rateLimit ?? null };
       }
       throw err;
@@ -291,10 +296,11 @@ async function main() {
         (machine.t0 + (cfg.maxSilenceMs ?? 30 * 60_000) - Date.now()) / 60_000,
       ),
     );
+    const nextSec = Math.round(result.nextPollMs / 1000);
     logLine(
       `${machine.state} threads=${machine.unresolvedThreads ?? '?'} `
         + `ci=${machine.ciPending ? 'pending' : 'ok'} `
-        + `next=${Math.round(result.nextPollMs / 1000)}s cap_in=${remainingCapMin}m`,
+        + `next=${nextSec}s cap_in=${remainingCapMin}m`,
     );
 
     let waitMs = Math.max(result.nextPollMs, 1_000);

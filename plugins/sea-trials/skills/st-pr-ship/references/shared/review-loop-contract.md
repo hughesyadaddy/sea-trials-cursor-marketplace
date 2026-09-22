@@ -1,39 +1,47 @@
 <!-- GENERATED from skills/_sources/review-loop-contract.md — do not edit; run node scripts/sync-skill-sources.mjs -->
 # Review-loop contract (Sea Trials)
 
-Shared by `st-pr-review-loop-inplace`, `st-pr-review-loop-worktree`, and
-`st-pre-push-harden`. Read this before Phase 0 of either review loop, and
-before every push.
+Shared by `st-pr-review-loop-inplace`, `st-pr-review-loop-worktree`,
+`st-pr-ship`, and `st-pre-push-harden`. Read this before the review
+loop's preflight and before every push. The loop steps themselves live
+in `shared/review-loop-body.md`; this file holds the rules that body
+relies on.
 
 ## Maximum parallel fan-out (`st-*` default)
 
-Sea Trials **`st-*`** skills default to **as many parallel Task subagents
-as the host allows** — never serialize work the parent can fan out.
+Sea Trials **`st-*`** skills default to **as many parallel workers as
+the host allows** — never serialize work the parent can fan out.
 
 | Workflow | Emitter | Parent action |
 | --- | --- | --- |
-| Push gates | `pnpm st-parallel-tasks -- --pr <n>` | One Task per JSON line |
+| Push gate lanes | `pnpm pr-review-push -- --pr <n> --list-tasks` | One worker per JSON line |
 | PR adversarial vet | `pnpm pr-review-adversarial-tasks -- --pr <n>` | 3 × thread count |
-| PR code fixes | `pnpm pr-review-fix-tasks -- --pr <n>` | 1 × thread (path-scoped) |
+| PR code fixes | `pnpm pr-review-fix-tasks -- --pr <n>` | 1 × path (path-scoped) |
 | Build shards | `pnpm st-build-shard-tasks -- --manifest shards.json` | 1 × ready shard |
-| Pre-push review | Phase 4 agents (4 types) | One Task each, same turn |
+| Pre-push review | Harden Phase 3 agents (4 types) | One worker each, same turn |
 
 **Rules:**
 
-1. Collect JSON lines first; launch **all Tasks in one parent turn** when
-   count ≤ **16** (Cursor concurrency cap). Above 16: batch rounds of
-   16 — still never one-at-a-time unless only one task exists.
-2. Subagents run gates/fixes/reviews only — **never `git push`**.
-3. Parent synthesizes, integrates conflicts, then one harden + one push.
-4. Prefer `st-parallel-tasks` over calling `--list-tasks` scripts
-   separately (merges prepush + ci + review emitters).
+1. Collect JSON lines first; launch **all workers in one parent turn**
+   when count ≤ **16** (Cursor concurrency cap). Above 16: batch rounds
+   of 16 — still never one-at-a-time unless only one task exists.
+2. Subagents run gates/fixes/reviews only — **never `git push`**, never
+   commit, never reply to threads.
+3. Parent synthesizes, integrates conflicts, then **one gate + one
+   push** per round.
+4. Gate workers run `node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs"
+   '<json-line>'` and honour the line's `subagent_type`, `model`
+   (Cursor: `composer-2.5`) and `claudeModel` (Claude: `haiku`) hints.
 
 ```bash
-pnpm st-parallel-tasks -- --pr <n>
-pnpm st-parallel-tasks -- --pr <n> --phases prepush,ci
+pnpm pr-review-push -- --pr <n> --list-tasks
 pnpm pr-review-fix-tasks -- --pr <n>
+pnpm pr-review-adversarial-tasks -- --pr <n>
 pnpm st-build-shard-tasks -- --manifest shards.json --root "$ACTIVE_ROOT"
 ```
+
+`pnpm st-parallel-tasks -- --pr <n>` still exists as a convenience that
+merges the review emitters with the gate lanes into one list.
 
 `/st-build-with-subagents`, `/st-pre-push-harden`, `/st-pr-review-loop-*`,
 `/st-vgv-chain`, and `/st-pr-ship` all inherit this section.
@@ -100,17 +108,20 @@ PR review hooks ship on the **sea-trials** Cursor plugin. **Prefer
 root hunt required:
 
 ```bash
-pnpm pr-review-threads -- list --pr <n> --repo hughesyadaddy/sea_trials_universal
+pnpm pr-review-threads -- list --pr <n>
 pnpm pr-review-adversarial-tasks -- --pr <n>
 pnpm pr-review-fix-tasks -- --pr <n>
-pnpm st-parallel-tasks -- --pr <n>
 pnpm st-build-shard-tasks -- --manifest shards.json
 pnpm pr-review-status -- --pr <n>
-pnpm pr-review-loop -- --pr <n> --interval 15 --silence 30
+pnpm pr-review-loop -- --pr <n> [--webhook] [--json]
+pnpm pr-review-push -- --pr <n> --list-tasks
+pnpm pr-review-push -- --pr <n> --check-only
 pnpm pr-review-push -- --pr <n>
-pnpm agent-prepush -- --list-tasks
-pnpm pr-local-ci -- --pr <n> --list-tasks
 ```
+
+Every hook resolves `owner/name` from the checkout's `origin` remote
+(`resolveGithubOwnerRepo`); `--repo` and the `GH_REPO` env var override
+it. Never hardcode an owner/repo in prompts or commands.
 
 `ST_PLUGIN_ROOT` is **optional** when working from a monorepo checkout
 (use `pnpm` shortcuts instead). Set it when debugging outside a repo, or
@@ -167,8 +178,7 @@ parent turn** (20 threads → 60 Tasks). Never skip because the thread
 count is small.
 
 ```bash
-pnpm pr-review-adversarial-tasks -- --pr <n> \
-  --repo hughesyadaddy/sea_trials_universal
+pnpm pr-review-adversarial-tasks -- --pr <n>
 ```
 
 Each JSON line has `subagent_type`, `threadId`, `path`, `line`, and a
@@ -192,81 +202,112 @@ self-contained `prompt`. Default agents (fixed order):
 Then build the reply with `pnpm pr-review-threads -- format` and close
 with `pnpm pr-review-threads -- close`. Silent resolve is forbidden.
 
-## Local PR checks fan-out (before every push)
+## Single gate, then push (before every push)
 
-**Only** push through `pnpm pr-review-push -- --pr <n>`. It runs, in
-order: `agent-prepush` → `prepush` → `pr-local-ci` → `git push`.
+The local push gate runs **once per round**, fanned out, and the push
+command re-uses that result. Never run the same lanes three times
+(`st-parallel-tasks` + `pnpm prepush` + `pr-review-push`).
 
-**Default:** fan out gate lanes via Task — do not run them serially in
-the parent when JSON task lines exist:
+1. Emit lanes: `pnpm pr-review-push -- --pr <n> --list-tasks`.
+2. Dispatch one worker per JSON line (Cursor: `Task`; Claude: `Agent`),
+   all in one parent turn (batch by 16). Each worker runs
+   `node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs" '<json>'`.
+   A single line → the parent may run it inline.
+3. Red lane → root-cause fix → re-run that lane until green.
+4. **Commit only after every lane is green.**
+5. Push **only** through `pnpm pr-review-push -- --pr <n>`. It replays
+   the gate plan (the gate-pass token in
+   `scripts/hooks/lib/gate-pass-token.mjs` lets the husky pre-push skip
+   lanes already proven on an unchanged tree) and then runs `git push`
+   with hooks. `--check-only` runs the gate without pushing (used by
+   `st-pre-push-harden` to reach READY).
 
-```bash
-pnpm st-parallel-tasks -- --pr <n> --phases prepush,ci
-```
+**The gate is never skipped after a push.** Each new round of bot
+findings goes through steps 1–5 again in full. Bare `git push`,
+`--force`, and `--no-verify` are forbidden on branches with an open PR.
 
-Equivalent (when you need one phase only):
+## Bot review settled machine (replaces the flat 30-minute wait)
 
-```bash
-pnpm agent-prepush -- --list-tasks
-pnpm pr-local-ci -- --pr <n> --list-tasks
-```
+Bot reviewers (Codex, Cursor Bugbot, CodeRabbit, Copilot) answer
+anywhere from seconds to ~15 minutes after a push, often **on existing
+threads** (thread `createdAt` stays old). The watcher no longer waits a
+flat 30 minutes; it drives a state machine anchored to the current
+HEAD sha `H` and push time `t0` — signals from an older head never
+count:
 
-Launch one **Task** per JSON line (batch by 16 if needed); parent waits
-for all green before push. A single task line → parent may run inline.
+| State | Waits for | Poll |
+| --- | --- | --- |
+| `PUSHED` | 20 s grace | — |
+| `AWAITING_ACK` | Codex 👀 newer than `t0` · Bugbot/CodeRabbit check run queued or in progress · Copilot in `requested_reviewers`. ≤3 min; on timeout post `@codex review` once (if Codex enabled) | 15 s |
+| `REVIEWING` | New bot review comments. ETag-conditional REST (`pulls/{n}/comments`, `reviews`, issue comments, check runs); GraphQL threads only on a 200. Backs off to 60 s while CI is pending. Cap 25 min | 30 s |
+| `SETTLED_CHECK` | Two consecutive polls with no new bot comment, then a 3-min quiet window (two 60 s polls) | 60 s |
+| `SETTLED` | — | — |
+| `ACTING` | Unresolved bot threads > 0 → exit `2`, queue written | — |
+| `DONE` | Zero unresolved bot threads and CI green → exit `0` | — |
 
-Bare `git push` is forbidden on branches with an open PR.
+Bot completion signals the machine understands:
 
-## 30-minute bot silence (mandatory)
+| Bot | Ack | Complete | Re-trigger |
+| --- | --- | --- | --- |
+| Codex `chatgpt-codex-connector` | 👀 reaction on PR body | `Codex Review:` review, 👍 on PR body, or issue comment with `**Reviewed commit:** H` | comment `@codex review` |
+| Cursor Bugbot | check run `Cursor Bugbot` queued/in_progress | check run `success` / `neutral` / `failure` | comment `bugbot run` |
+| CodeRabbit | check run queued/in_progress | check run completed | comment `@coderabbitai review` |
+| Copilot `copilot-pull-request-reviewer` | in `requested_reviewers` | dropped from `requested_reviewers` | `gh pr edit <n> --add-reviewer @copilot` |
 
-Bot reviewers (Bugbot, Codex, Cursor Bugbot, etc.) often reply 5–15
-minutes after a push, sometimes later, and often **on existing threads**
-(thread `createdAt` stays old).
+GraphQL logins have no `[bot]` suffix; REST logins do — the machine
+normalizes both. GraphQL throttling (`errors[].type == RATE_LIMITED` or
+`rateLimit.remaining < 500`) triggers a back-off, never a crash.
+
+**Hard caps.** `--silence <min>` (default **30**) is the absolute
+max-silence cap: the watcher exits by then regardless of state (`8` if
+CI is still pending). `--interval <s>` overrides the `REVIEWING` poll.
+`--bots codex,bugbot,coderabbit,copilot` limits which acks are awaited.
+`--webhook` adds the `gh webhook forward` fast path (local receiver on
+`127.0.0.1`; any review/comment/check event polls immediately; polling
+stays as the fallback; degrades silently when the extension is absent).
 
 Hard completion rule — all must be true:
 
 1. Zero unresolved review threads on the PR.
-2. At least **30 continuous minutes** have elapsed since the **last**
-   push produced by this loop.
-3. Polls throughout the silence window. **Preferred:** run
-   `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30` in a
-   **background terminal** (15s interval). Spot-check with
-   `node "$ST_REVIEW_STATUS" -- --pr <n>`. If hooks are unavailable,
-   poll GraphQL threads every **5 minutes** minimum (≈6 clean polls
-   after the last push).
-1. **All PR CI checks green on HEAD** (not only review threads).
+2. The settled machine reached `DONE` after the **last** push (quiet
+   window observed, not just a clean poll).
+3. **All PR CI checks green on HEAD** (not only review threads).
 
-**Terminal automation (Cursor background):** use the repo hooks for
-instant polls and CI awareness:
+Watcher commands:
 
 | Command | Purpose |
 | --- | --- |
-| `node "$ST_REVIEW_STATUS" -- --pr <n>` | One-shot: threads + CI (+ light jobs) |
-| `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30` | Watch every 15s; abort on threads/CI fail |
-| `node "$ST_REVIEW_PUSH" -- --pr <n>` | `agent-prepush` → `git push` (prepush hook) |
+| `node "$ST_REVIEW_STATUS" -- --pr <n>` | One-shot: threads + CI + `settled.state` |
+| `node "$ST_REVIEW_LOOP" -- --pr <n> [--webhook] [--json]` | Background watch until `ACTING`/`DONE` |
+| `node "$ST_REVIEW_PUSH" -- --pr <n>` | Single gate → `git push` (hooks on) |
 
-State artifacts: `docs/vgv-code-review/<scope>/pr-review-state.json`,
-`pr-review-queue.json`, `pr-*-loop-log.txt`. Exit codes: `0` clean,
-`2` threads, `3` CI fail, `4` local prepush fail, `8` CI pending.
-Silence window still applies after the last push; new pushes reset the
-timer. When `pr-review-queue.json` appears, parent agent must triage
-and fix (background Node cannot spawn Cursor subagents).
+State artifacts: `docs/vgv-code-review/<scope>/pr-review-state.json`
+(includes the `settled` snapshot: `state`, `head`,
+`unresolvedBotThreads`, `signals`, `nextPollMs`),
+`pr-review-queue.json`, `pr-*-loop-log.txt`. Exit codes: `0` done,
+`2` threads, `3` CI fail, `4` local gate fail, `8` CI pending at the
+cap. New pushes reset the machine. When `pr-review-queue.json`
+appears, the parent agent must triage and fix (background Node cannot
+spawn host subagents).
 
 ## Background watcher → parent agent (autonomous wake)
 
-When `node "$ST_REVIEW_LOOP"` runs in a **background terminal**, treat its
-exit code as a work ticket — **never ask the user** whether to proceed:
+When `node "$ST_REVIEW_LOOP"` runs in a **background terminal**, treat
+its exit code as a work ticket — **never ask the user** whether to
+proceed:
 
 | Exit | Meaning | Parent agent action |
 | --- | --- | --- |
-| `0` | Silence met; threads clear; CI green | Done (or final verify) |
-| `2` | Unresolved review threads | Read `pr-review-queue.json`; fix **all**; reply+resolve; push; restart watcher |
-| `3` | CI failure on HEAD | Fix or re-run flake; push; restart watcher |
-| `8` | CI pending (watch mode) | Keep watcher running; do not stop early |
+| `0` | `DONE`: settled, threads clear, CI green | Final verify |
+| `2` | `ACTING`: unresolved bot threads | Read `pr-review-queue.json`; fix **all**; single gate; push; reply+resolve; restart watcher |
+| `3` | CI failure on HEAD | Fix or re-run flake; single gate; push; restart watcher |
+| `8` | CI pending at the silence cap | Restart watcher; report CI as the blocker if it persists |
 
-After every fix round: `node "$ST_REVIEW_PUSH" -- --pr <n>` → reply+resolve every thread
-→ restart `node "$ST_REVIEW_LOOP" -- --pr <n> --interval 15 --silence 30`
-in background. Do not end the turn with open threads or an incomplete
-30-minute silence window unless the user explicitly stops the loop.
+After every fix round: gate → `node "$ST_REVIEW_PUSH" -- --pr <n>` →
+reply+resolve every addressed thread citing the pushed SHA → restart
+`node "$ST_REVIEW_LOOP" -- --pr <n>` in the background. Do not end the
+turn with open threads or before the machine reaches `DONE` unless the
+user explicitly stops the loop.
 
 Forbidden when the background watcher is active:
 
@@ -276,17 +317,17 @@ Forbidden when the background watcher is active:
 
 Forbidden early exits:
 
-- Stopping after 1–2 clean polls
-- Stopping at 10 or 15 minutes because “bots usually respond by then”
+- Stopping after 1–2 clean polls (the machine needs the quiet window)
+- Stopping because "bots usually respond by now"
 - Filtering new work solely by thread `createdAt > last_push`
 - Declaring done because CI is green while threads remain open
-- Declaring done because threads are clear while CI is failing or pending
-  on HEAD
-- Ending the turn and asking the user to “check back later” instead of
-  continuing the poll loop
+- Declaring done because threads are clear while CI is failing or
+  pending on HEAD
+- Ending the turn and asking the user to "check back later" instead of
+  continuing the loop
 
-On any new unresolved work: fix → harden → push → **reset** the
-30-minute timer from that push.
+On any new unresolved work: fix → single gate → push → the machine
+restarts from `PUSHED` for the new head.
 
 ## One push per bot round
 
@@ -294,7 +335,7 @@ Batch every finding from a round into the fewest commits needed, then
 **one** push. Do not push per-thread.
 
 Parallel **path-scoped** fix workers (`pr-review-fix-tasks`) are allowed
-in one parent turn; parent merges conflicts, then one harden + one push.
+in one parent turn; parent merges conflicts, then one gate + one push.
 Unscoped concurrent editors on the same branch (no path lock) are
 forbidden.
 
@@ -340,12 +381,21 @@ node "$ST_REVIEW" format \
   --summary "RLS migration already shipped in 20260827184106_…"
 ```
 
-Then close in-thread:
+Then close in-thread, always citing the pushed fix SHA (`close` refuses
+a body with no SHA; `--sha` appends it when the text omits it):
 
 ```bash
 node "$ST_REVIEW" close --pr <n> \
-  --repo hughesyadaddy/sea_trials_universal \
-  --thread <PRRT_kwDO...> --body "<formatted text>"
+  --thread <PRRT_kwDO...> --body "<formatted text>" \
+  --sha "$(git rev-parse --short HEAD)"
+```
+
+Top-level review bodies that have no inline thread cannot be resolved.
+Answer them with an issue comment and optionally minimize the review:
+
+```bash
+node "$ST_REVIEW" comment --pr <n> --sha "$(git rev-parse --short HEAD)" \
+  --body "<formatted text>" [--minimize <PRR_… review node id>]
 ```
 
 Required shape (first line):
@@ -362,22 +412,26 @@ and Codex will re-raise the same thread.
 
 ## Pre-push harden (before every push)
 
-Before `git push` (including merge-recovery pushes that carry code):
+Before any push that carries code (including merge-recovery pushes):
 
-1. Run the **`pre-push-harden`** skill against the pending diff in the
-   active root (`$REPO_ROOT` or `$WORKTREE_DIR`).
-2. Run **`pnpm pr-review-push -- --pr <n>`** — never bare `git push`.
-3. Do not push until that skill reports **READY**.
+1. Run the **single gate** above (fan-out `--list-tasks` → fix → green)
+   in the active root (`$REPO_ROOT` or `$WORKTREE_DIR`). The
+   `st-pre-push-harden` skill wraps this with a regression sweep and
+   review fan-out and ends with `pr-review-push --check-only` → READY.
+2. Push with **`pnpm pr-review-push -- --pr <n>`** — never bare
+   `git push`.
+3. Do not push until the gate is green / harden reports **READY**.
 4. Never `--force`, never `--no-verify`.
 
 Goal: catch analyze/lint/test/architecture regressions **before** bots
-open a new review round (fix-one / break-many loops).
+open a new review round (fix-one / break-many loops). Tests must never
+fail after a push.
 
 ## Sync recovery
 
 On non-fast-forward / remote ahead: fetch → ff-only if possible → else
-`git merge --no-edit` → harden → push. Never rebase+force-push. Never
-ask whether to merge. Up to 5 race retries.
+`git merge --no-edit` → single gate → push. Never rebase+force-push.
+Never ask whether to merge. Up to 5 race retries.
 
 ## Structured questions (dual-host)
 

@@ -766,7 +766,9 @@ export function createGhAdapter(repoRoot, { spawn = spawnSync } = {}) {
 
   return {
     get(path, { etag = null } = {}) {
-      const args = ['api', '-i', path, '-H', 'Accept: application/vnd.github+json'];
+      const args = [
+        'api', '-i', path, '-H', 'Accept: application/vnd.github+json',
+      ];
       if (etag) args.push('-H', `If-None-Match: ${etag}`);
       const res = run(args);
       const parsed = parseGhHttpResponse(res.stdout ?? '');
@@ -969,7 +971,9 @@ export function createSettledPoller(opts) {
   const applyActions = (actions) => {
     for (const action of actions) {
       if (action === 'post-codex-retrigger') {
-        log(`codex: no ack within window — posting "${BOTS.codex.retrigger}"`);
+        log(
+          `codex: no ack within window — posting "${BOTS.codex.retrigger}"`,
+        );
         adapter.post(
           `repos/${repo.owner}/${repo.name}/issues/${prNumber}/comments`,
           { body: BOTS.codex.retrigger },
@@ -1110,7 +1114,12 @@ export function webhookForwardArgs(repo, url) {
  * }} opts
  * @returns {Promise<{ ok: boolean, reason?: string, stop: () => void }>}
  */
-export async function spawnWebhookForwarder({ repo, url, spawnFn, log = () => {} }) {
+export async function spawnWebhookForwarder({
+  repo,
+  url,
+  spawnFn,
+  log = () => {},
+}) {
   const spawnImpl = spawnFn ?? (await import('node:child_process')).spawn;
   return new Promise((resolve) => {
     let settled = false;
@@ -1160,7 +1169,10 @@ export async function spawnWebhookForwarder({ repo, url, spawnFn, log = () => {}
 /**
  * A sleep that a webhook (or any event) can cut short.
  *
- * @param {{ setTimeoutFn?: typeof setTimeout, clearTimeoutFn?: typeof clearTimeout }} [deps]
+ * @param {{
+ *   setTimeoutFn?: typeof setTimeout,
+ *   clearTimeoutFn?: typeof clearTimeout,
+ * }} [deps]
  */
 export function createWakeableSleep({
   setTimeoutFn = setTimeout,

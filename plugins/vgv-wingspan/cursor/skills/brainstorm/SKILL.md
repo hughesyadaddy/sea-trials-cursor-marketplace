@@ -124,6 +124,14 @@ Ensure `docs/brainstorm/` directory exists before writing.
 
 Use the [brainstorm template](references/template.md) as the document structure.
 
+**Parallel seams.** While capturing the chosen approach, note the natural
+seams where independent workers could build in parallel — packages,
+layers, features, or screens that touch disjoint files — and which files
+several of them would share (barrels, manifests, l10n). Record them as a
+short list in the document; `/plan` turns them into the
+`## Parallel execution map`. Do not write the map here, and if the
+brainstorm doc already carries one from an earlier pass, keep it intact.
+
 ### 3. Handoff
 
 Use **host structured question tool (AskQuestion on Cursor; AskUserQuestion on Claude Code)** to consider next steps:

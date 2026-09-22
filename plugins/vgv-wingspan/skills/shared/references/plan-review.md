@@ -28,6 +28,15 @@ the improved plan, not a list of findings to reconcile.
 | No split needed | Keep the plan single-phase. Record the one-line scope summary. Done. |
 | Split recommended | Use **AskUserQuestion** to choose how to act (below). |
 
+**Shards first.** Before offering the options below, map the proposed
+boundaries onto the plan's `## Parallel execution map` (see
+[parallel-execution-map.md](parallel-execution-map.md)): each proposed PR
+becomes one or more shards on the same branch, with files that several
+shards need listed in `sharedFiles`. Parallel shards on one branch are the
+default; the options below only decide whether the work is *also* phased or
+split into separate PRs. Option 2 is opt-in — take it only when the user
+asks for separate PRs.
+
 When a split is recommended, present these options:
 
 1. **Restructure into phases in one plan (Recommended)** — keep a single plan file and add an `## Implementation Phases` section whose phases follow the proposed split boundaries.

@@ -46,6 +46,18 @@ Apply the following criteria to evaluate the document:
 
 If invoked during a brainstorm phase (after `/brainstorm`), validate that the document reflects with fidelity the user intent.
 
+### Parallel execution map
+
+When the document is a plan with a `## Parallel execution map`, preserve
+the section — it is what `/build` uses to fan work out, not optional
+detail to simplify away. If your changes alter scope (tasks added,
+removed, or merged), update the table and the `shards` JSON together so
+they still agree, and re-check the rules in
+[parallel-execution-map.md](../plan/references/parallel-execution-map.md):
+disjoint path prefixes, existing acyclic `dependsOn`, `sharedFiles`
+outside every shard's paths, sane tiers. A Standard or Extensive plan
+without a map is a Completeness gap — flag it.
+
 ## Step 4. Critical improvements
 
 Among everything found in Steps 2-3, does one issue stand out? If something would significantly improve the document's quality, this is the **must address** item. Highlight it prominently.

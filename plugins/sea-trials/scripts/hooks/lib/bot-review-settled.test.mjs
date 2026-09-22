@@ -23,8 +23,11 @@ import {
   pollEndpoints,
   sameSha,
   selectNewBotComments,
+  spawnWebhookForwarder,
+  startWebhookReceiver,
   stepMachine,
   threadsAreFresh,
+  webhookForwardArgs,
 } from './bot-review-settled.mjs';
 
 const HEAD = 'abcdef1234567890abcdef1234567890abcdef12';
@@ -810,6 +813,67 @@ test('poller: quiet PR with zero threads settles to DONE via SETTLED_CHECK', () 
   assert.equal(poller.machine.state, STATES.DONE);
   assert.ok(states.includes(STATES.SETTLED_CHECK));
   assert.ok(clock - T0 < 12 * MIN, `settled in ${(clock - T0) / MIN} min`);
+});
+
+// ==========================================================================
+// WEBHOOK
+// ==========================================================================
+
+test('webhookForwardArgs targets 127.0.0.1 receiver with the review events', () => {
+  const args = webhookForwardArgs(
+    { owner: 'acme', name: 'widgets' },
+    'http://127.0.0.1:4321/webhook',
+  );
+  assert.deepEqual(args.slice(0, 2), ['webhook', 'forward']);
+  assert.ok(args.includes('--repo=acme/widgets'));
+  assert.ok(args.some((a) => a.startsWith('--events=') && a.includes('check_run')));
+  assert.ok(args.includes('--url=http://127.0.0.1:4321/webhook'));
+});
+
+test('startWebhookReceiver wakes on POST and rejects other methods', async () => {
+  const events = [];
+  const receiver = await startWebhookReceiver({
+    onEvent: (e) => events.push(e),
+  });
+  try {
+    const res = await fetch(receiver.url, {
+      method: 'POST',
+      headers: { 'x-github-event': 'pull_request_review' },
+      body: '{}',
+    });
+    assert.equal(res.status, 204);
+    const bad = await fetch(receiver.url);
+    assert.equal(bad.status, 405);
+    assert.deepEqual(events, ['pull_request_review']);
+    assert.ok(receiver.url.startsWith('http://127.0.0.1:'));
+  } finally {
+    await receiver.close();
+  }
+});
+
+test('spawnWebhookForwarder degrades silently when gh lacks the extension', async () => {
+  const { EventEmitter } = await import('node:events');
+  const spawnFn = () => {
+    const child = new EventEmitter();
+    child.stdout = new EventEmitter();
+    child.stderr = new EventEmitter();
+    child.exitCode = null;
+    child.killed = false;
+    child.kill = () => {};
+    setTimeout(() => {
+      child.stderr.emit('data', 'unknown command "webhook" for "gh"');
+      child.exitCode = 1;
+      child.emit('exit', 1);
+    }, 1);
+    return child;
+  };
+  const result = await spawnWebhookForwarder({
+    repo: { owner: 'o', name: 'r' },
+    url: 'http://127.0.0.1:1/webhook',
+    spawnFn,
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /unknown command/);
 });
 
 // ==========================================================================

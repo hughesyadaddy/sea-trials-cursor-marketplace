@@ -101,45 +101,55 @@ Classify touched surfaces: Flutter/Dart packages, `functions/`, `web/`,
 
 ---
 
-## Phase 2 — Mechanical gates (mandatory)
+## Phase 2 — Single mechanical gate (mandatory)
 
 Run from `$ACTIVE_ROOT`. **`agent-validate` is iteration-only** — it is
-NOT sufficient before push.
+NOT sufficient before push. The gate runs **once**, fanned out; do not
+stack `st-parallel-tasks` + `pnpm prepush` + `pr-review-push` — they
+replay the same lanes.
 
 ### Always before push (non-docs changes)
 
-1. **Dirty tree + CI lanes (parallel default):**
+1. **Emit the gate plan** (dirty tree, committed diff, PR CI parity —
+   `dart-static`, `dart-analyze`, `dart-test`, script tests, …):
 
    ```bash
-   pnpm st-parallel-tasks -- --pr <n> --phases prepush,ci
+   node "$ST_REVIEW_PUSH" -- --pr <n> --list-tasks
    ```
 
-   Launch **one Task per JSON line** in a single parent turn (batch by
-   16 if needed). Parent runs `pnpm prepush` after all prepush tasks
-   pass. Skip fan-out only when the emitter returns zero or one line.
-
-1. **Committed diff:**
+2. **Fan out once.** Dispatch one worker per JSON line in a single
+   parent turn (Cursor: `Task`; Claude Code: `Agent`; batch by 16).
+   Each worker runs exactly
 
    ```bash
-   pnpm prepush
+   node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs" '<json-line>'
    ```
 
-1. **CI parity** — included in `st-parallel-tasks` above when `--pr`
-   is set. Mirrors `dart-static`, `dart-analyze`, and `dart-test`.
+   honouring the line's `subagent_type` and model hints (Cursor
+   `model: composer-2.5`, Claude `model: haiku`). Zero or one line →
+   run inline.
 
-1. **Push gate (only allowed push path):**
+3. **Fix** every red lane at the root cause, then re-run **that lane**
+   (same JSON line) until green. Do not re-run the whole plan for one
+   red lane.
+
+4. **Confirm once, without pushing:**
 
    ```bash
-   node "$ST_REVIEW_PUSH" -- --pr <n> --repo hughesyadaddy/sea_trials_universal
+   node "$ST_REVIEW_PUSH" -- --pr <n> --check-only
    ```
 
-   Runs steps 1–3 again, then `git push`. Never bare `git push`.
+   This replays the plan against the committed tree and records a
+   gate-pass token (`scripts/hooks/lib/gate-pass-token.mjs`). Because
+   of that token the husky pre-push skips lanes already proven on an
+   unchanged tree, so the caller's real `pr-review-push --pr <n>` does
+   not pay for the gate twice. Any edit after this step invalidates the
+   token — re-run step 4.
 
 5. During iteration (before commit): `pnpm agent-validate` on changed
-   paths is OK for fast feedback — but never substitute it for the push
-   gate above.
+   paths is fine for fast feedback — never a substitute for steps 1–4.
 
-6. Never suggest `--no-verify`. Never skip hooks.
+6. Never suggest `--no-verify`. Never skip hooks. Never bare `git push`.
 
 ### Surface-specific
 
@@ -191,7 +201,8 @@ consolidates:
 - **Critical / High** → must fix before READY
 - Medium / Low → fix if cheap in this diff; otherwise note for the user
 
-Re-run Phase 2 after Critical/High fixes.
+After Critical/High fixes: re-run only the affected gate lanes, then
+Phase 2 step 4 (`--check-only`) once more.
 
 ---
 
@@ -203,7 +214,7 @@ Emit exactly one verdict block:
 PRE-PUSH HARDEN: READY | BLOCKED
 Root: <ACTIVE_ROOT>
 Changed files: <count>
-Gates: agent-validate=<pass/fail>; prepush=<pass/fail/skipped>; ...
+Gate lanes: <n> fanned out; red=<n> fixed; check-only=<pass/fail>
 Review fan-out: <ran/skipped-docs-only>; critical_open=<n>
 Notes: <one-line summary>
 ```
@@ -217,16 +228,20 @@ Do not declare READY from memory. Re-read the latest command output.
 
 ## Integration with review loops
 
-`pr-review-loop-inplace` and `pr-review-loop-worktree` MUST:
+`st-pr-review-loop-inplace` and `st-pr-review-loop-worktree` follow the
+shared review-loop body, whose Step 4 (parallel local gate) **is** this
+skill's Phase 2. They MUST:
 
-1. Call this skill (follow these phases) before every push.
-2. Push via **`node "$ST_REVIEW_PUSH" -- --pr <n>`** after READY (not bare
-   `git push`).
+1. Run the single gate (Phase 2) before every push; commit only after
+   it is green.
+2. Push via **`node "$ST_REVIEW_PUSH" -- --pr <n>`** after READY (not
+   bare `git push`).
 3. Treat BLOCKED as a hard stop on that push attempt.
-4. After a successful push, run **`node "$ST_REVIEW_LOOP"`** in background
-   and **`node "$ST_REVIEW_STATUS"`** for spot checks — threads **and**
-   CI must be green on HEAD before the loop completes. Harden does not
-   shorten the 30-minute poll window.
+4. After a successful push, restart **`node "$ST_REVIEW_LOOP"`** in the
+   background and spot-check with **`node "$ST_REVIEW_STATUS"`** —
+   threads **and** CI must be green on HEAD and the settled machine
+   must reach `DONE` before the loop completes. Harden does not replace
+   that watch.
 
 ## Non-negotiable rules
 

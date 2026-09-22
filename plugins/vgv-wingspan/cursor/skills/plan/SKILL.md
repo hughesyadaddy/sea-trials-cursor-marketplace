@@ -185,6 +185,64 @@ Before writing the plan file, ensure the session is not on the base branch:
 - [ ] Success criteria each carry a `verify:` command (or `verify: manual <steps>`)
 - [ ] Add names of files in pseudo code examples and todo lists
 - [ ] Add an ERD mermaid diagram if applicable for new model changes
+- [ ] Standard/Extensive plans carry a `## Parallel execution map` with disjoint shards and a `shards` JSON block
+
+## Parallel execution map
+
+Every Standard or Extensive plan must carry a `## Parallel execution map`
+section so `/build` can fan the work out to many subagents on one branch.
+Minimal plans may omit it; `/build` then runs sequentially. The full spec,
+rules, and validation checklist live in
+[parallel-execution-map.md](references/parallel-execution-map.md) — read it
+before writing the section.
+
+Write the section after `## Implementation Phases` (or after the task list)
+and before `## Success Criteria`. It has two parts that must agree:
+
+1. A table `| id | paths | dependsOn | tier | summary |` — `paths` are
+   disjoint glob prefixes, `dependsOn` lists shard ids, `tier` is
+   `mechanical`, `code`, or `reasoning`.
+2. A fenced block tagged `shards` containing JSON:
+
+````markdown
+```shards
+{
+  "maxParallel": 6,
+  "shards": [
+    { "id": "<id>", "paths": ["<prefix>/"], "dependsOn": [],
+      "tier": "code", "sharedFiles": [] }
+  ]
+}
+```
+````
+
+Shard rules (the reference has the complete list):
+
+- Shards never overlap by path prefix — one owner per file.
+- Files more than one shard would touch (barrel/export files,
+  `pubspec.yaml`, `package.json`, lockfiles, l10n/ARB files, DI and route
+  registration) go in `sharedFiles`; the integrator owns them and workers
+  only report the needed change.
+- Each shard must compile and pass its own tests given its `dependsOn`
+  shards; include a shard's test paths in its `paths`.
+- Aim for 4 to 12 shards and a wide, shallow dependency graph.
+
+### Model tiering
+
+Run planning and technical review on a high-reasoning model. Run shard
+execution on a cheap, fast model chosen by tier (`mechanical` and `code`
+on the fast tier; `reasoning` on the parent's model). Review agents run on
+the models pinned in their agent files. The user can override any of
+these; record overrides under the map as `> Model override: ...`. The
+reference file has the per-host table.
+
+### Shards, not PRs, by default
+
+The `plan-splitting-agent` still runs during Plan Review. Its proposed
+boundaries become shards in this map on **one** branch — that is the
+default. Splitting into separate `-part-N` plan files and PRs is opt-in:
+offer it only when the user asks for separate PRs, and give each part its
+own map.
 
 ## Output Format
 

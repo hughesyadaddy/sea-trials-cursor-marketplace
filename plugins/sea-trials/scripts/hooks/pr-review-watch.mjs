@@ -12,23 +12,31 @@
  * Sentinel line (grep-friendly):
  *   [CODEX-ALERT] pr=1606 threads=N head=abcdef1
  *
- * Artifacts:
- *   docs/code-review/feat-std-2720-admin-qa-fixtures/pr-review-queue.json
- *   docs/code-review/feat-std-2720-admin-qa-fixtures/pr-<n>-watch-log.txt
- *   docs/code-review/feat-std-2720-admin-qa-fixtures/CODEX_ALERT.txt
+ * Artifacts (under docs/code-review/<head-branch>/):
+ *   pr-review-queue.json, pr-<n>-watch-log.txt, CODEX_ALERT.txt
+ *
+ * Each interval first issues ETag-conditional REST GETs (comments,
+ * reviews, issue comments, PR head). When every one answers 304 the
+ * expensive GraphQL + CI snapshot is skipped, except once per
+ * `CI_REFRESH_MS` so a CI flip is still noticed.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
+import { createGhAdapter, pollEndpoints } from './lib/bot-review-settled.mjs';
 import {
   buildReviewSnapshot,
   getRepoRoot,
+  resolveGithubOwnerRepo,
   resolvePrNumberFromBranch,
   reviewPaths,
   writeJson,
   writeReviewState,
 } from './lib/pr-review-lib.mjs';
+
+/** Full snapshot at least this often even when REST reports 304s. */
+const CI_REFRESH_MS = 5 * 60_000;
 
 const repoRoot = getRepoRoot();
 const argv = process.argv.slice(2).filter((a) => a !== '--');
@@ -57,10 +65,10 @@ function parseWatchArgs(watchArgv) {
   const intervalSec = intervalFlag >= 0
     ? parsePositiveSeconds(watchArgv[intervalFlag + 1], '--interval')
     : 30;
-  return {
-    prFromFlag: prFlag >= 0 ? parsePositivePrNumber(watchArgv[prFlag + 1]) : null,
-    intervalSec,
-  };
+  const prFromFlag = prFlag >= 0
+    ? parsePositivePrNumber(watchArgv[prFlag + 1])
+    : null;
+  return { prFromFlag, intervalSec };
 }
 
 const { prFromFlag, intervalSec } = parseWatchArgs(filteredArgv);
@@ -211,11 +219,96 @@ function unresolvedSetChanged(currentUnresolvedIds) {
   return currentUnresolvedIds.some((id) => !lastUnresolvedIds.has(id));
 }
 
+/**
+ * Cheap change probe. Keeps one ETag per endpoint; a 304 on every
+ * endpoint means nothing a bot could have done is new.
+ */
+function createChangeProbe() {
+  /** @type {import('./lib/bot-review-settled.mjs').GhAdapter | null} */
+  let adapter = null;
+  /** @type {Record<string, string> | null} */
+  let endpoints = null;
+  /** @type {Record<string, string | null>} */
+  const etags = {};
+  let lastFullAt = 0;
+  let trackedHead = null;
+
+  const PROBED = ['reviewComments', 'reviews', 'issueComments', 'pull'];
+
+  /** @param {string} head */
+  const ensureEndpoints = (head) => {
+    if (!adapter) adapter = createGhAdapter(repoRoot);
+    if (!endpoints || trackedHead !== head) {
+      const repo = resolveGithubOwnerRepo(repoRoot);
+      endpoints = pollEndpoints(repo, prNumber, head, 0);
+      trackedHead = head;
+      for (const key of Object.keys(etags)) delete etags[key];
+    }
+  };
+
+  return {
+    /**
+     * True when any probed endpoint answers 200 (content changed since
+     * the ETag was seeded) or when the periodic CI refresh is due.
+     *
+     * @param {string} head
+     */
+    shouldRefresh(head) {
+      if (Date.now() - lastFullAt >= CI_REFRESH_MS) return true;
+      try {
+        ensureEndpoints(head);
+        let changed = false;
+        for (const key of PROBED) {
+          const etag = etags[key] ?? null;
+          const res = adapter.get(endpoints[key], { etag });
+          if (res.status !== 304) {
+            changed = true;
+            etags[key] = res.etag ?? null;
+          }
+        }
+        return changed;
+      } catch {
+        // Probe failure must never hide a change: fall back to a full read.
+        return true;
+      }
+    },
+    /**
+     * Seed ETags right after a full snapshot so the next 200 is a real
+     * change, not the first sighting.
+     *
+     * @param {string} head
+     */
+    markRefreshed(head) {
+      lastFullAt = Date.now();
+      try {
+        ensureEndpoints(head);
+        for (const key of PROBED) {
+          etags[key] = adapter.get(endpoints[key]).etag ?? null;
+        }
+      } catch {
+        for (const key of PROBED) etags[key] = null;
+      }
+    },
+  };
+}
+
+const probe = createChangeProbe();
+/** @type {ReturnType<typeof buildReviewSnapshot> | null} */
+let lastSnapshot = null;
+
 function pollOnce() {
   if (statePath == null) {
     throw new Error('watcher paths not initialized');
   }
+  if (lastSnapshot && !probe.shouldRefresh(lastSnapshot.pr.headRefOid)) {
+    logLine(
+      `poll: head=${lastSnapshot.pr.headRefOid.slice(0, 7)} unchanged (304)`,
+    );
+    return lastSnapshot;
+  }
   const snapshot = buildReviewSnapshot(repoRoot, prNumber);
+  probe.markRefreshed(snapshot.pr.headRefOid);
+  lastSnapshot = snapshot;
   writeReviewState(statePath, snapshot);
   const count = snapshot.threads.unresolvedCount;
   const head = snapshot.pr.headRefOid.slice(0, 7);

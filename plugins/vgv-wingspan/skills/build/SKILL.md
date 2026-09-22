@@ -22,6 +22,7 @@ Build Progress:
 - [ ] Phase 0: Load plan and confirm scope (or resume a phased build)
 - [ ] Phase 1: Read context for the current implementation phase
 - [ ] Phase 2: Loop implementation phases (implement → validate → commit or hand off → checkpoint → clear)
+- [ ] Parallel build (when the plan has a Parallel execution map): fan out shards, then integrate — replaces Phase 2
 - [ ] Phase 3: Run review agents (5 in parallel), consolidate into one report
 - [ ] Phase 4: Drive to green, cleanup, and ship
 ```
@@ -79,6 +80,7 @@ Instead, use the plan itself as your guide:
 Determine the unit of work:
 
 - **Plan has an `## Implementation Phases` section** → build one phase at a time with the phase loop below. Each phase carries the fields defined in the [implementation phases block](references/implementation-phases.md) — Status, Scope, Files touched, Acceptance criteria, and Validation — and is sized to fit a single context window, so `/build` executes one phase per window.
+- **Plan has a `## Parallel execution map`** → skip the phase loop and run the [Parallel build](#parallel-build-default-when-the-plan-has-a-parallel-execution-map) mode below instead. This is the default whenever a map exists.
 - **No phases** → treat the whole plan as one phase: implement every task, then run the loop once.
 
 ### Phase loop
@@ -148,6 +150,181 @@ Brief progress update to the user: phase completed, phases remaining.
 ### Surgical-Diff Gate
 
 Once the final phase is committed, follow the [surgical-diff gate](references/surgical-diff-gate.md) before moving to review: diff the whole branch against its merge-base, remove untraceable churn, delete only self-created orphans, and collect a "Noticed (not changed):" note for pre-existing dead code. Commit any cleanup it produces. Running it here keeps the review phase focused on the diff that belongs, not churn that would be reverted anyway.
+
+## Parallel build (default when the plan has a Parallel execution map)
+
+When the loaded plan contains a `## Parallel execution map` section with a
+`shards` JSON block, run this mode instead of the sequential phase loop in
+Phase 2. Many subagents build disjoint shards on **one branch** at the same
+time; the parent acts as integrator. The map's spec and rules are in
+[parallel-execution-map.md](references/parallel-execution-map.md). When the
+plan has no map (or the user asks for sequential), fall back to the
+sequential Phase 1 and Phase 2 above unchanged.
+
+Phase 3 (Quality Review) and Phase 4 (Ship) below are unchanged and run
+once after integration.
+
+```markdown
+Parallel Build Progress:
+- [ ] P0: Read and validate the map; confirm branch and commit autonomy
+- [ ] P1: Rolling-window fan-out (launch ready shards up to maxParallel)
+- [ ] P2: Integrate (apply needsIntegration + shared files, validate)
+- [ ] P3: Quality review fan-out (existing Phase 3)
+- [ ] P4: Drive to green and ship (existing Phase 4)
+```
+
+### Phase 0 — Read the map
+
+1. Parse the `shards` JSON block. Build the dependency graph.
+2. Validate before launching anything: ids unique; every `dependsOn` id
+   exists; no cycles; no two shards share or nest a path prefix; no
+   `sharedFiles` entry falls under any shard's `paths`; `maxParallel` is
+   between 1 and 12. On any failure, stop and fix the plan (or ask the
+   user) — never launch workers on an invalid map.
+3. Run `git rev-parse --abbrev-ref HEAD` and `pwd`; let `<BRANCH>` and
+   `<PWD>` be the results. Require a clean working tree
+   (`git status --porcelain` empty). All workers commit to `<BRANCH>`.
+4. Locate the project conventions file (`AGENTS.md`, `CLAUDE.md`, or the
+   equivalent) and the project's validate/test command (from the plan's
+   `success-criteria` block or the detected toolchain). Let these be
+   `<CONVENTIONS>` and `<TEST_COMMAND>`.
+5. Resolve each shard's execution model from its tier (see Dispatch).
+   Honor any `> Model override:` lines under the map.
+6. **Resuming:** if a `### Shard status` list already exists under the map,
+   skip shards marked `done` and start from the remaining ones.
+7. Commit autonomy applies as in the sequential Phase 0. In
+   "I'll commit myself" mode, workers do not commit; they leave their
+   files in the working tree and the integrator stages them per shard.
+
+### Phase 1 — Rolling-window fan-out
+
+Run a rolling window, not batches:
+
+1. **Ready set** = shards whose `dependsOn` are all `done`, that are not
+   yet launched.
+2. **Launch** every ready shard, up to `maxParallel` running at once, in
+   a **single** turn or message. Do not launch one and wait.
+3. **When any worker returns**, parse its result JSON line, record it in
+   `### Shard status`, then **immediately** launch every newly unblocked
+   shard while the others keep running. Keep the window full until no
+   shards remain.
+4. A `blocked` result does not stop the others. Read its `notes`, fix the
+   cause (usually a missing dependency or an unclear task), and relaunch
+   that shard. After two blocked attempts on the same shard, ask the user.
+5. A worker that returns without the JSON line, or with `filesChanged`
+   outside its `paths`, is a contract failure: revert the offending files
+   (`git checkout -- <path>` or drop its commit), and relaunch with a
+   sharper prompt. Never let one shard's stray edits leak into another's
+   ownership.
+
+Record progress under the map in the plan file so a resumed build skips
+finished shards:
+
+```markdown
+### Shard status
+
+- [x] data-model — done (3 files)
+- [ ] repository — running
+- [ ] ui-list — waiting on repository
+```
+
+#### Worker rules
+
+Every worker receives these rules in its prompt and must follow them:
+
+- Edit only files under the shard's `paths`. Create new files only there.
+- Never edit `sharedFiles`. Put the exact change needed in
+  `needsIntegration` instead (for example: `add export '...' to
+  lib/src/orders.dart`, `add package foo ^1.2.0 to pubspec.yaml`).
+- Write tests alongside the code, inside the shard's `paths`.
+- Run `<TEST_COMMAND>` scoped to the shard's paths before finishing.
+- Stage only files under the shard's `paths` (`git add <paths>`; never
+  `git add -A` or `git commit -a`), then commit to the current branch
+  with `<type>: <shard id> — <summary>`. If `git commit` fails on
+  `index.lock`, wait a few seconds and retry up to three times.
+- Never push, never switch branches, never rebase, never touch the plan
+  file.
+- Ask no questions; when truly blocked, return `status: "blocked"` with
+  the reason in `notes`.
+- Finish by printing exactly one JSON line and nothing after it.
+
+#### Worker prompt template
+
+Fill every placeholder; the worker has no access to this chat.
+
+```text
+You are the worker for shard "<id>" of a parallel build.
+Repository: <PWD>   Branch: <BRANCH>   (already checked out; do not switch)
+
+Goal: <shard summary>. Plan tasks for this shard, verbatim:
+<paste the tasks and acceptance criteria that belong to this shard>
+
+Owned paths — edit and create files ONLY here:
+<paths, one per line>
+
+Shared files — DO NOT edit; describe the needed change in needsIntegration:
+<sharedFiles, one per line, or "none">
+
+Before writing code, read <CONVENTIONS> and follow it. Match existing
+patterns in the owned paths' neighbours; do not redesign.
+
+Tests are required for every new unit. Run:
+  <TEST_COMMAND scoped to the owned paths>
+and fix failures before finishing.
+
+Commit: stage only files under the owned paths, then
+  git commit -m "<type>: <id> — <summary>"
+Retry up to 3 times on index.lock. Never push, rebase, or switch branches.
+Do not ask questions; if blocked, stop and report status "blocked".
+
+Finish by printing exactly one JSON line (no prose after it):
+{"shard":"<id>","status":"done|blocked","filesChanged":[],"needsIntegration":[],"notes":""}
+```
+
+#### Dispatch
+
+| Host | How to launch one shard worker |
+| --- | --- |
+| Cursor | `Task({ subagent_type: "generalPurpose", description: "Shard <id>", model: "<by tier>", run_in_background: true, prompt: "<template>" })`. Put every ready shard's `Task` call in the **same** turn. Tier → `model`: `mechanical` and `code` → `composer-2.5`; `reasoning` → omit `model` (inherit). |
+| Claude Code | Launch an `Agent` subagent per ready shard, all in the **same** message, with the template as the prompt. Tier → `model`: `mechanical` → `haiku`; `code` → `sonnet`; `reasoning` → `inherit`. Set `background: true` for long shards and a `maxTurns` cap. For per-shard isolation define a project agent with `isolation: worktree`. |
+
+Isolated worktrees per worker are optional on both hosts. If used, each
+worker commits on its own branch and the integrator merges those branches
+into `<BRANCH>` in dependency order before Phase 2.
+
+### Phase 2 — Integrate
+
+When every shard is `done`:
+
+1. Apply every `needsIntegration` item to the `sharedFiles` — barrels,
+   manifests, lockfiles, l10n, DI and route registration. The integrator
+   is the only writer of these files.
+2. Regenerate generated artifacts (codegen, mocks, l10n output) once.
+3. Run the project's full validate command (`<TEST_COMMAND>` unscoped, or
+   the plan's `VERIFICATION COMMAND`). Fix cross-shard breakage here; if a
+   fix belongs inside one shard's paths, either make it directly (small)
+   or relaunch that shard with the failure pasted in.
+4. Commit the integration per the commit-autonomy choice:
+
+```text
+<type>: integrate parallel shards
+
+<one line: shared files updated, N shards integrated>
+```
+
+5. Run the Surgical-Diff Gate from Phase 2 above on the whole branch.
+6. Continue to **Phase 3 — Quality Review** (unchanged), then
+   **Phase 4 — Ship** (unchanged).
+
+### Anti-patterns
+
+- Launching one worker and waiting for it before launching the next.
+- Batch-and-wait: launching a batch and idling until all of it returns
+  instead of refilling the window as each worker finishes.
+- One giant worker that owns most of the paths.
+- Workers editing `sharedFiles`, pushing, or switching branches.
+- Skipping map validation because "the plan was reviewed".
+- Ignoring the result JSON and reading transcripts instead.
 
 ## Phase 3 — Quality Review
 

@@ -4,13 +4,19 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  GraphqlRateLimitedError,
+  commentDatabaseId,
+  countBotThreads,
   evaluateSnapshot,
   filterPrGateChecks,
+  mapUnresolvedThread,
   mergeRecordedLastPush,
   parseGhPaginatedGraphql,
+  parseGhPaginatedGraphqlResult,
   parsePrArgs,
   PR_CI_WORKFLOW,
   readRecordedPushIso,
+  readSettledSnapshot,
   reviewArtifactPaths,
 } from './pr-review-lib.mjs';
 
@@ -108,11 +114,113 @@ test('parseGhPaginatedGraphql splits concatenated JSON on one line', () => {
   assert.equal(nodes[1].id, 'RT_b');
 });
 
+test('parseGhPaginatedGraphqlResult surfaces rateLimit and headRefOid', () => {
+  const stdout = JSON.stringify({
+    data: {
+      rateLimit: { cost: 3, remaining: 4990, resetAt: '2026-09-22T13:00:00Z' },
+      repository: {
+        pullRequest: {
+          headRefOid: 'abcdef1234567',
+          reviewThreads: { nodes: [{ id: 'RT_1', isResolved: false }] },
+        },
+      },
+    },
+  });
+  const result = parseGhPaginatedGraphqlResult(stdout);
+  assert.equal(result.nodes.length, 1);
+  assert.equal(result.rateLimit.remaining, 4990);
+  assert.equal(result.headRefOid, 'abcdef1234567');
+});
+
+test('parseGhPaginatedGraphql throws on RATE_LIMITED instead of returning []', () => {
+  const stdout = JSON.stringify({
+    data: { rateLimit: { remaining: 0, resetAt: '2026-09-22T13:00:00Z' } },
+    errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }],
+  });
+  assert.throws(() => parseGhPaginatedGraphql(stdout), GraphqlRateLimitedError);
+  try {
+    parseGhPaginatedGraphql(stdout);
+  } catch (err) {
+    assert.equal(err.rateLimit.remaining, 0);
+  }
+});
+
+test('commentDatabaseId prefers fullDatabaseId over deprecated databaseId', () => {
+  assert.equal(commentDatabaseId({ fullDatabaseId: '123', databaseId: 9 }), 123);
+  assert.equal(commentDatabaseId({ databaseId: 9 }), 9);
+  assert.equal(commentDatabaseId({}), null);
+  assert.equal(commentDatabaseId(null), null);
+});
+
+test('mapUnresolvedThread flags bots and reply chains', () => {
+  const mapped = mapUnresolvedThread({
+    id: 'PRRT_1',
+    path: 'lib/a.dart',
+    line: null,
+    originalLine: 44,
+    isOutdated: true,
+    subjectType: 'LINE',
+    firstComment: {
+      nodes: [{
+        fullDatabaseId: '10',
+        author: { login: 'chatgpt-codex-connector' },
+        body: '[P1] bug   here',
+        createdAt: '2026-09-22T12:00:00Z',
+        url: 'https://github.com/o/r/pull/1#discussion_r10',
+      }],
+    },
+    latestComment: {
+      nodes: [{
+        fullDatabaseId: '11',
+        author: { login: 'alexhughes' },
+        body: 'fixed',
+        createdAt: '2026-09-22T12:10:00Z',
+      }],
+    },
+  });
+  assert.equal(mapped.isBot, true);
+  assert.equal(mapped.line, 44);
+  assert.equal(mapped.isOutdated, true);
+  assert.equal(mapped.databaseId, 10);
+  assert.equal(mapped.latestDatabaseId, 11);
+  assert.equal(mapped.latestAuthor, 'alexhughes');
+  assert.equal(mapped.preview, '[P1] bug here');
+});
+
+test('countBotThreads counts GraphQL and REST bot logins', () => {
+  assert.equal(
+    countBotThreads([
+      { author: 'chatgpt-codex-connector' },
+      { author: 'cursor[bot]' },
+      { author: 'alexhughes' },
+      { author: null },
+    ]),
+    2,
+  );
+});
+
 test('parsePrArgs uses explicit --pr flag', () => {
   const parsed = parsePrArgs(['--pr', '42', '--once']);
   assert.equal(parsed.prNumber, 42);
   assert.equal(parsed.once, true);
   assert.equal(parsed.intervalSec, 15);
+  assert.equal(parsed.intervalExplicit, false);
+  assert.equal(parsed.silenceExplicit, false);
+  assert.equal(parsed.webhook, false);
+  assert.equal(parsed.bots, null);
+});
+
+test('parsePrArgs parses --webhook, --bots, and explicit overrides', () => {
+  const parsed = parsePrArgs([
+    '--pr', '42', '--webhook', '--bots', 'codex, bugbot', '--silence', '20',
+  ]);
+  assert.equal(parsed.webhook, true);
+  assert.equal(parsed.webhookPort, 0);
+  assert.deepEqual(parsed.bots, ['codex', 'bugbot']);
+  assert.equal(parsed.silenceExplicit, true);
+  assert.equal(parsed.silenceMin, 20);
+  const withPort = parsePrArgs(['--pr', '1', '--webhook', '8787']);
+  assert.equal(withPort.webhookPort, 8787);
 });
 
 test('parsePrArgs honors defaults.pr when --pr omitted', () => {
@@ -143,6 +251,21 @@ test('mergeRecordedLastPush preserves lastPush across snapshot writes', () => {
     headRefOid: 'abc123',
   });
   assert.equal(merged.at, snapshot.at);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('readSettledSnapshot returns the loop view only for the same head', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pr-review-'));
+  const statePath = path.join(dir, 'pr-review-state.json');
+  assert.equal(readSettledSnapshot(statePath, 'abc'), null);
+  fs.writeFileSync(
+    statePath,
+    JSON.stringify({ settled: { state: 'REVIEWING', head: 'abc', nextPollMs: 30000 } }),
+  );
+  assert.equal(readSettledSnapshot(statePath, 'abc').state, 'REVIEWING');
+  assert.equal(readSettledSnapshot(statePath, 'other'), null);
+  fs.writeFileSync(statePath, 'not json');
+  assert.equal(readSettledSnapshot(statePath, 'abc'), null);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

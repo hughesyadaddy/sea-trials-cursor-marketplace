@@ -10,26 +10,39 @@
  * the thread unresolved; and `resolveReviewThread` returning without
  * error is not proof the thread is resolved.
  *
- * So every mutation here is verified by re-reading the thread, and
- * `close` refuses to resolve a thread it could not reply to. A bot that
- * cannot see the reply will just raise the finding again.
+ * So every mutation here is verified by re-reading the thread (a single
+ * `node(id:)` query, not the whole PR), and `close` refuses to resolve a
+ * thread it could not reply to. A bot that cannot see the reply will just
+ * raise the finding again. Every reply must cite the commit it refers to.
  *
  * Usage:
- *   pr-review-threads.mjs list   --pr <n> --repo owner/name [--all] [--json]
- *   pr-review-threads.mjs close  --pr <n> --repo owner/name --thread <id>
- *     --body <text>
- *   pr-review-threads.mjs close  --pr <n> --repo owner/name --thread <id>
- *     --body-file <path>
- *   pr-review-threads.mjs verify --pr <n> --repo owner/name
+ *   pr-review-threads.mjs list   --pr <n> [--repo owner/name] [--all] [--json]
+ *   pr-review-threads.mjs close  --pr <n> --thread <id> --sha <sha>
+ *     (--body <text> | --body-file <path>) [--repo owner/name]
+ *   pr-review-threads.mjs comment --pr <n> --sha <sha> --body <text>
+ *     [--minimize <review-node-id>] [--repo owner/name]
+ *   pr-review-threads.mjs verify --pr <n> [--repo owner/name]
  *   pr-review-threads.mjs format --verdict valid|reject|stale|defer
  *     --summary <text> [--sha <short>] [--bounded]
  *
- * `list` shows unresolved threads only unless `--all` is passed.
+ * `--repo` falls back to `GH_REPO`, then to `gh repo view` on the current
+ * checkout. `list` shows unresolved threads only unless `--all` is passed.
  * `verify` exits 1 while any thread is unresolved, so it can gate a push.
+ * `comment` handles top-level review bodies that have no inline thread
+ * (those cannot be resolved): it posts an issue comment and optionally
+ * minimizes the original review as RESOLVED.
  */
 
-import { spawnSync } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import { promisify } from 'node:util';
+import { getRepoRoot, resolveGithubOwnerRepo } from './lib/pr-review-lib.mjs';
+
+const execFileAsync = promisify(execFile);
+const GH_MAX_BUFFER = 64 * 1024 * 1024;
+
+/** Parallel comment-pagination fan-out per thread list. */
+export const COMMENT_FETCH_CONCURRENCY = 6;
 
 /**
  * Machine-readable verdict prefix for bot reviewers (Codex, Bugbot, etc.).
@@ -60,28 +73,67 @@ export function formatBotReviewReply({ verdict, summary, sha, bounded }) {
   } else if (verdict === 'defer') {
     header = '**Adversarial vet: DEFER — follow-up, not blocking merge.**';
   } else {
-    header = '**Adversarial vet: REJECT.**';
+    header = `**Adversarial vet: ${label}.**`;
   }
   const detail = summary.trim();
-  return detail ? `${header} ${detail}` : header;
+  let body = detail ? `${header} ${detail}` : header;
+  // Non-VALID verdicts still name the head they were judged against so
+  // a bot re-reviewing a later push can tell the reply is current.
+  if (sha && verdict !== 'valid') {
+    body += ` (reviewed at \`${sha}\`)`;
+  }
+  return body;
+}
+
+/**
+ * True when the body already names a commit (7–40 hex chars, usually
+ * inside backticks).
+ *
+ * @param {string} body
+ */
+export function bodyCitesSha(body) {
+  return /(?:^|[^0-9a-f])[0-9a-f]{7,40}(?![0-9a-f])/i.test(body ?? '');
+}
+
+/**
+ * Guarantee a reply cites the fix commit. Appends a `Head:` line when the
+ * caller passed `--sha` and the body has none; throws when neither.
+ *
+ * @param {string} body
+ * @param {string | undefined} sha
+ */
+export function ensureReplyCitesSha(body, sha) {
+  if (bodyCitesSha(body)) return body;
+  if (sha && /^[0-9a-f]{7,40}$/i.test(sha)) {
+    return `${body.trimEnd()}\n\nHead: \`${sha}\``;
+  }
+  throw new Error(
+    'reply must cite the fix commit: include the SHA in --body or pass '
+      + '--sha $(git rev-parse --short HEAD)',
+  );
 }
 
 /**
  * @param {string | undefined} explicit `--repo owner/name` or GH_REPO
+ * @param {{ lookup?: () => { owner: string, name: string } }} [deps]
  * @returns {{owner:string,name:string}}
  */
-export function resolveRepo(explicit) {
+export function resolveRepo(explicit, { lookup } = {}) {
   const slug = explicit ?? process.env.GH_REPO;
   if (!slug) {
-    throw new Error(
-      'target repository required: pass --repo owner/name or set GH_REPO',
-    );
+    const fallback = lookup ?? (() => resolveGithubOwnerRepo(getRepoRoot()));
+    try {
+      return fallback();
+    } catch (err) {
+      throw new Error(
+        'target repository required: pass --repo owner/name, set GH_REPO, '
+          + `or run inside a GitHub checkout (${err.message})`,
+      );
+    }
   }
   const slash = slug.indexOf('/');
   if (slash <= 0 || slash === slug.length - 1) {
-    throw new Error(
-      'target repository must be owner/name (for example hughesyadaddy/sea_trials_universal)',
-    );
+    throw new Error('target repository must be owner/name');
   }
   return { owner: slug.slice(0, slash), name: slug.slice(slash + 1) };
 }
@@ -94,7 +146,7 @@ function gh(args, input) {
   const res = spawnSync('gh', args, {
     encoding: 'utf8',
     input,
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: GH_MAX_BUFFER,
   });
   if (res.status !== 0) {
     throw new Error(
@@ -105,6 +157,40 @@ function gh(args, input) {
   return res.stdout;
 }
 
+/** @param {string[]} args */
+async function ghAsync(args) {
+  try {
+    const { stdout } = await execFileAsync('gh', args, {
+      encoding: 'utf8',
+      maxBuffer: GH_MAX_BUFFER,
+    });
+    return stdout;
+  } catch (err) {
+    const detail = err.stderr?.trim() || err.stdout?.trim() || err.message;
+    throw new Error(
+      `gh ${args.slice(0, 2).join(' ')} failed (${err.code ?? '?'}): ${detail}`,
+    );
+  }
+}
+
+/**
+ * Throws on GraphQL-level errors, including HTTP-200 `RATE_LIMITED`.
+ *
+ * @param {Record<string, any>} data
+ */
+function assertGraphqlOk(data) {
+  if (!data?.errors?.length) return data;
+  const rateLimited = data.errors.some((e) => e?.type === 'RATE_LIMITED');
+  const message = data.errors.map((e) => e?.message).join('; ');
+  throw new Error(
+    rateLimited
+      ? `GitHub GraphQL rate limited: ${message}`
+      : `GitHub GraphQL error: ${message}`,
+  );
+}
+
+const COMMENT_FIELDS = 'fullDatabaseId author{login} body createdAt url';
+
 const THREAD_QUERY = `
 query($owner:String!,$name:String!,$pr:Int!,$cursor:String){
   repository(owner:$owner,name:$name){
@@ -112,10 +198,10 @@ query($owner:String!,$name:String!,$pr:Int!,$cursor:String){
       reviewThreads(first:100,after:$cursor){
         pageInfo{hasNextPage endCursor}
         nodes{
-          id isResolved isOutdated path line
+          id isResolved isOutdated path line originalLine subjectType
           comments(first:100){
             pageInfo{hasNextPage endCursor}
-            nodes{databaseId author{login} body createdAt}
+            nodes{${COMMENT_FIELDS}}
           }
         }
       }
@@ -124,19 +210,43 @@ query($owner:String!,$name:String!,$pr:Int!,$cursor:String){
 }`;
 
 const COMMENTS_QUERY = `
-query($owner:String!,$name:String!,$threadId:ID!,$cursor:String){
+query($threadId:ID!,$cursor:String){
   node(id:$threadId){
     ... on PullRequestReviewThread{
       comments(first:100,after:$cursor){
         pageInfo{hasNextPage endCursor}
-        nodes{databaseId author{login} body createdAt}
+        nodes{${COMMENT_FIELDS}}
+      }
+    }
+  }
+}`;
+
+const SINGLE_THREAD_QUERY = `
+query($threadId:ID!){
+  node(id:$threadId){
+    ... on PullRequestReviewThread{
+      id isResolved isOutdated path line originalLine subjectType
+      comments(first:100){
+        pageInfo{hasNextPage endCursor}
+        nodes{${COMMENT_FIELDS}}
       }
     }
   }
 }`;
 
 /**
- * @param {Array<{databaseId:number,author?:{login:string},body:string,createdAt:string}>} nodes
+ * @param {Record<string, any>} node GraphQL comment node
+ * @returns {number | null}
+ */
+function commentId(node) {
+  const raw = node?.fullDatabaseId ?? node?.databaseId ?? null;
+  if (raw == null || raw === '') return null;
+  const num = Number(raw);
+  return Number.isFinite(num) ? num : null;
+}
+
+/**
+ * @param {Array<Record<string, any>>} nodes
  * @returns {typeof nodes}
  */
 function sortComments(nodes) {
@@ -146,14 +256,41 @@ function sortComments(nodes) {
 }
 
 /**
- * @param {string} threadId
- * @param {{owner:string,name:string}} repo
- * @param {Array<{databaseId:number,author?:{login:string},body:string,createdAt:string}>} seed
- * @param {{hasNextPage:boolean,endCursor:string|null}} pageInfo
+ * Run `fn` over `items` with at most `limit` in flight.
+ *
+ * @template T, R
+ * @param {T[]} items
+ * @param {number} limit
+ * @param {(item: T, index: number) => Promise<R>} fn
+ * @returns {Promise<R[]>}
  */
-function fetchAllComments(threadId, repo, seed, pageInfo) {
+export async function mapWithConcurrency(items, limit, fn) {
+  /** @type {R[]} */
+  const results = new Array(items.length);
+  let next = 0;
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(limit, items.length)) },
+    async () => {
+      while (next < items.length) {
+        const index = next;
+        next += 1;
+        results[index] = await fn(items[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
+}
+
+/**
+ * @param {string} threadId
+ * @param {Array<Record<string, any>>} seed
+ * @param {{hasNextPage:boolean,endCursor:string|null}} pageInfo
+ * @param {(args: string[]) => Promise<string>} [runner]
+ */
+async function fetchAllComments(threadId, seed, pageInfo, runner = ghAsync) {
   const comments = [...seed];
-  if (!pageInfo.hasNextPage) return sortComments(comments);
+  if (!pageInfo?.hasNextPage) return sortComments(comments);
 
   let cursor = pageInfo.endCursor;
 
@@ -161,18 +298,16 @@ function fetchAllComments(threadId, repo, seed, pageInfo) {
     const args = [
       'api', 'graphql',
       '-f', `query=${COMMENTS_QUERY}`,
-      '-F', `owner=${repo.owner}`,
-      '-F', `name=${repo.name}`,
       '-F', `threadId=${threadId}`,
     ];
     if (cursor) args.push('-F', `cursor=${cursor}`);
 
-    const data = JSON.parse(gh(args));
+    const data = assertGraphqlOk(JSON.parse(await runner(args)));
     const block = data.data.node?.comments;
     if (!block) break;
 
     for (const node of block.nodes) {
-      if (!comments.some((c) => c.databaseId === node.databaseId)) {
+      if (!comments.some((c) => commentId(c) === commentId(node))) {
         comments.push(node);
       }
     }
@@ -184,14 +319,44 @@ function fetchAllComments(threadId, repo, seed, pageInfo) {
 }
 
 /**
+ * @param {Record<string, any>} node thread node with full comment list
+ * @param {Array<Record<string, any>>} comments sorted comments
+ */
+export function mapThread(node, comments) {
+  const head = comments[0] ?? {};
+  return {
+    id: node.id,
+    isResolved: node.isResolved,
+    isOutdated: node.isOutdated,
+    path: node.path,
+    line: node.line ?? node.originalLine ?? null,
+    subjectType: node.subjectType ?? null,
+    author: head.author?.login ?? '(unknown)',
+    commentId: commentId(head),
+    url: head.url ?? null,
+    body: head.body ?? '',
+    comments: comments.map((c) => ({
+      id: commentId(c),
+      author: c.author?.login ?? '(unknown)',
+      body: c.body ?? '',
+      createdAt: c.createdAt,
+    })),
+  };
+}
+
+/**
  * Every review thread on a PR, following pagination to the last page.
+ * Per-thread comment pagination (rare: >100 replies) runs in parallel.
  *
  * @param {number} pr
  * @param {{owner:string,name:string}} repo
+ * @param {{ runner?: (args: string[]) => Promise<string> }} [deps]
  */
-export function fetchThreads(pr, repo) {
-  const threads = [];
+export async function fetchThreads(pr, repo, { runner = ghAsync } = {}) {
+  /** @type {Array<Record<string, any>>} */
+  const nodes = [];
   let cursor = null;
+  let terminated = false;
 
   for (let page = 0; page < 50; page += 1) {
     const args = [
@@ -203,65 +368,144 @@ export function fetchThreads(pr, repo) {
     ];
     if (cursor) args.push('-F', `cursor=${cursor}`);
 
-    const data = JSON.parse(gh(args));
+    const data = assertGraphqlOk(JSON.parse(await runner(args)));
     const block = data.data.repository.pullRequest.reviewThreads;
-    for (const node of block.nodes) {
-      const comments = fetchAllComments(
-        node.id,
-        repo,
-        node.comments.nodes,
-        node.comments.pageInfo,
-      );
-      const head = comments[0] ?? {};
-      threads.push({
-        id: node.id,
-        isResolved: node.isResolved,
-        isOutdated: node.isOutdated,
-        path: node.path,
-        line: node.line,
-        author: head.author?.login ?? '(unknown)',
-        commentId: head.databaseId,
-        body: head.body ?? '',
-        comments: comments.map((c) => ({
-          id: c.databaseId,
-          author: c.author?.login ?? '(unknown)',
-          body: c.body ?? '',
-          createdAt: c.createdAt,
-        })),
-      });
+    nodes.push(...block.nodes);
+    if (!block.pageInfo.hasNextPage) {
+      terminated = true;
+      break;
     }
-    if (!block.pageInfo.hasNextPage) return threads;
     cursor = block.pageInfo.endCursor;
   }
-  throw new Error(`thread pagination did not terminate for PR ${pr}`);
+  if (!terminated) {
+    throw new Error(`thread pagination did not terminate for PR ${pr}`);
+  }
+
+  const commentLists = await mapWithConcurrency(
+    nodes,
+    COMMENT_FETCH_CONCURRENCY,
+    (node) =>
+      fetchAllComments(
+        node.id,
+        node.comments.nodes,
+        node.comments.pageInfo,
+        runner,
+      ),
+  );
+  return nodes.map((node, i) => mapThread(node, commentLists[i]));
+}
+
+/**
+ * One thread by node id — what `close` uses before and after mutating,
+ * instead of re-reading every thread on the PR.
+ *
+ * @param {string} threadId
+ * @param {{ runner?: (args: string[]) => Promise<string> }} [deps]
+ */
+export async function fetchThread(threadId, { runner = ghAsync } = {}) {
+  const data = assertGraphqlOk(
+    JSON.parse(
+      await runner([
+        'api', 'graphql',
+        '-f', `query=${SINGLE_THREAD_QUERY}`,
+        '-F', `threadId=${threadId}`,
+      ]),
+    ),
+  );
+  const node = data.data.node;
+  if (!node?.id) return null;
+  const comments = await fetchAllComments(
+    node.id,
+    node.comments.nodes,
+    node.comments.pageInfo,
+    runner,
+  );
+  return mapThread(node, comments);
 }
 
 /**
  * Reply inside the thread, not as a new top-level comment.
  *
- * Uses REST `in_reply_to`, which is what threads a reply to an existing
- * comment. A plain POST to the comments endpoint without it creates a
+ * Uses REST `.../comments/{top_level_id}/replies`, which threads a reply
+ * to the head comment. A plain POST to the comments endpoint creates a
  * detached comment and the thread still reads as unanswered.
+ *
+ * @param {number} pr
+ * @param {number | null} commentId REST id of the thread's first comment
+ * @param {string} body
+ * @param {{owner:string,name:string}} repo
+ * @param {{ run?: (args: string[]) => string }} [deps]
  */
-export function replyToThread(pr, commentId, body, repo) {
+export function replyToThread(pr, commentId, body, repo, { run = gh } = {}) {
   if (!commentId) {
     throw new Error('thread has no head comment id; cannot reply in-thread');
   }
-  gh([
-    'api', '--method', 'POST',
-    `repos/${repo.owner}/${repo.name}/pulls/${pr}/comments/${commentId}/replies`,
+  const base = `repos/${repo.owner}/${repo.name}/pulls/${pr}/comments`;
+  run([
+    'api', '--method', 'POST', `${base}/${commentId}/replies`,
     '-f', `body=${body}`,
   ]);
 }
 
-export function resolveThread(threadId) {
-  gh([
-    'api', 'graphql',
-    '-f',
-    'query=mutation($id:ID!){resolveReviewThread(input:{threadId:$id})' +
-      '{thread{isResolved}}}',
-    '-F', `id=${threadId}`,
+/**
+ * @param {string} threadId
+ * @param {{ run?: (args: string[]) => string }} [deps]
+ */
+export function resolveThread(threadId, { run = gh } = {}) {
+  assertGraphqlOk(
+    JSON.parse(
+      run([
+        'api', 'graphql',
+        '-f',
+        'query=mutation($id:ID!){resolveReviewThread(input:{threadId:$id})' +
+          '{thread{isResolved}}}',
+        '-F', `id=${threadId}`,
+      ]) || '{}',
+    ),
+  );
+}
+
+/**
+ * Hide a top-level review body (no inline thread → cannot be resolved)
+ * once it has been answered with an issue comment.
+ *
+ * @param {string} subjectId node id of the review / comment
+ * @param {{ run?: (args: string[]) => string }} [deps]
+ */
+export function minimizeComment(subjectId, { run = gh } = {}) {
+  assertGraphqlOk(
+    JSON.parse(
+      run([
+        'api', 'graphql',
+        '-f',
+        'query=mutation($id:ID!){minimizeComment(input:{subjectId:$id,' +
+          'classifier:RESOLVED}){minimizedComment{isMinimized}}}',
+        '-F', `id=${subjectId}`,
+      ]) || '{}',
+    ),
+  );
+}
+
+/**
+ * Issue comment on the PR conversation (for review bodies without a
+ * thread). Returns the new comment's REST id.
+ *
+ * @param {number} pr
+ * @param {string} body
+ * @param {{owner:string,name:string}} repo
+ * @param {{ run?: (args: string[]) => string }} [deps]
+ */
+export function postIssueComment(pr, body, repo, { run = gh } = {}) {
+  const out = run([
+    'api', '--method', 'POST',
+    `repos/${repo.owner}/${repo.name}/issues/${pr}/comments`,
+    '-f', `body=${body}`,
   ]);
+  try {
+    return JSON.parse(out).id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -274,32 +518,45 @@ export function hasMatchingReply(comments, body) {
 }
 
 /**
- * Reply, resolve, then confirm from a fresh read.
+ * Reply, resolve, then confirm from a fresh single-thread read.
  *
  * Order matters: replying second would risk resolving a thread whose
  * explanation never posted, which reads to a reviewer as a silent
  * dismissal. Retries skip the reply when the same body is already in
  * the chain so a transient resolve failure can be retried safely.
+ *
+ * @param {number} pr
+ * @param {string} threadId
+ * @param {string} body must cite a commit (see `ensureReplyCitesSha`)
+ * @param {{owner:string,name:string}} repo
+ * @param {{
+ *   sha?: string,
+ *   runner?: (args: string[]) => Promise<string>,
+ *   run?: (args: string[]) => string,
+ * }} [deps]
  */
-export function closeThread(pr, threadId, body, repo) {
-  const before = fetchThreads(pr, repo).find((t) => t.id === threadId);
+export async function closeThread(pr, threadId, body, repo, deps = {}) {
+  const { sha, runner = ghAsync, run = gh } = deps;
+  const reply = ensureReplyCitesSha(body, sha);
+
+  const before = await fetchThread(threadId, { runner });
   if (!before) throw new Error(`thread ${threadId} not found on PR ${pr}`);
   if (before.isResolved) return { skipped: true, reason: 'already resolved' };
 
-  const alreadyReplied = hasMatchingReply(before.comments, body);
+  const alreadyReplied = hasMatchingReply(before.comments, reply);
   if (!alreadyReplied) {
-    replyToThread(pr, before.commentId, body, repo);
+    replyToThread(pr, before.commentId, reply, repo, { run });
   }
-  resolveThread(threadId);
+  resolveThread(threadId, { run });
 
-  const after = fetchThreads(pr, repo).find((t) => t.id === threadId);
+  const after = await fetchThread(threadId, { runner });
   if (!after?.isResolved) {
     throw new Error(
       `resolve reported success but thread ${threadId} is still ` +
         'unresolved — do not treat this as done',
     );
   }
-  return { skipped: false, replySkipped: alreadyReplied };
+  return { skipped: false, replySkipped: alreadyReplied, body: reply };
 }
 
 /** Drop pnpm's literal `--` before the subcommand (pnpm 10). */
@@ -325,20 +582,20 @@ function parseArgs(argv) {
 
 function formatCommentChain(comments) {
   return comments
-    .map(
-      (c) =>
-        `  [${c.author}] ${c.body.split('\n').slice(0, 4).join('\n  ').slice(0, 400)}`,
-    )
+    .map((c) => {
+      const excerpt = c.body.split('\n').slice(0, 4).join('\n  ');
+      return `  [${c.author}] ${excerpt.slice(0, 400)}`;
+    })
     .join('\n');
 }
 
-function main() {
+async function main() {
   const args = parseArgs(argvWithoutPnpmSeparator(process.argv.slice(2)));
   const pr = Number(args.pr);
 
   if (!args.command) {
     process.stderr.write(
-      'usage: pr-review-threads.mjs <list|close|verify|format> ...\n',
+      'usage: pr-review-threads.mjs <list|close|comment|verify|format> ...\n',
     );
     process.exit(2);
   }
@@ -365,8 +622,8 @@ function main() {
 
   if (!Number.isInteger(pr)) {
     process.stderr.write(
-      'usage: pr-review-threads.mjs <list|close|verify> --pr <n> ' +
-        '--repo owner/name [--thread <id>] ' +
+      'usage: pr-review-threads.mjs <list|close|comment|verify> --pr <n> ' +
+        '[--repo owner/name] [--thread <id>] [--sha <sha>] ' +
         '[--body <text>|--body-file <path>] [--all] [--json]\n',
     );
     process.exit(2);
@@ -381,7 +638,7 @@ function main() {
   }
 
   if (args.command === 'list') {
-    const all = fetchThreads(pr, repo);
+    const all = await fetchThreads(pr, repo);
     const shown = args.all ? all : all.filter((t) => !t.isResolved);
     if (args.json) {
       process.stdout.write(`${JSON.stringify(shown, null, 2)}\n`);
@@ -407,10 +664,15 @@ function main() {
       ? fs.readFileSync(args.body_file, 'utf8')
       : args.body;
     if (!args.thread || !body) {
-      process.stderr.write('close needs --thread and --body/--body-file\n');
+      process.stderr.write(
+        'close needs --thread, --body/--body-file, and a cited SHA '
+          + '(--sha or in the body)\n',
+      );
       process.exit(2);
     }
-    const result = closeThread(pr, args.thread, body, repo);
+    const result = await closeThread(pr, args.thread, body, repo, {
+      sha: args.sha,
+    });
     if (result.skipped) {
       process.stdout.write(`thread ${args.thread}: ${result.reason}\n`);
     } else if (result.replySkipped) {
@@ -425,8 +687,28 @@ function main() {
     return;
   }
 
+  if (args.command === 'comment') {
+    const body = args.body_file
+      ? fs.readFileSync(args.body_file, 'utf8')
+      : args.body;
+    if (!body) {
+      process.stderr.write('comment needs --body/--body-file\n');
+      process.exit(2);
+    }
+    const reply = ensureReplyCitesSha(body, args.sha);
+    const id = postIssueComment(pr, reply, repo);
+    process.stdout.write(`PR #${pr}: issue comment posted (id=${id})\n`);
+    if (args.minimize) {
+      minimizeComment(args.minimize);
+      process.stdout.write(`minimized ${args.minimize} as RESOLVED\n`);
+    }
+    return;
+  }
+
   if (args.command === 'verify') {
-    const unresolved = fetchThreads(pr, repo).filter((t) => !t.isResolved);
+    const unresolved = (await fetchThreads(pr, repo)).filter(
+      (t) => !t.isResolved,
+    );
     if (unresolved.length === 0) {
       process.stdout.write(`PR #${pr}: 0 unresolved threads\n`);
       return;
@@ -442,4 +724,9 @@ function main() {
   process.exit(2);
 }
 
-if (process.argv[1]?.endsWith('pr-review-threads.mjs')) main();
+if (process.argv[1]?.endsWith('pr-review-threads.mjs')) {
+  main().catch((err) => {
+    process.stderr.write(`pr-review-threads: ${err.message}\n`);
+    process.exit(1);
+  });
+}
