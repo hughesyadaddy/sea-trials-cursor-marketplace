@@ -25,6 +25,9 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { resolveRepoRoot as resolveCheckoutRoot } from '../hooks/lib/plugin-paths.mjs';
+import { assertFormatterConfigResolvable } from '../hooks/lib/formatter-config.mjs';
+
+export { assertFormatterConfigResolvable } from '../hooks/lib/formatter-config.mjs';
 
 /**
  * Git checkout root — `ST_REPO_ROOT` when st-run set it, else the git
@@ -181,39 +184,6 @@ export function assertDiffIsPlausible({ changedFiles, base }) {
       `No changed files against '${base}'. A pull request always changes ` +
         'something, so this means the base ref did not resolve as expected. ' +
         'Refusing to report a green lane that verified nothing.',
-    );
-  }
-}
-
-/**
- * `dart format` reads its `formatter:` block from the nearest
- * analysis_options.yaml, and every package here reaches
- * `trailing_commas: preserve` through
- * `package:sea_trials_lints/...` -> `package:very_good_analysis/...`.
- * Resolving those `include:` URIs needs
- * flutter/.dart_tool/package_config.json. Without it the formatter does
- * not fail — it warns and falls back to `trailing_commas: automate`, so
- * the lane cheerfully demands collapsed lines that no developer's
- * pre-commit hook would produce, and the diff it prints looks like a real
- * formatting error. Refuse to run the check on a premise we know is wrong.
- *
- * @param {{repoRoot: string, exists?: (p: string) => boolean}} opts
- */
-export function assertFormatterConfigResolvable({
-  repoRoot,
-  exists = (p) => fs.existsSync(p),
-}) {
-  const packageConfig = path.join(
-    repoRoot,
-    'flutter',
-    '.dart_tool',
-    'package_config.json',
-  );
-  if (!exists(packageConfig)) {
-    throw new Error(
-      `Missing ${packageConfig}. \`dart format\` would silently ignore ` +
-        '`trailing_commas: preserve` and check the diff against a style ' +
-        'nobody formats with. Run `flutter pub get` in flutter/ first.',
     );
   }
 }

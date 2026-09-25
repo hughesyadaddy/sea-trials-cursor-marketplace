@@ -14,7 +14,9 @@
  *   - sorted (relative path, content hash) for every input file:
  *       format / lint → the listed files plus each file's nearest
  *         pubspec.yaml and analysis_options.yaml (language version and
- *         page width change the verdict);
+ *         page width change the verdict), plus
+ *         flutter/.dart_tool/package_config.json (resolver state for
+ *         `include:` URIs in analysis_options);
  *       analyze → the owning package's pubspec.yaml, pubspec.lock,
  *         analysis_options.yaml, every .dart under lib/ and test/, plus
  *         the workspace root's pubspec/lock/options, plus — for every
@@ -36,13 +38,14 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { stateDir } from '../../lib/st-state-dir.mjs';
+import { flutterPackageConfigPath } from './formatter-config.mjs';
 import { getAllFlutterPackageDirs } from './flutter-packages.mjs';
 import { parsePubspec } from './package-graph.mjs';
 
 const isWindows = process.platform === 'win32';
 
 /** Bump when the key recipe changes so stale entries cannot match. */
-export const CACHE_VERSION = 2;
+export const CACHE_VERSION = 3;
 
 export const CACHEABLE_KINDS = new Set(['format', 'lint', 'analyze']);
 
@@ -532,6 +535,19 @@ export function taskInputs(task, opts) {
       } else {
         files.add(abs);
         addConfigsFor(path.dirname(abs));
+      }
+    }
+    const hadDartInputs = listed.some(
+      (abs) => isFile(abs) && abs.endsWith('.dart'),
+    );
+    if (hadDartInputs) {
+      const packageConfig = flutterPackageConfigPath(repoRoot);
+      if (isFile(packageConfig)) {
+        files.add(packageConfig);
+      } else if (task.kind === 'format') {
+        // Unresolved package_config changes formatter behaviour; never
+        // replay a cached green from a different resolver state.
+        tooBig = true;
       }
     }
   }

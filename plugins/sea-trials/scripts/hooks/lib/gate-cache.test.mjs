@@ -52,6 +52,10 @@ function makeRepo(prefix = 'st-gate-cache-repo-') {
   w('flutter/packages/foo/test/a_test.dart', 'void main() {}\n');
   w('flutter/packages/bar/pubspec.yaml', 'name: bar\n');
   w('flutter/packages/bar/lib/z.dart', 'void z() {}\n');
+  w(
+    'flutter/.dart_tool/package_config.json',
+    '{"configVersion":2,"packages":[]}\n',
+  );
   return { root, flutter: path.join(root, 'flutter'), write: w };
 }
 
@@ -181,10 +185,31 @@ test('taskInputs: format takes listed files plus nearest configs', () => {
   const rel = files.map((f) => path.relative(repo.root, f).split(path.sep).join('/'));
   assert.equal(tooBig, false);
   assert.deepEqual(rel, [
+    'flutter/.dart_tool/package_config.json',
     'flutter/packages/foo/analysis_options.yaml',
     'flutter/packages/foo/lib/a.dart',
     'flutter/packages/foo/pubspec.yaml',
   ]);
+});
+
+test('taskInputs: format is uncacheable without package_config', () => {
+  const repo = makeRepo();
+  repo.write('flutter/.dart_tool/package_config.json', '');
+  const abs = path.join(repo.root, 'flutter', '.dart_tool', 'package_config.json');
+  fs.unlinkSync(abs);
+  const { tooBig } = taskInputs(formatTask(repo), { repoRoot: repo.root });
+  assert.equal(tooBig, true);
+});
+
+test('cacheKeyForTask: format key changes when package_config changes', () => {
+  const repo = makeRepo();
+  const { env } = stateEnv();
+  const base = key(formatTask(repo), repo, env);
+  repo.write(
+    'flutter/.dart_tool/package_config.json',
+    '{"configVersion":2,"packages":[{"name":"foo"}]}\n',
+  );
+  assert.notEqual(key(formatTask(repo), repo, env), base);
 });
 
 test('taskInputs: analyze is package-scoped (lib + test + configs + workspace)', () => {

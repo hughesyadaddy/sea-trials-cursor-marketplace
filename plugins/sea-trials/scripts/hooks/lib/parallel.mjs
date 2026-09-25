@@ -5,6 +5,7 @@ import path from 'node:path';
 
 import * as gateCache from './gate-cache.mjs';
 import * as gateTelemetry from './gate-telemetry.mjs';
+import { ensureFlutterFormatReady } from './formatter-config.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -261,6 +262,16 @@ export async function runParallelLimited(
   const runner = opts.runner ?? runAsync;
   const repoRoot = opts.repoRoot;
   const repo = gateTelemetry.repoBasename(repoRoot);
+  if (tasks.some((task) => task.kind === 'format')) {
+    const root =
+      repoRoot ??
+      gateCache.findRepoRoot(
+        path.resolve(tasks[0]?.options?.cwd ?? process.cwd()),
+      );
+    if (root) {
+      ensureFlutterFormatReady({ repoRoot: root });
+    }
+  }
   const results = [];
   const executing = new Set();
   /** @type {Set<import('node:child_process').ChildProcess>} */
