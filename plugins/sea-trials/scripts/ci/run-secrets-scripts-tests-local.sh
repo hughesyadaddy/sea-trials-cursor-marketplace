@@ -21,7 +21,10 @@ node --test scripts/setup-secrets.test.mjs \
   scripts/lib/flavors.test.mjs \
   scripts/lib/urls.test.mjs \
   scripts/register_android_debug_sha.test.mjs \
-  scripts/lib/google-access-token.test.mjs
+  scripts/lib/google-access-token.test.mjs \
+  scripts/verify_app_check_debug_token.test.mjs
+
+node scripts/verify_app_check_debug_token.mjs --static-only
 
 bash code_magic_whitelabel_builder/tests/test_flutterfire_configure_helper.sh
 bash code_magic_whitelabel_builder/tests/test_firebase_utils_helper_delegation.sh
