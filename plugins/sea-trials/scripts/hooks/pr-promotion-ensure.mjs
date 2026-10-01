@@ -8,15 +8,17 @@
  * Prints the PR number to stdout.
  */
 import { spawnSync } from 'node:child_process';
+import { getRepoRoot, resolveGithubOwnerRepo } from './lib/pr-review-lib.mjs';
 
 const isWindows = process.platform === 'win32';
 
 /**
+ * @param {string} repo
  * @param {string[]} args
  * @returns {string}
  */
-function runGh(args) {
-  const result = spawnSync('gh', args, {
+function runGh(repo, args) {
+  const result = spawnSync('gh', ['-R', repo, ...args], {
     encoding: 'utf8',
     shell: isWindows,
   });
@@ -58,13 +60,32 @@ function parseArgs(argv) {
 
 function main() {
   const { base, head, title, body } = parseArgs(process.argv.slice(2));
-  const existing = runGh([
+  const repo = resolveGithubOwnerRepo(undefined, {
+    lookup: () => {
+      const root = getRepoRoot();
+      const result = spawnSync(
+        'gh',
+        ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'],
+        { cwd: root, encoding: 'utf8', shell: isWindows },
+      );
+      if (result.status !== 0) {
+        throw new Error(
+          (result.stderr || result.stdout || 'gh repo view failed').trim(),
+        );
+      }
+      const slug = (result.stdout ?? '').trim();
+      const [owner, name] = slug.split('/');
+      return { owner, name };
+    },
+  });
+  const repoSlug = `${repo.owner}/${repo.name}`;
+  const existing = runGh(repoSlug, [
     'pr',
     'list',
     '--base',
     base,
     '--head',
-    head,
+    `${repo.owner}:${head}`,
     '--state',
     'open',
     '--json',
@@ -76,7 +97,7 @@ function main() {
     process.stdout.write(`${existing}\n`);
     return;
   }
-  const url = runGh([
+  const url = runGh(repoSlug, [
     'pr',
     'create',
     '--base',

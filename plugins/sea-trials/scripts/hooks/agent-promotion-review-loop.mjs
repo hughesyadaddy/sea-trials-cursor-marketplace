@@ -2,7 +2,7 @@
 /**
  * Autonomous promotion review loop: dev→stg→main.
  *
- *   sh .husky/st-plugin-run.sh agent-promotion-review-loop -- [stg_pr]
+ *   pnpm agent-promotion-review-loop -- [stg_pr]
  *
  * Runs until Codex quiet + CI green, merges, waits for merge completion,
  * then advances to the next promotion phase.
