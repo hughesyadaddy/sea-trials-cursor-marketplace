@@ -32,15 +32,16 @@ function runGh(args) {
  * @param {string[]} argv
  */
 function parseArgs(argv) {
+  const tokens = argv[0] === '--' ? argv.slice(1) : argv;
   /** @type {Record<string, string>} */
   const out = {};
-  for (let i = 0; i < argv.length; i += 1) {
-    const key = argv[i];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const key = tokens[i];
     if (!key.startsWith('--')) {
       continue;
     }
     const name = key.slice(2);
-    const value = argv[i + 1];
+    const value = tokens[i + 1];
     if (!value || value.startsWith('--')) {
       throw new Error(`Missing value for --${name}`);
     }
