@@ -15,8 +15,10 @@ Shared components (loaded by both hosts):
   at the plugin root — `claude plugin validate` rejects a directory string
   for `agents` (only arrays of `.md` paths are accepted), so the Claude
   manifest deliberately omits the key, like every official Claude plugin.
-- **Skills:** 10 `st-*` skills (`st-pre-push-harden`, `st-pr-review-loop-*`,
-  `st-build-with-subagents`, …) under `skills/`
+- **Skills:** `st-*` skills including `st-pr-review-monitor` (24h Cursor
+  background PR watch), `st-pr-promote` (promotion PRs), `st-pr-ship`,
+  `st-pr-review-loop-*`, `st-pre-push-harden`, `st-build-with-subagents`, …
+  under `skills/`
 - **Scripts:** push gate, PR review, parallel fan-out under `scripts/hooks/`
 - **Entry:** `scripts/st-run.mjs <hook> [-- args]` (or `pnpm` shortcuts in
   app repos that delegate via `.husky/st-plugin-run.sh`)

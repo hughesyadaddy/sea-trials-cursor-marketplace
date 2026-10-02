@@ -13,6 +13,11 @@ When a gate exists:
 
 - **Never** call `/create-pr skip-checks`
 - Run the repo's gate command (or its ship skill) and let it push
+- For long PR review sessions (promotion PRs, merge-ready sweeps), the
+  Sea Trials consumer ships `/st-pr-review-monitor` (24h Cursor
+  background terminal + CI-first wake) and `/st-pr-promote` (promotion
+  PR end-to-end). Start the monitor before `/st-pr-ship` or
+  `/st-pr-review-loop-*`.
 - Multi-package plans: prefer the consumer's parallel build skill when
   one exists, after `/plan`
 

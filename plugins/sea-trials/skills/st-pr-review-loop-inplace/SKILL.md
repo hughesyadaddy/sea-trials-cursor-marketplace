@@ -33,7 +33,9 @@ checkout clean and fully pushed when done.
 
 1. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
    — `$ST_REVIEW*` paths, fan-out rules, bot reply format, hard stops.
-2. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
+2. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
+   — 24h Cursor background terminal + `Await` protocol.
+3. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
    — the loop itself. **Follow it exactly.** This file only adds the
    in-place mode rules below; it never overrides the body.
 
@@ -104,7 +106,8 @@ this full-tree policy.
 
 ## Run the body
 
-Execute `references/shared/review-loop-body.md` Steps 1–6 from
+Start **`/st-pr-review-monitor`** before Step 1. Execute
+`references/shared/review-loop-body.md` Steps 1–6 from
 `$REPO_ROOT` until a hard stop condition holds. Every Shell
 `working_directory`, Read/Edit path, and `pnpm`/`melos`/`dart`/`flutter`
 call uses absolute paths under `$REPO_ROOT`.

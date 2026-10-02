@@ -40,6 +40,8 @@ irreversible cleanup (force-remove dirty worktree).
 | Plan not implemented yet | `/st-build-with-subagents` or `/build` |
 | Code done; validate before push | `/st-pre-push-harden` |
 | PR open; clear review threads | Review loop (below) |
+| Promotion PR (dev→stg, etc.) | `/st-pr-promote` |
+| Long watch / 24h unattended | `/st-pr-review-monitor` first |
 | Push only | `pnpm pr-review-push` |
 
 ## Phase 1 — Resolve PR
@@ -58,8 +60,9 @@ Infer PR from message or `gh pr view`. Record `PR_NUM` and base ref.
 | Dirty tree, wrong branch, WIP collision | `/st-pr-review-loop-worktree` |
 | Clean tree on PR branch | `/st-pr-review-loop-inplace` |
 
-**Invoke the chosen review-loop skill now** — it follows the shared
-`review-loop-body.md`: settled-machine detect (`pr-review-loop`),
+Start **`/st-pr-review-monitor`** for the PR (once), then **invoke the
+chosen review-loop skill** — it follows the shared
+`review-loop-body.md`: daemon `Await` + settled machine,
 adversarial vet, parallel fix (`pr-review-fix-tasks`), the single
 fanned-out gate (`pr-review-push --list-tasks`), push
 (`pr-review-push`), reply+resolve citing the pushed SHA, repeat until

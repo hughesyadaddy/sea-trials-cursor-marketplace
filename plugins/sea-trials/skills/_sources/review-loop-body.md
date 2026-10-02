@@ -24,15 +24,30 @@ Exit the loop only when DETECT reports `DONE`: zero unresolved bot
 threads, CI green on HEAD, and the settled machine finished a full
 quiet window after the **last** push.
 
-## Step 1 — Detect (settled machine)
+## Step 1 — Detect (settled machine + 24h monitor)
 
-Run the watcher from `$ACTIVE_ROOT`, in a background terminal, after
-every push (and once at loop start):
+**If `/st-pr-review-monitor` is already running** for this PR, skip
+starting a new watcher — `Await` the background terminal for
+`>>> ACTION:` (or read `pr-<n>-acting.signal` on session resume). On
+`ci-fail` or `threads`, continue at Step 2. After each fix round,
+`touch pr-<n>-handoff.ack` and return to `Await`.
+
+**Otherwise start the daemon once** from `$ACTIVE_ROOT` (Shell tool,
+`block_until_ms: 0`):
 
 ```bash
-node "$ST_REVIEW_LOOP" -- --pr <n>            # adaptive default
-node "$ST_REVIEW_LOOP" -- --pr <n> --webhook  # opt-in fast path
-node "$ST_REVIEW_LOOP" -- --pr <n> --json     # machine snapshot/poll
+ST_REPO_ROOT="$ACTIVE_ROOT" \
+  node "$ST_REVIEW_DAEMON" -- --pr <n> --duration 24h
+# or detached: bash "$ST_REVIEW_DAEMONCTL" start --pr <n> --daemon
+```
+
+See `shared/review-loop-monitor.md` for the full Cursor terminal
+protocol. Single-pass fallback (tests / no monitor skill):
+
+```bash
+node "$ST_REVIEW_LOOP" -- --pr <n>            # exits on handoff
+node "$ST_REVIEW_LOOP" -- --pr <n> --webhook
+node "$ST_REVIEW_LOOP" -- --pr <n> --json
 ```
 
 It drives the **bot review settled machine**
@@ -76,7 +91,7 @@ protected test (`integration_test/`, `scenario_`, `golden`,
 
 Spot-check any time with `node "$ST_REVIEW_STATUS" -- --pr <n>` (prints
 `settled.state`, unresolved bot count, CI per check). Queue and state
-live under `docs/vgv-code-review/<scope>/` in the active root.
+live under `docs/code-review/<scope>/` in the active root.
 
 ## Step 2 — Triage every unresolved bot thread
 
@@ -177,7 +192,9 @@ cannot be resolved — post via
 `node "$ST_REVIEW" comment --pr <n> --sha "$PUSHED_SHA" --body …
 [--minimize <review-node-id>]`.
 
-Then **re-enter Step 1** with a fresh watcher for the new head.
+Then **re-enter Step 1** — the daemon keeps running; write
+`pr-<n>-handoff.ack` and `Await` again (no need to restart the daemon
+on each push).
 
 ## Hard stop conditions
 

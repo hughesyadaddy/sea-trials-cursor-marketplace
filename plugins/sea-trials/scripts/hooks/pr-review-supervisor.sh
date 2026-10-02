@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Keep pr-review-loop.mjs running continuously for one PR.
+# Legacy: keep pr-review-loop.mjs running continuously for one PR.
+# Prefer pr-review-daemon.mjs + pr-review-daemonctl.sh for 24h watches.
 #
 # pr-review-loop.mjs exits non-zero as its handoff signal: open threads,
 # red CI, or CI still pending at the end of the silence window all end

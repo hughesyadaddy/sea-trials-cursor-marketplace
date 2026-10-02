@@ -34,7 +34,9 @@ files, and IDE state stay untouched.
 
 1. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
    — `$ST_REVIEW*` paths, fan-out rules, bot reply format, hard stops.
-2. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
+2. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
+   — start the 24h Cursor background terminal (`ST_REPO_ROOT=$WORKTREE_DIR`).
+3. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
    — the loop itself. **Follow it exactly.** This file only adds the
    worktree mode rules below; it never overrides the body.
 
@@ -106,7 +108,8 @@ recovery **inside `$WORKTREE_DIR`**.
 
 ## Run the body
 
-Execute `references/shared/review-loop-body.md` Steps 1–6 from
+Start **`/st-pr-review-monitor`** with `ST_REPO_ROOT=$WORKTREE_DIR`
+before Step 1. Execute `references/shared/review-loop-body.md` Steps 1–6 from
 `$WORKTREE_DIR` until a hard stop condition holds. All file ops use
 absolute paths under `$WORKTREE_DIR`; `pnpm`/`melos` run from that
 worktree root. Never edit, commit, or push from `$REPO_ROOT`; never

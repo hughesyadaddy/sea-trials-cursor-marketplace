@@ -112,6 +112,8 @@ pnpm pr-review-adversarial-tasks -- --pr <n>
 pnpm pr-review-fix-tasks -- --pr <n>
 pnpm st-build-shard-tasks -- --manifest shards.json
 pnpm pr-review-status -- --pr <n>
+pnpm pr-review-daemon -- --pr <n> [--duration 24h]
+pnpm pr-review-daemonctl -- start --pr <n> --daemon
 pnpm pr-review-loop -- --pr <n> [--webhook] [--json]
 pnpm pr-review-push -- --pr <n> --list-tasks
 pnpm pr-review-push -- --pr <n> --check-only
@@ -159,6 +161,8 @@ ST_PLUGIN_ROOT="$(_st_plugin_root)"
 ST_REVIEW="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-threads.mjs"
 ST_REVIEW_STATUS="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs"
 ST_REVIEW_LOOP="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs"
+ST_REVIEW_DAEMON="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemon.mjs"
+ST_REVIEW_DAEMONCTL="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh"
 ST_REVIEW_PUSH="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs"
 ST_PARALLEL="$ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs"
 ST_BUILD_SHARD="$ST_PLUGIN_ROOT/scripts/hooks/st-build-shard-tasks.mjs"
@@ -277,10 +281,16 @@ Watcher commands:
 | Command | Purpose |
 | --- | --- |
 | `node "$ST_REVIEW_STATUS" -- --pr <n>` | One-shot: threads + CI + `settled.state` |
-| `node "$ST_REVIEW_LOOP" -- --pr <n> [--webhook] [--json]` | Background watch until `ACTING`/`DONE` |
+| `node "$ST_REVIEW_DAEMON" -- --pr <n> [--duration 24h]` | **24h monitor** — never exits on handoff; `>>> ACTION:` sentinels |
+| `bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" start --pr <n> --daemon` | Detached daemon (setsid; survives chat close) |
+| `node "$ST_REVIEW_LOOP" -- --pr <n> [--webhook] [--json]` | Single-pass detect (exits on handoff; fallback/tests) |
 | `node "$ST_REVIEW_PUSH" -- --pr <n>` | Single gate → `git push` (hooks on) |
 
-State artifacts: `docs/vgv-code-review/<scope>/pr-review-state.json`
+Full monitor protocol (Cursor background terminal, `Await`, ack files):
+`shared/review-loop-monitor.md`. Slash command: `/st-pr-review-monitor`.
+Promotion PRs: `/st-pr-promote`.
+
+State artifacts: `docs/code-review/<scope>/pr-review-state.json`
 (includes the `settled` snapshot: `state`, `head`,
 `unresolvedBotThreads`, `signals`, `nextPollMs`),
 `pr-review-queue.json`, `pr-*-loop-log.txt`. Exit codes: `0` done,
@@ -291,7 +301,13 @@ spawn host subagents).
 
 ## Background watcher → parent agent (autonomous wake)
 
-When `node "$ST_REVIEW_LOOP"` runs in a **background terminal**, treat
+**Prefer the 24h daemon** (`/st-pr-review-monitor`) over a single-pass
+`pr-review-loop` background shell. The daemon emits `>>> ACTION:` /
+`>>> GREEN:` sentinels and never dies on handoff; use `Await` on the
+Cursor terminal task id. CI failures must wake the agent **immediately**
+— do not wait for Codex.
+
+When `node "$ST_REVIEW_LOOP"` runs as a **single-pass** fallback, treat
 its exit code as a work ticket — **never ask the user** whether to
 proceed:
 
