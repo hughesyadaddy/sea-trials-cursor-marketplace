@@ -121,6 +121,34 @@ function waitForPrMerged(pr, logPath) {
 }
 
 /**
+ * @param {string} phase
+ * @param {number} pr
+ * @returns {string | null}
+ */
+function readReviewedHeadOid(phase, pr) {
+  const statePath = path.join(
+    repoRoot,
+    'docs/code-review',
+    phase,
+    'pr-review-state.json',
+  );
+  if (!fs.existsSync(statePath)) {
+    return null;
+  }
+  try {
+    const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    return (
+      state?.settled?.head ??
+      state?.lastPush?.headRefOid ??
+      state?.pr?.headRefOid ??
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} logPath
  * @param {string[]} pnpmArgs
  * @returns {number}
@@ -195,11 +223,17 @@ function runPhase(phase, pr, base, head, nextPhase) {
         `MERGE_READY ${new Date().toISOString()}\n`,
       );
       waitForMergeQueue(pr, log);
-      const mergeResult = spawnSync(
-        'gh',
-        ['pr', 'merge', String(pr), '--merge'],
-        { cwd: repoRoot, encoding: 'utf8', shell: isWindows },
-      );
+      const reviewedHead = readReviewedHeadOid(phase, pr);
+      const mergeArgs = ['pr', 'merge', String(pr), '--merge'];
+      if (reviewedHead) {
+        mergeArgs.push('--match-head-commit', reviewedHead);
+        logLine(log, `merge guard head=${reviewedHead.slice(0, 7)}`);
+      }
+      const mergeResult = spawnSync('gh', mergeArgs, {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        shell: isWindows,
+      });
       const mergeOut = `${mergeResult.stdout ?? ''}${mergeResult.stderr ?? ''}`;
       if (mergeOut.trim()) {
         fs.appendFileSync(log, `${mergeOut}\n`);
@@ -214,6 +248,12 @@ function runPhase(phase, pr, base, head, nextPhase) {
           );
         }
         return true;
+      }
+      if (mergeResult.status !== 0) {
+        logLine(
+          log,
+          `merge failed (status=${mergeResult.status}) — retrying watch`,
+        );
       }
     }
 
