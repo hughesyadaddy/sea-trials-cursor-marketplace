@@ -53,7 +53,8 @@ PR_NUM=<from message or gh pr view>
 
 Check for an existing daemon:
 
-Resolve `$ST_PLUGIN_ROOT` per `review-loop-contract.md` (`_st_plugin_root`).
+Resolve `$ST_PLUGIN_ROOT` per `review-loop-contract.md` (bootstrap block;
+`print-st-plugin-root.mjs` + Team Marketplace — no repo vendoring).
 
 ```bash
 bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" \

@@ -59,7 +59,12 @@ only when the person says they are at the keyboard now.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-SPRINT="$(_st_plugin_root)/scripts/sprint"     # contract section 11
+export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
+if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
+  _ST_PRINT="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/lib/print-st-plugin-root.mjs' 2>/dev/null | head -1)"
+  ST_PLUGIN_ROOT="$(node "${_ST_PRINT}")"
+fi
+SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
 FOLDER="<folder>"; SCRATCH=$(mktemp -d /tmp/sprint.XXXX)
 node "$SPRINT/parse-sprint-folder.mjs" "$FOLDER" --lint
 node "$SPRINT/parse-sprint-folder.mjs" "$FOLDER" --out "$SCRATCH/payload.json"

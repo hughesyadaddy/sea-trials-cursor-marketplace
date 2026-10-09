@@ -149,16 +149,20 @@ Scripts that need the plugin tree call `resolveStPluginRoot()`, which tries
 in order:
 
 1. `ST_PLUGIN_ROOT` (explicit; must contain `scripts/resolve-plugin-root.mjs`)
-2. `CLAUDE_PLUGIN_ROOT` (set by Claude for hooks/MCP; used only if it is
+2. `CURSOR_PLUGIN_ROOT` (Cursor plugin/MCP when injected)
+3. `CLAUDE_PLUGIN_ROOT` (set by Claude for hooks/MCP; used only if it is
    this plugin)
-3. `tools/sea-trials-cursor-plugin` inside the current git checkout
-4. Host caches, newest wins — Cursor
+4. `tools/sea-trials-cursor-plugin` inside the current git checkout
+5. Host caches, newest wins — Cursor
    `~/.cursor/plugins/cache/<marketplace>/sea-trials/<sha>` and
    `~/.cursor/plugins/local/sea-trials`; Claude
    `~/.claude/plugins/installed_plugins.json` → `installPath`,
    `~/.claude/plugins/cache/<marketplace>/sea-trials/<version>`,
    `~/.claude/plugins/marketplaces/<name>/plugins/sea-trials`
-5. The tree this module lives in (dev checkout fallback)
+6. The tree this module lives in (dev checkout fallback)
+
+See [`docs/CURSOR_AGNOSTIC_INSTALL.md`](docs/CURSOR_AGNOSTIC_INSTALL.md) for
+“any repo, no vendoring” setup.
 
 `scripts/st-run.mjs` always exports `ST_PLUGIN_ROOT` to the hook it spawns,
 so hooks under `scripts/hooks/` never guess.

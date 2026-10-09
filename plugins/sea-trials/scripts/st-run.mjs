@@ -17,12 +17,10 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveStPluginRoot } from './lib/resolve-st-plugin-root.mjs';
 
 const isWindows = process.platform === 'win32';
-const pluginRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-);
+const pluginRoot = resolveStPluginRoot();
 
 function repoRoot() {
   if (process.env.ST_REPO_ROOT?.trim()) {
@@ -88,6 +86,10 @@ export function resolveHookCommand(hook, root = pluginRoot) {
 
 function main() {
   const { hook, args } = parseArgv(process.argv.slice(2));
+  if (hook === 'print-plugin-root') {
+    process.stdout.write(`${pluginRoot}\n`);
+    process.exit(0);
+  }
   const { cmd, argv } = resolveHookCommand(hook);
   const cwd = repoRoot();
 

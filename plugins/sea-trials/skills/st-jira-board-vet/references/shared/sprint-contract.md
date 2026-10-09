@@ -455,9 +455,35 @@ state file before continuing.
 
 ## 11. Script location
 
-Resolve the plugin with **`ST_PLUGIN_ROOT`** (set automatically by
-`st-run`) or Node `scripts/lib/resolve-st-plugin-root.mjs`. Do not use
-`find … | head -1` — multiple cache copies make that nondeterministic.
+The plugin lives in Cursor/Claude caches after Team Marketplace install.
+**Do not copy** `plugins/sea-trials` into app repos. Consumer repos only
+need `sprint_planning/` (and optional one-line npm shims that call
+`st-run`).
+
+Resolve **`ST_PLUGIN_ROOT`** in this order:
+
+1. Explicit `ST_PLUGIN_ROOT`
+2. `CURSOR_PLUGIN_ROOT` (Cursor plugin context)
+3. `CLAUDE_PLUGIN_ROOT` (Claude hooks/MCP)
+4. Node `scripts/lib/resolve-st-plugin-root.mjs` (newest cache wins)
+
+Bootstrap once per agent turn (any checkout directory):
+
+```bash
+export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
+if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
+  _ST_PRINT="$(
+    find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" \
+      -path '*/sea-trials/scripts/lib/print-st-plugin-root.mjs' 2>/dev/null | head -1
+  )"
+  [[ -n "${_ST_PRINT}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
+  ST_PLUGIN_ROOT="$(node "${_ST_PRINT}")"
+  export ST_PLUGIN_ROOT
+fi
+```
+
+Do not use bash `find … | head -1` on plugin **roots** — use
+`print-st-plugin-root.mjs` so the Node resolver picks the newest install.
 
 From an app repo checkout:
 
