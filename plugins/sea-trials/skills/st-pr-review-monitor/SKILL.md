@@ -1,12 +1,11 @@
 ---
 name: st-pr-review-monitor
 description: >-
-  Start and run the 24h PR review monitor in a Cursor background
-  terminal. Wakes the agent immediately on CI failure or open review
-  threads via >>> ACTION sentinels and signal files. Use when promoting
-  a PR, shipping, or any long PR review session where the watch must
-  survive for hours without dying when a single poll hands off. Works
-  with worktree and in-place checkouts. Pair with st-pr-review-loop-*.
+  Start and run the PR review monitor in a Cursor in-chat background
+  terminal. Wakes this chat on CI failure or Codex/Bot threads via
+  >>> ACTION sentinels, Shell notify_on_output, and Await. Runs until
+  merge-ready and 60m Codex-quiet after the last push (or user stop).
+  Pair with st-pr-review-loop-inplace or st-pr-review-loop-worktree.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -24,66 +23,79 @@ user-invocable: true
 
 # PR Review Monitor (`/st-pr-review-monitor`)
 
-Start the **24h daemon** in Cursor's terminal and **stay on task** until
-the PR is merge-ready or the user stops you.
+Start the watch **in this chat's background terminal** and **stay on task**
+until the PR is merge-ready (and Codex has been quiet for 60 minutes on the
+current HEAD after the last push) or the user stops you.
 
 **Read:**
 
-1. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
+1. [`references/shared/cursor-in-chat-monitor.md`](references/shared/cursor-in-chat-monitor.md)
+   — **Cursor mandatory** (Shell + Await + notify).
 2. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
 3. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
    — Steps 2–6 when `>>> ACTION:` fires
 
 ## Autonomy
 
-Default: **do not ask**. Start the monitor, `Await` on ACTION, fix CI
-and threads immediately, ack, repeat. Never tell the user to "check back
-later".
+Default: **do not ask**. Start the in-chat monitor, loop `Await` on
+`>>> ACTION:`, fix CI and threads immediately, ack, repeat. Never tell
+the user to "check back later" or use an external terminal.
 
 ## Phase 0 — Resolve PR and active root
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-# worktree loops: ACTIVE_ROOT=$WORKTREE_DIR (see st-pr-review-loop-worktree)
 ACTIVE_ROOT="${ACTIVE_ROOT:-$REPO_ROOT}"
 PR_NUM=<from message or gh pr view>
 ```
 
-## Phase 1 — Start monitor (once)
+Worktree loops: set `ACTIVE_ROOT=$WORKTREE_DIR` before Phase 1.
 
-Check for an existing daemon:
+Resolve `$ST_PLUGIN_ROOT` per `review-loop-contract.md`.
 
-Resolve `$ST_PLUGIN_ROOT` per `review-loop-contract.md` (bootstrap block;
-`print-st-plugin-root.mjs` + Team Marketplace — no repo vendoring).
+## Phase 1 — In-chat monitor (once per PR)
 
-```bash
-bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" \
-  status --pr "$PR_NUM" \
-  || bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" \
-       start --pr "$PR_NUM" --daemon -- --duration 24h
-```
+**Cursor — do exactly this:**
 
-**Also** start a **visible Cursor background terminal** (Shell tool,
-`block_until_ms: 0`) tailing the daemon log or running the foreground
-daemon:
+1. Stop detached daemon (does not wake chat):
 
-```bash
-cd "$ACTIVE_ROOT" && ST_REPO_ROOT="$ACTIVE_ROOT" \
-  node "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemon.mjs" \
-  --pr "$PR_NUM" --duration 24h
-```
+   ```bash
+   bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" \
+     stop --pr "$PR_NUM" || true
+   ```
 
-Save the **terminal task id** for `Await`.
+2. **Shell** (background terminal **in this chat**):
+   - `block_until_ms: 0`
+   - `working_directory`: `$ACTIVE_ROOT`
+   - `notify_on_output`: `{ "pattern": ">>> ACTION:", "reason": "PR review wake" }`
+   - Command:
+
+   ```bash
+   ST_REPO_ROOT="$ACTIVE_ROOT" \
+     node "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemon.mjs" \
+     --pr "$PR_NUM" \
+     --duration 24h \
+     --silence 60 \
+     --bots codex,bugbot,coderabbit,copilot
+   ```
+
+   Add `--no-webhook --interval 180` only when offline. Default webhook
+   needs `gh extension install cli/gh-webhook`.
+
+3. Save the **terminal task id** for `Await`.
+
+**Do not** start only `daemonctl start --daemon` in Cursor Agent chat.
 
 ## Phase 2 — Watch loop (parent stays in this chat)
 
 ```text
-Await(terminal_id, pattern: ">>> ACTION:")
+loop:
+  Await(task_id, pattern: ">>> ACTION:", block_until_ms: 600000)
   → read pr-review-queue.json + acting.signal
   → ci-fail: fix NOW (Steps 3–6, skip Codex wait)
   → threads: Steps 2–6 full loop
   → touch pr-<n>-handoff.ack
-  → goto Await
+  → continue loop (never end turn on GREEN alone)
 ```
 
 On session resume: if `acting.signal` starts with `CI_FAIL` or
@@ -95,7 +107,7 @@ On session resume: if `acting.signal` starts with `CI_FAIL` or
 | --- | --- |
 | `ci-fail` | Root-cause fix → gate fan-out → `pr-review-push` → ack |
 | `threads` | Triage → adversarial vet → fix fan-out → gate → push → reply+resolve → ack |
-| `GREEN` | Report status; keep watching if user wants merge-ready hold |
+| `GREEN` | Report status; **keep** `Await` — Codex may still comment |
 
 After every push: **do not restart the daemon** — it keeps running.
 Write ack:
@@ -109,24 +121,25 @@ touch "$ACTIVE_ROOT/docs/code-review/$SCOPE/pr-${PR_NUM}-handoff.ack"
 
 | User intent | Monitor + |
 | --- | --- |
-| Dirty / wrong branch | `/st-pr-review-loop-worktree` (set `ST_REPO_ROOT=$WORKTREE_DIR`) |
+| Dirty / wrong branch | `/st-pr-review-loop-worktree` (`ACTIVE_ROOT=$WORKTREE_DIR`) |
 | Clean on PR branch | `/st-pr-review-loop-inplace` |
 | Promote dev→stg | `/st-pr-promote` |
 
-The monitor runs **in parallel** with the fix loop — it wakes you; the
-loop skill defines *how* to fix.
+Loop skills **embed** this monitor — you do not need a separate skill
+invocation if you follow Phase 1–2 inline.
 
 ## Phase 5 — Stop
+
+When `node "$ST_REVIEW_STATUS" -- --pr "$PR_NUM"` exits `0` **and** 60m
+Codex-quiet on HEAD, or user says stop, or PR merged:
 
 ```bash
 bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" stop --pr "$PR_NUM"
 ```
 
-When PR is merged or user says stop.
-
 ## Final report
 
-- Monitor: pid, log path, webhook on/off
+- In-chat terminal task id; webhook on/off
 - ACTION rounds: ci-fail vs threads counts
 - Last `>>> GREEN:` line
 - Merge-ready? (0 threads, CI green on HEAD)

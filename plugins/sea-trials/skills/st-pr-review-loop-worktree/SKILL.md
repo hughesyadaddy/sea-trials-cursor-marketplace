@@ -6,7 +6,8 @@ description: >-
   (.review-worktrees/). Use when the user asks for a PR review loop,
   "fix reviews in a worktree", wants isolation from the current
   checkout, or the working tree is dirty / on the wrong branch.
-  Enforces a 30-minute bot-silence window, project-local worktree
+  Runs the PR monitor in a Cursor in-chat background terminal until 60m
+  Codex-quiet after the last push. Project-local worktree
   (not bare /tmp), and pre-push-harden before every push. Leaves the
   user's original checkout untouched.
 disable-model-invocation: true
@@ -32,11 +33,11 @@ files, and IDE state stay untouched.
 
 **Read first, in order:**
 
-1. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
-   — `$ST_REVIEW*` paths, fan-out rules, bot reply format, hard stops.
-2. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
-   — start the 24h Cursor background terminal (`ST_REPO_ROOT=$WORKTREE_DIR`).
-3. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
+1. [`references/shared/cursor-in-chat-monitor.md`](references/shared/cursor-in-chat-monitor.md)
+   — **Cursor:** in-chat monitor with `ST_REPO_ROOT=$WORKTREE_DIR`.
+2. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
+3. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
+4. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
    — the loop itself. **Follow it exactly.** This file only adds the
    worktree mode rules below; it never overrides the body.
 
@@ -106,10 +107,15 @@ recovery **inside `$WORKTREE_DIR`**.
 - Never ask about non-fast-forward / origin ahead — Sync recovery.
 - Never ask permission to push review-fix commits.
 
+## In-chat monitor (before Step 1)
+
+Follow **`cursor-in-chat-monitor.md`** with
+`ACTIVE_ROOT=$WORKTREE_DIR` and `ST_REPO_ROOT=$WORKTREE_DIR` — same chat
+Shell + `Await` loop; stop any detached daemon first.
+
 ## Run the body
 
-Start **`/st-pr-review-monitor`** with `ST_REPO_ROOT=$WORKTREE_DIR`
-before Step 1. Execute `references/shared/review-loop-body.md` Steps 1–6 from
+Execute `references/shared/review-loop-body.md` Steps 1–6 from
 `$WORKTREE_DIR` until a hard stop condition holds. All file ops use
 absolute paths under `$WORKTREE_DIR`; `pnpm`/`melos` run from that
 worktree root. Never edit, commit, or push from `$REPO_ROOT`; never
