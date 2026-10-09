@@ -5,8 +5,9 @@ description: >-
   the current Sea Trials checkout (no worktree). Use when the user asks
   for an in-place review loop, "fix reviews here", "PR review loop
   in-place", or to clear review threads on the current branch without a
-  worktree. Enforces a 30-minute bot-silence window, project-directory
-  lock, and pre-push-harden before every push. Prefers zero questions:
+  worktree. Runs the PR monitor in a Cursor in-chat background terminal
+  (Await + webhook or 3m poll) until 60m Codex-quiet after the last push.
+  Project-directory lock and pre-push-harden before every push. Prefers zero questions:
   auto-merges origin when push is rejected, fixes regressions, re-pushes.
 disable-model-invocation: true
 user-invocable: true
