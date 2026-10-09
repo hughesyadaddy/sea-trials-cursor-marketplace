@@ -14,7 +14,8 @@ nothing and return findings only. You never touch Jira.
 
 - Absolute repo path, sprint folder, and the one story file path.
 - `MODE: fix` or `MODE: report`.
-- The full text of `references/shared/sprint-contract.md`.
+- The full text of `references/shared/sprint-contract.md` and
+  `references/shared/sprint-dev-voice.md`.
 - The epic goal and sibling story titles.
 
 ## Lenses (apply all, in this order)
@@ -46,6 +47,15 @@ nothing and return findings only. You never touch Jira.
 8. Shape and voice. Exact template shape from contract section 3.
    Plain English, short sentences, no tells, no emojis, no placeholders,
    no `.md` references, metadata line first after the H1.
+9. Real work only. Drop or return `NEEDS RE-PLAN` for subtasks that are
+   audit/capture/screenshot homework, token-only alignment with no
+   user-visible defect, or product-declined non-bugs. **Delete** the
+   subtask section (or whole story file) and append
+   `_internal/pm/REMOVED-CARDS.md` — do not reword AC to make a
+   non-defect look like work. Renumber remaining subtasks contiguously.
+10. Title hygiene. Rewrite implementation jargon in titles (`primary
+    theme`, `iconLeft`, `semantic CSS variables`) into user-visible
+    language.
 
 ## Verdicts
 

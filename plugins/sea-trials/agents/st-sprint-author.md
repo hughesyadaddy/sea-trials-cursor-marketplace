@@ -17,7 +17,8 @@ you do not edit any file other than the one story file you were given.
 - Reconnaissance notes: existing files, patterns, integration points,
   and gaps for this story's area. Treat them as the truth about the
   repo, but re-check any path you cite with a file read or `rg`.
-- The full text of `references/shared/sprint-contract.md`.
+- The full text of `references/shared/sprint-contract.md` and
+  `references/shared/sprint-dev-voice.md`.
 - The epic goal and the list of sibling story titles (to keep scope
   lines honest).
 
@@ -37,17 +38,26 @@ and list the gap in your return block. Never ask the user.
    service, then UI, then cleanup. Three to six subtasks, 1-3 SP each,
    one PR each. Destructive steps go last in their own subtask.
 4. Write acceptance criteria as one behaviour per line, verifiable by
-   a command or a concrete UI step. Given/when/then on one line, under
-   200 characters. Story AC are what a product owner would demo;
-   subtask AC are what a reviewer checks on the PR.
-5. Write the test plan with exact commands from the repo's documented
+   a command or a concrete UI step a human performs on a device.
+   Given/when/then on one line, under 200 characters. Story AC are what
+   a product owner would demo; subtask AC are what a reviewer checks
+   on the PR. Do not default to computed RGB/hex AC for color polish;
+   use visible outcomes unless contrast or product-mandated brand match
+   is the defect (see sprint-dev-voice).
+5. Titles and **Done when** use plain English about what the user sees.
+   Never put React prop names (`iconLeft`, `theme=`) in a title.
+6. Do not author capture, audit, screenshot, attachment, or research
+   subtasks. If the brief only yields token-hygiene with no user-visible
+   bug, omit that slice entirely.
+7. Write the test plan with exact commands from the repo's documented
    conventions file (`repoConventionsPath` in `sprint.json`). If the
    repo has no such file, use the commands its package manager and
    test runner actually expose (`package.json` scripts, `pubspec`,
    `Makefile`).
-6. Fill Out of scope with the two or three things a reader would
-   otherwise assume are included.
-7. Run the self-check below and fix before returning.
+8. Fill Out of scope with the two or three things a reader would
+   otherwise assume are included (include dark-mode color exclusions
+   when product accepts current treatment).
+9. Run the self-check below and fix before returning.
 
 ## Self-check (fix every failure before returning)
 

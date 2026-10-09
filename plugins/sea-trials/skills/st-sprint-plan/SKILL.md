@@ -30,6 +30,7 @@ touches Jira; `/st-jira-upload` does that afterwards.
 **Read first:**
 
 - [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
+- [`references/shared/sprint-dev-voice.md`](references/shared/sprint-dev-voice.md)
 - [`references/intake-and-recon.md`](references/intake-and-recon.md)
 - [`references/fanout-prompts.md`](references/fanout-prompts.md)
 
@@ -111,8 +112,13 @@ Draft the story list as a product owner would review it:
 
 Rules (contract section 8): split by merge dependency, 3-6 subtasks,
 1-3 SP each, story at most 8 SP, destructive work last. Cut anything
-that does not serve the goal. Present the table in chat and continue;
-do not wait unless the user asked to approve the split.
+that does not serve the goal. For UI/polish goals, list **user-visible
+bugs** in the story table—not audit chores (capture matrix, attach PNGs,
+token diff). Present the table in chat and continue; do not wait unless
+the user asked to approve the split.
+
+Create `00-START-HERE.md` and `_internal/` when the sprint will carry PM
+evidence; keep dev story files at the folder root only.
 
 Write now:
 
@@ -219,5 +225,9 @@ On Cursor, run the chosen skill in this chat.
 - Links to `.md` files, plan docs, or transcripts as card content.
 - Prerequisites, Depends on, Blocks, gate, checkpoint, or rollback
   sections inside stories or subtasks. Sequencing lives in the epic.
+- Dev cards that assign screenshot capture, Jira attachments, visual
+  matrix runs, or audit synthesis (PM-only under `_internal/`).
+- Auto-generating “navy → brand purple” or token-swap stories without an
+  explicit product decision and a user-visible mismatch.
 - Any Jira write from this skill.
 - Helper scripts written into the target repo.

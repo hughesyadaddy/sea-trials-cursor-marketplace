@@ -47,6 +47,9 @@ Exact commands this repo uses (cite verbatim in Test plan):
 Contract (follow section 3 shape exactly):
 {contract}
 
+Developer voice (titles, real-defect bar, no audit homework):
+{sprint_dev_voice}
+
 Return only the return block defined in your agent brief.
 ```
 
@@ -69,8 +72,11 @@ Exact commands this repo uses: {test_commands}
 Contract:
 {contract}
 
-Apply all eight lenses. Fix in place. Return only the return block
-defined in your agent brief.
+Developer voice:
+{sprint_dev_voice}
+
+Apply all lenses (including real-work and title hygiene). Fix in place.
+Return only the return block defined in your agent brief.
 ```
 
 ## Dispatch table

@@ -30,6 +30,7 @@ exist. The rubric is not repeated here; read the contract.
 **Read first:**
 
 - [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
+- [`references/shared/sprint-dev-voice.md`](references/shared/sprint-dev-voice.md)
 - [`references/jira-pull.md`](references/jira-pull.md)
 - [`references/refine-checklist.md`](references/refine-checklist.md)
 
@@ -104,6 +105,23 @@ commands. Merge into a `Path | Exists | Note` table for the critics.
 
 ---
 
+## Phase 2b — Cull non-work (before critics)
+
+Walk every story with `sprint-dev-voice.md`:
+
+- Remove subtasks or whole stories that are not user-visible defects,
+  product-declined behaviour, audit/capture homework, or token-only
+  polish without product sign-off.
+- Record removals in `<folder>/_internal/pm/REMOVED-CARDS.md` (create
+  `pm/` if needed). Do not replace removed cards with softer wording.
+- Renumber subtasks contiguously in markdown. Update epic Stories SP
+  table if totals change.
+
+Jira keys for removed cards are deleted during `/st-jira-upload`, not
+renamed `[Cancelled]`.
+
+---
+
 ## Phase 3 — Critics in fix mode, in parallel
 
 One `st-sprint-critic` per story, `MODE: fix`, one turn, batch by 16
@@ -146,9 +164,10 @@ before/after lint counts. Then offer via the structured question tool:
 
 ## Forbidden
 
-- Any Jira write from this skill. Reads only.
-- Rewording that changes intent without recording why in Context.
+- Any Jira write from this skill. Reads only (deletes happen in upload).
+- Rewording a non-defect into a weaker AC instead of deleting the card.
 - Deleting content from a card because it lacks a template slot;
   move it to Context instead.
+- Leaving `[Cancelled]` summaries in Jira when the work is withdrawn.
 - Repeating the contract rubric in this skill or its references.
 - Patching a wrong split with wording. Return `NEEDS RE-PLAN`.

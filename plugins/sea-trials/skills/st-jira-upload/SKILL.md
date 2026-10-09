@@ -34,6 +34,8 @@ afternoon, not a burst.
 
 - [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
   (sections 2, 5, 7, 10, 11, 12, and "Cadence and voice in Jira")
+- [`references/shared/sprint-dev-voice.md`](references/shared/sprint-dev-voice.md)
+  (delete orphans; no `[Cancelled]` summaries)
 - [`references/human-cadence.md`](references/human-cadence.md)
 - [`references/mcp-call-shapes.md`](references/mcp-call-shapes.md)
 - [`references/rest-and-browser-fallbacks.md`](references/rest-and-browser-fallbacks.md)
@@ -79,6 +81,20 @@ Resolve config (write anything discovered back to `sprint.json`):
 
 Print the manifest from `--diff` (create / update / unchanged counts).
 If everything is `unchanged`, report that and stop.
+
+### Orphan issues (removed from folder)
+
+Compare keys in `jira_state.json` (and any repo upload-state JSON the
+person uses) to keys still present in the payload. Keys that exist in
+Jira but no longer have a markdown card are **orphans**.
+
+1. List orphans in the summary (key + old summary from `getJiraIssue`).
+2. Ask once via the structured question tool: delete these issues now?
+   (Recommended when `_internal/pm/REMOVED-CARDS.md` lists them.)
+3. On yes: delete with REST `jira-rest.mjs delete-issue <KEY> --yes`,
+   MCP v2 `deleteJiraIssue`, or Chrome CDP `DELETE /rest/api/3/issue/KEY`
+   (logged-in browser). Never rename to `[Cancelled]` and leave on the board.
+4. Remove orphan keys from `jira_state.json` after successful delete.
 
 ---
 
@@ -267,4 +283,6 @@ left manual. Offer via the structured question tool:
 - Mentioning tooling, automation, or who or what wrote the card in
   anything that goes to Jira.
 - Writing helper scripts into the target repo.
-- Deleting anything without the one structured confirmation.
+- Deleting anything without the one structured confirmation (except
+  orphans the person already listed in REMOVED-CARDS and confirmed).
+- Marking withdrawn work `[Cancelled]` instead of deleting the issue.

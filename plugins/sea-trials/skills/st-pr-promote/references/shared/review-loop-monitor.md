@@ -1,3 +1,4 @@
+<!-- GENERATED from skills/_sources/review-loop-monitor.md — do not edit; run node scripts/sync-skill-sources.mjs -->
 # PR review monitor (24h Cursor background terminal)
 
 Shared by `/st-pr-review-monitor`, `/st-pr-promote`, and both

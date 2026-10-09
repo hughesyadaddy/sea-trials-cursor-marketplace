@@ -117,7 +117,24 @@ gate fan-outs pin slugs the host actually accepts. See
 | Flaky-test quarantine | `/st-flake-quarantine`, `flake-quarantine.mjs` | Classifies, retries, quarantines with `skip:` + tracking issue |
 | Build sharding | `st-run st-build-shard-tasks`, `sprint-to-shards.mjs` | Disjoint file ownership; sprint folders become `shards.json` |
 | Host model probe | `st-run st-model-probe` | Detects host + accepted model slugs; `resolveModel()` picks worker tiers |
-| Sprint → Jira | `/st-sprint-plan`, `/st-jira-upload`, `/st-jira-test-review`, `/st-sprint-retro` | Markdown ↔ ADF round-trip lint, REST fallbacks, human-cadence writes |
+| Sprint → Jira | `/st-sprint-plan`, `/st-sprint-refine`, `/st-jira-upload`, `/st-jira-test-review`, `/st-sprint-retro` | Dev-ready cards in human English; see below |
+
+### Sprint cards (developers, not auditors)
+
+Wingspan `/plan` and `/build` target feature design in app repos.
+**Sprint execution cards** for Jira live in this plugin:
+
+| Skill | Use |
+| --- | --- |
+| `/st-sprint-plan` | New epic folder from a goal |
+| `/st-sprint-refine` | Fix vague, audit-flavored, or stale cards |
+| `/st-jira-upload` | Push to Jira; delete orphans, never `[Cancelled]` ghosts |
+
+Shared rules: `skills/_sources/sprint-contract.md` (shape + lint) and
+`skills/_sources/sprint-dev-voice.md` (plain titles, real user-visible
+defects, no screenshot homework on dev cards, `_internal/` for PM
+evidence). Run `node scripts/sync-skill-sources.mjs` after editing
+`_sources/`.
 
 ### Plugin root resolution (`scripts/lib/resolve-st-plugin-root.mjs`)
 

@@ -25,6 +25,15 @@ Story id is the `usN` part (`03-us3-...` is story `3`; `03-us3a-...` is
 `3a`). Story files sort by the `NN` prefix. Nothing else in the folder
 is uploaded.
 
+Optional dev entry: `00-START-HERE.md` (index + how to pick up work).
+Optional PM-only tree: `<folder>/_internal/` (screenshots, annotations,
+`pm/REMOVED-CARDS.md`, deferred stories). The parser and uploader
+ignore paths under `_internal/`; never link to them from cards.
+
+Human titles, real-defect bar, and delete-not-cancel rules live in
+`references/shared/sprint-dev-voice.md` — authors and critics must
+apply that file on every story.
+
 ## 2. `sprint.json`
 
 Every project-specific value lives here. Skill bodies never hardcode a
@@ -214,6 +223,22 @@ subtasks up to 10). One build/test AC per story is enough; do not
 repeat it on every subtask unless that subtask owns tests. Never write
 an AC that references another card's completion.
 
+### 4.1 UI and polish stories
+
+UI cards describe **user-visible problems** (unreadable text, clipped
+labels, broken tap targets, inconsistent control on the same flow).
+They are not token-alignment homework unless product explicitly asked
+for it in intake.
+
+- Titles and **Done when** lines use plain English (see sprint-dev-voice).
+- Do not use prop names (`iconLeft`, `theme="primary"`) in titles.
+- Prefer manual AC (“placeholder shows full text”) over DevTools RGB
+  unless contrast or an signed-off brand mismatch is the defect.
+- Dark mode: do not recolor surfaces the product already accepted; say
+  so in Out of scope.
+- Attachments and screenshot proof are PM workflow (`_internal/`), not
+  dev subtasks.
+
 ## 5. Banned phrasing
 
 Lint (`parse-sprint-folder.mjs --lint`) fails on the first group. The
@@ -233,6 +258,13 @@ Contract bans: `research`, `spike`, `explore`, `investigate`,
 `AI`, `agent`, `generated`, `assistant`, `prompt`, `model output`, any
 `{{placeholder}}` or `<angle-bracket>` left from a template, and
 emojis.
+
+Also ban in titles and user-facing sections (Context, Description,
+What the user sees, Done when): `audit`, `matrix`, `capture`,
+`screenshot`, `annotate`, `upload attachment`, `verify in Jira`,
+`adversarial`, `token swap`, `design token` (Files to touch may name
+the prop change once). Do not prefix summaries with `[Cancelled]`; delete
+the Jira issue instead (sprint-dev-voice).
 
 A card that needs research is not ready. Do the research while
 authoring, then write the decision into the card.
