@@ -1,8 +1,14 @@
 # Fan-out prompt templates
 
-Subagents do not see the chat. Every prompt is self-contained. Paste
-the full contract text where `{contract}` appears; do not paste a path
-to it. Launch all workers of one phase in one parent turn.
+Subagents do not see the chat. Every prompt is self-contained. Do not
+paste the contract or dev-voice files — give absolute paths and tell
+the worker to **Read** them first. Launch all workers of one phase in
+one parent turn.
+
+Set `ST_PLUGIN_ROOT` on every Task (resolved plugin root). Shared docs:
+
+- `{plugin_root}/skills/st-sprint-plan/references/shared/sprint-contract.md`
+- `{plugin_root}/skills/st-sprint-plan/references/shared/sprint-dev-voice.md`
 
 ## Recon explorer (Phase 2, cheap model, read-only)
 
@@ -44,11 +50,8 @@ Reconnaissance for this story (verified paths; re-check before citing):
 Exact commands this repo uses (cite verbatim in Test plan):
 {test_commands}
 
-Contract (follow section 3 shape exactly):
-{contract}
-
-Developer voice (titles, real-defect bar, no audit homework):
-{sprint_dev_voice}
+ST_PLUGIN_ROOT: {plugin_root}
+Read the contract and developer voice files above before writing.
 
 Return only the return block defined in your agent brief.
 ```
@@ -61,7 +64,8 @@ You are st-sprint-critic. MODE: fix
 Repo: {repo_root}
 Sprint folder: {folder}
 File under review: {folder}/{file}
-Lint command: node "{SPRINT}/parse-sprint-folder.mjs" "{folder}" --lint
+ST_PLUGIN_ROOT: {plugin_root}
+Lint command: node "{plugin_root}/scripts/st-run.mjs" sprint-lint -- "{folder}"
 
 Epic goal: {epic_goal}
 Sibling stories: {sibling_titles}
@@ -69,11 +73,7 @@ Recon table (truth about the repo; verify paths yourself too):
 {recon_table}
 Exact commands this repo uses: {test_commands}
 
-Contract:
-{contract}
-
-Developer voice:
-{sprint_dev_voice}
+Read contract + dev-voice from the paths listed at the top of this doc.
 
 Apply all lenses (including real-work and title hygiene). Fix in place.
 Return only the return block defined in your agent brief.

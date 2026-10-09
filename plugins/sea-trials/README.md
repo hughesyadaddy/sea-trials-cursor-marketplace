@@ -130,6 +130,13 @@ Wingspan `/plan` and `/build` target feature design in app repos.
 | `/st-sprint-refine` | Fix vague, audit-flavored, or stale cards |
 | `/st-jira-upload` | Push to Jira; delete orphans, never `[Cancelled]` ghosts |
 
+From an app repo (sets `ST_PLUGIN_ROOT` automatically):
+
+```bash
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- sprint_planning/<folder>
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- --changed
+```
+
 Shared rules: `skills/_sources/sprint-contract.md` (shape + lint) and
 `skills/_sources/sprint-dev-voice.md` (plain titles, real user-visible
 defects, no screenshot homework on dev cards, `_internal/` for PM

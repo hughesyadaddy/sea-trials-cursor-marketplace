@@ -17,8 +17,9 @@ you do not edit any file other than the one story file you were given.
 - Reconnaissance notes: existing files, patterns, integration points,
   and gaps for this story's area. Treat them as the truth about the
   repo, but re-check any path you cite with a file read or `rg`.
-- The full text of `references/shared/sprint-contract.md` and
-  `references/shared/sprint-dev-voice.md`.
+- `ST_PLUGIN_ROOT` and absolute paths to
+  `{ST_PLUGIN_ROOT}/skills/st-sprint-plan/references/shared/sprint-contract.md`
+  and `…/sprint-dev-voice.md` — **Read both files** before writing.
 - The epic goal and the list of sibling story titles (to keep scope
   lines honest).
 
@@ -71,7 +72,7 @@ and list the gap in your return block. Never ask the user.
 | Footprint | No AI/tooling/process narration (contract section 5, sprint-dev-voice) |
 | Sizing | Story SP = sum of subtask SP; no subtask over 3 |
 | Voice | Plain English, short sentences, no tells, no emojis |
-| Lint | `node "$SPRINT/parse-sprint-folder.mjs" <folder> --lint` shows no errors for your file |
+| Lint | `node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- <folder>` shows no errors for your file |
 
 Other stories in the folder may be mid-write; ignore lint lines that
 name a different file.

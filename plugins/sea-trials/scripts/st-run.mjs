@@ -71,6 +71,10 @@ export function resolveHookCommand(hook, root = pluginRoot) {
     }
     throw new Error(`st-run: no scripts/ci/${hook.slice(3)}.{mjs,sh} in plugin`);
   }
+  const sprintMjs = path.join(root, 'scripts/sprint', `${hook}.mjs`);
+  if (fs.existsSync(sprintMjs)) {
+    return { cmd: process.execPath, argv: [sprintMjs] };
+  }
   const hookMjs = path.join(root, 'scripts/hooks', `${hook}.mjs`);
   const hookSh = path.join(root, 'scripts/hooks', `${hook}.sh`);
   if (fs.existsSync(hookMjs)) {

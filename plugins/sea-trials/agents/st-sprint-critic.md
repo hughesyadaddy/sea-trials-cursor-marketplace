@@ -14,8 +14,10 @@ nothing and return findings only. You never touch Jira.
 
 - Absolute repo path, sprint folder, and the one story file path.
 - `MODE: fix` or `MODE: report`.
-- The full text of `references/shared/sprint-contract.md` and
-  `references/shared/sprint-dev-voice.md`.
+- `ST_PLUGIN_ROOT` and absolute paths to the shared contract and
+  sprint-dev-voice under
+  `{ST_PLUGIN_ROOT}/skills/st-sprint-plan/references/shared/` — **Read
+  both** before reviewing.
 - The epic goal and sibling story titles.
 
 ## Lenses (apply all, in this order)
@@ -70,8 +72,8 @@ nothing and return findings only. You never touch Jira.
   epic. Do not patch it with wording; return the reason and stop.
 
 In `MODE: fix`, after editing run
-`node "$SPRINT/parse-sprint-folder.mjs" <folder> --lint` and confirm no
-error names your file. Ignore lines for other files.
+`node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- <folder>` and
+confirm no error names your file. Ignore lines for other files.
 
 ## Return block (only this)
 

@@ -242,8 +242,9 @@ for it in intake.
 
 ## 5. Banned phrasing
 
-Lint (`parse-sprint-folder.mjs --lint`) fails on the first group. The
-authoring and critic passes must also remove the second group.
+Lint (`st-run sprint-lint` / `parse-sprint-folder.mjs --lint`) fails on
+both groups below. Critics still enforce title hygiene and real-work
+bar when lint passes on edge wording.
 
 Lint errors (see `parse-sprint-folder.mjs`): vague words (`maybe`,
 `consider`, …), task items starting `Research`, markdown links and
@@ -454,27 +455,29 @@ state file before continuing.
 
 ## 11. Script location
 
+Resolve the plugin with **`ST_PLUGIN_ROOT`** (set automatically by
+`st-run`) or Node `scripts/lib/resolve-st-plugin-root.mjs`. Do not use
+`find … | head -1` — multiple cache copies make that nondeterministic.
+
+From an app repo checkout:
+
 ```bash
-_st_plugin_root() {
-  if [[ -n "${ST_PLUGIN_ROOT:-}" ]]; then
-    printf '%s\n' "$ST_PLUGIN_ROOT"; return 0
-  fi
-  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
-    printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; return 0
-  fi
-  local hit
-  hit="$(find "${HOME}/.cursor/plugins" \
-    -path '*sea-trials*/scripts/resolve-plugin-root.mjs' 2>/dev/null \
-    | head -1)"
-  [[ -n "$hit" ]] && dirname "$(dirname "$hit")" && return 0
-  echo "sea-trials plugin not found" >&2; return 1
-}
-SPRINT="$(_st_plugin_root)/scripts/sprint"
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- sprint_planning/<folder>
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- --changed
 ```
 
-Then `node "$SPRINT/parse-sprint-folder.mjs"`, `node "$SPRINT/md-to-adf.mjs"`,
-`node "$SPRINT/jira-rest.mjs"`. Never write new helper scripts into the
-target repo; these three are the whole toolkit.
+Sprint toolkit under `$ST_PLUGIN_ROOT/scripts/sprint/`:
+
+| Script | Role |
+| --- | --- |
+| `sprint-lint.mjs` | Dev-ready card lint (preferred entry) |
+| `parse-sprint-folder.mjs` | Payload JSON, `--lint`, `--diff` |
+| `md-to-adf.mjs` | Markdown → Jira ADF |
+| `jira-rest.mjs` | REST upload, attach, delete |
+
+Never add parallel upload or lint scripts in the app repo; use
+`/st-jira-upload` and `st-run sprint-lint`. PM evidence scripts may live
+under `sprint_planning/**/_internal/` only.
 
 ## 12. Dispatch conventions
 
