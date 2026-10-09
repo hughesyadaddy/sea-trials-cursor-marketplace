@@ -1,18 +1,45 @@
 <!-- GENERATED from skills/_sources/sprint-dev-voice.md — do not edit; run node scripts/sync-skill-sources.mjs -->
 # Developer voice for sprint cards
 
-Read this with `sprint-contract.md` when planning or refining. It
-exists because audit-style sprints produced cards developers could not
-act on: token jargon, screenshot homework, and fake defects.
+Read this with `sprint-contract.md` when planning or refining.
 
 ## Who reads these cards
 
-Your developers implement product fixes. They are not running visual
-audits, attaching PNGs to Jira, or proving hex values in DevTools unless
-QA explicitly owns that in a **Verification** story kind.
+Only **developers** read what lands in Jira. Each story and subtask is
+**self-contained**: every fact needed to start, implement, and verify is
+on that card. No “see other doc”, no repo tour, no proof pack.
 
-Write like a lead engineer briefing the team before standup: what is
-wrong for the user, what we will change, how we know we are done.
+Write like a lead engineer at standup: what is wrong for the user, what
+we will change, how we know we are done.
+
+## Self-contained (no links, no pointers)
+
+| Never in epic / story / subtask bodies | Use instead |
+| --- | --- |
+| `[text](./other-file.md)` or any relative link | Copy the one sentence the reader needs inline |
+| Links to `_internal/`, `docs/reviews/`, `docs/plan/`, `sprint_planning/` | Keep that material out of Jira; PM keeps it locally |
+| “See subtask 1.2”, “after US3”, “open SUBTASK-INDEX” | Put sequencing in the epic **Recommended merge order** only |
+| Screenshots, PNGs, attachments, “upload to Jira” | Not dev work; PM attaches separately if needed |
+| “PM sign-off after recapture”, audit pipeline, matrix | Either the story is **ready** with clear AC, or it stays out of the sprint |
+
+Allowed URLs: the live product (`https://…`), Figma, or an external API
+doc when the card cannot be written without it. No GitHub blob links to
+markdown in the repo.
+
+## No AI or tooling footprint
+
+Jira text must read as if **you** typed it for the team. Never mention
+how the card was produced, who assisted, or what ran in the background.
+
+Banned in summaries, descriptions, AC, comments, and Jira uploads:
+
+- Tool and vendor names used as meta (`Cursor`, `Claude`, `MCP`, `agent`,
+  `generated`, `automation`, `adversarial review`, `workflow`).
+- Process narration (“uploaded via CDP”, “synced from payload”, “lint pass”).
+- Placeholder tone (“as an AI”, “I recommend we consider”).
+
+Repo `sprint.json` and PM scripts are invisible to developers; do not
+reference them on cards.
 
 ## Titles and summaries (Jira H1)
 

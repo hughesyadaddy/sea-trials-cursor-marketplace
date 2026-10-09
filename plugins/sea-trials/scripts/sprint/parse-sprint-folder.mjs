@@ -91,7 +91,32 @@ const AI_TELL_RULES = [
   [/\bAs an AI\b/i, 'As an AI'],
   [/\bLLMs?\b/, 'LLM'],
   [/\bsubagents?\b/i, 'subagent'],
-  [/\bTask\(/, 'Task('],
+  [/\bMCP\b/, 'MCP'],
+  [/\badversarial\b/i, 'adversarial'],
+  [/\bauto-?generated\b/i, 'auto-generated'],
+  [/\bworkflow dispatch\b/i, 'workflow dispatch'],
+];
+
+// Non-http markdown links, images, PM paths, process/meta (not dev tasks).
+const REL_LINK_RE = /\[[^\]]*\]\(\s*(?!https?:\/\/)[^)]+\)/;
+const IMG_MARKDOWN_RE = /!\[[^\]]*\]\([^)]+\)/;
+const MEDIA_TELL_RE = [
+  [/\bscreenshots?\b/i, 'screenshot reference'],
+  [/\battached PNG\b/i, 'attached PNG'],
+  [/\bupload (?:to )?Jira\b/i, 'upload to Jira'],
+  [/\bsee attachment\b/i, 'see attachment'],
+  [/\baudit-evidence\b/i, 'audit-evidence path'],
+  [/\bREMOVED-CARDS\b/i, 'REMOVED-CARDS'],
+  [/\b_validat(?:ion|ed)\b.*\.md\b/i, 'validation doc pointer'],
+];
+const PM_FOLDER_RE =
+  /(?:^|[\s('"`])\.{0,2}\/?(?:_internal|docs\/(?:reviews|plan)|sprint_planning)\//i;
+const PROCESS_META_RE = [
+  [/\bPM must sign off\b/i, 'PM sign-off process'],
+  [/\bdo not start until\b.*\bready\b/i, 'cross-file gate in card body'],
+  [/\bsee subtask\s+[\d.a-z]+\b/i, 'see other card'],
+  [/\bsee US\s*\d/i, 'see other card'],
+  [/\bhow (?:this|we) generated\b/i, 'generation meta'],
 ];
 
 const MAX_TASK_ITEM_CHARS = 200;
@@ -484,14 +509,23 @@ function snippet(line) {
   return t.length > 60 ? `${t.slice(0, 57)}...` : t;
 }
 
+/** Prose outside inline `code spans` (backtick segments at even indices). */
+function outsideBackticks(line) {
+  const parts = line.split('`');
+  let out = '';
+  for (let i = 0; i < parts.length; i += 2) out += parts[i];
+  return out;
+}
+
 /** Text rules shared by epic, story and subtask bodies. */
 function lintText(text, where, findings) {
   const prose = proseLines(text);
-  const all = normalize(text).split('\n');
 
   prose.forEach((line, i) => {
     if (!line) return;
-    if (MD_LINK_RE.test(line)) {
+    const scan = outsideBackticks(line);
+    const mdLink = MD_LINK_RE.test(scan);
+    if (mdLink) {
       findings.push({
         level: 'error',
         where,
@@ -499,6 +533,50 @@ function lintText(text, where, findings) {
           `line ${i + 1}: links to a markdown file ` +
           `(cards must be self-contained): ${snippet(line)}`,
       });
+    } else if (REL_LINK_RE.test(scan)) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: relative or file link ` +
+          `(Jira cards must not link out): ${snippet(line)}`,
+      });
+    }
+    if (IMG_MARKDOWN_RE.test(scan)) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: embedded image link ` +
+          `(attachments are not dev tasks): ${snippet(line)}`,
+      });
+    }
+    if (PM_FOLDER_RE.test(scan)) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: PM or docs path in prose ` +
+          `(keep evidence off the card): ${snippet(line)}`,
+      });
+    }
+    for (const [re, label] of MEDIA_TELL_RE) {
+      if (re.test(scan)) {
+        findings.push({
+          level: 'error',
+          where,
+          message: `line ${i + 1}: "${label}" (not a dev task): ${snippet(line)}`,
+        });
+      }
+    }
+    for (const [re, label] of PROCESS_META_RE) {
+      if (re.test(scan)) {
+        findings.push({
+          level: 'error',
+          where,
+          message: `line ${i + 1}: process/meta "${label}": ${snippet(line)}`,
+        });
+      }
     }
     for (const [re, label] of VAGUE_RULES) {
       if (re.test(line)) {
@@ -521,9 +599,11 @@ function lintText(text, where, findings) {
     }
   });
 
-  all.forEach((line, i) => {
+  prose.forEach((line, i) => {
+    if (!line) return;
+    const scan = outsideBackticks(line);
     for (const [re, label] of AI_TELL_RULES) {
-      if (re.test(line)) {
+      if (re.test(scan)) {
         findings.push({
           level: 'error',
           where,

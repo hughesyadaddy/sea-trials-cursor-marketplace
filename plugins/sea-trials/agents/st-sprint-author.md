@@ -67,7 +67,8 @@ and list the gap in your return block. Never ask the user.
 | Paths | Every cited path exists or is marked new |
 | AC | Each line one behaviour, verifiable, under 200 chars |
 | Banned words | None from contract section 5, no placeholders |
-| Links | No `.md` links or file references as content |
+| Links | No markdown links except allowed product/Figma URLs; no images, indexes, or PM paths |
+| Footprint | No AI/tooling/process narration (contract section 5, sprint-dev-voice) |
 | Sizing | Story SP = sum of subtask SP; no subtask over 3 |
 | Voice | Plain English, short sentences, no tells, no emojis |
 | Lint | `node "$SPRINT/parse-sprint-folder.mjs" <folder> --lint` shows no errors for your file |

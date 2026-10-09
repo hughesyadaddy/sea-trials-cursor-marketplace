@@ -498,7 +498,7 @@ test('error: vague words inside fenced code are ignored', () => {
   assert.deepEqual(messages(findings, 'error'), []);
 });
 
-test('error: AI tells anywhere in card text', () => {
+test('error: AI tells in prose, not inside fences or backticks', () => {
   const body = [
     'Ask Claude.',
     'Open in Cursor.',
@@ -507,7 +507,7 @@ test('error: AI tells anywhere in card text', () => {
     'As an AI, I cannot.',
     'Use an LLM.',
     'Spawn a subagent.',
-    'Task({ prompt })',
+    'Synced via MCP upload.',
   ].join('\n');
   const findings = lintOf({
     '00-epic.md': `# Epic\n\n${body}\n`,
@@ -524,18 +524,49 @@ test('error: AI tells anywhere in card text', () => {
     'As an AI',
     'LLM',
     'subagent',
-    'Task(',
+    'MCP',
   ]);
   assert.ok(findings.every((f) => f.where.startsWith('epic')));
   const clean = lintOf({
     '01-us1-a.md':
-      `# T\n\nMove the text cursor; a copilot seat; Task(1) is fine? no.\n\n` +
-      `${AC}## Subtask 1.1: S\n- [ ] x\n`,
+      `# T\n\nMove the text cursor; E2E automation covers login.\n\n` +
+      `\`\`\`ts\nTask({ prompt: 'Cursor' });\n\`\`\`\n\n${AC}` +
+      '## Subtask 1.1: S\n- [ ] x\n',
   });
-  assert.deepEqual(
-    messages(clean, 'error').map((m) => /"([^"]+)"/.exec(m)[1]),
-    ['Task('],
+  assert.deepEqual(messages(clean, 'error'), []);
+});
+
+test('error: self-contained card — one pointer error per .md link', () => {
+  const findings = lintOf({
+    '01-us1-a.md':
+      `# T\n\nSee [plan](./docs/plan/x.md).\n\n${AC}` +
+      '## Subtask 1.1: S\n- [ ] x\n',
+  });
+  const pointer = messages(findings, 'error').filter(
+    (m) => m.includes('markdown file') || m.includes('relative or file link'),
   );
+  assert.equal(pointer.length, 1);
+  assert.ok(pointer[0].includes('markdown file'));
+});
+
+test('error: https markdown links and src paths are allowed', () => {
+  const findings = lintOf({
+    '01-us1-a.md':
+      `# T\n\nOpen [prod](https://app.example.com/login) and edit \`src/foo/bar.tsx\`.\n\n${AC}` +
+      '## Subtask 1.1: S\n- [ ] x\n',
+  });
+  assert.deepEqual(messages(findings, 'error'), []);
+});
+
+test('error: PM folder paths and upload meta in prose', () => {
+  const findings = lintOf({
+    '01-us1-a.md':
+      `# T\n\nProof in _internal/pm/foo.md; upload to Jira later.\n\n${AC}` +
+      '## Subtask 1.1: S\n- [ ] x\n',
+  });
+  const errs = messages(findings, 'error');
+  assert.ok(errs.some((m) => m.includes('PM or docs path')));
+  assert.ok(errs.some((m) => m.includes('upload to Jira')));
 });
 
 test('warn: long task item, deep heading, long description', () => {

@@ -244,11 +244,15 @@ for it in intake.
 Lint (`parse-sprint-folder.mjs --lint`) fails on the first group. The
 authoring and critic passes must also remove the second group.
 
-Lint errors: `maybe`, `consider`, `might want to`, `explore whether`,
-`investigate if`, `TBD`, `TODO:`, `look into`, a task item beginning
-`Research`, any link or path ending `.md`, and the tells `Claude`,
-`Cursor`, `ChatGPT`, `Copilot`, `As an AI`, `LLM`, `subagent`,
-`Task(`.
+Lint errors (see `parse-sprint-folder.mjs`): vague words (`maybe`,
+`consider`, …), task items starting `Research`, markdown links and
+relative `[text](path)` links, markdown images, paths under
+`_internal/`, `docs/reviews/`, `docs/plan/`, or `sprint_planning/` in
+prose (not inside inline code spans), screenshot/attachment/upload
+meta, PM sign-off gates, `see subtask N.M` / `see USn` pointers, and
+AI/tool tells (`Claude`, `Cursor`, `MCP`, `subagent`, `adversarial`,
+`auto-generated`, …). HTTPS product/Figma links and `src/...` paths in
+backticks are allowed.
 
 Contract bans: `research`, `spike`, `explore`, `investigate`,
 `evaluate options`, `as needed`, `if possible`, `where appropriate`,
@@ -296,14 +300,30 @@ verifiers make. For those writes it replaces the 2-8 s spacing and
   no emojis, no sign-offs, never a word about tooling, automation, or
   how the card was produced.
 
-## 6. No-links rule
+## 6. No-links rule (Jira-uploaded bodies only)
 
-All information lives in the card. Never link to or name a markdown
-file, plan document, wiki page, or transcript as a substitute for
-content. Code paths written as text (`lib/billing/invoice_page.dart`)
-are required, not banned. URLs to the product under test, a design
-file, or an external API reference are allowed when the card would be
-incomplete without them.
+**Uploaded:** `00-epic.md` and every `NN-usN-*.md` story file. **Not
+uploaded:** `00-START-HERE.md`, `SUBTASK-INDEX.md`, `sprint.json`,
+`_internal/**` — those are repo conveniences for humans browsing git;
+they must not be linked from uploaded bodies.
+
+All information the developer needs lives **on the card**. Never link
+to or name a markdown file, index, folder, screenshot, attachment,
+plan document, wiki page, or transcript as a substitute for content.
+
+| Allowed in prose | Banned in prose |
+| --- | --- |
+| Source code paths in backticks (`src/...`) | `[label](./file.md)` or any relative `[text](path)` link |
+| Product URL the tester opens | Paths under `_internal/`, `docs/reviews/`, `docs/plan/` |
+| Figma / external API URL when essential | “See SUBTASK-INDEX”, “see REMOVED-CARDS”, “attached PNG” |
+| | Markdown images `![](...)` |
+
+Lint enforces this (`parse-sprint-folder.mjs --lint`). Fix the card,
+not the linter.
+
+Index files at the sprint root may link to each other for git browsing;
+**epic and story bodies must not link to them** — Jira copies epic and
+story text only.
 
 ## 7. Human voice
 
@@ -312,6 +332,8 @@ transitions must read as if that person typed them.
 
 - Plain English, short sentences, active voice. Written for readers
   who are not native English speakers.
+- No sign the card was machine-assisted: no tooling names, no “generated”,
+  no workflow narration (see section 5 AI tells and sprint-dev-voice).
 - Vary sentence openers and comment phrasing across cards; no two
   comments in one run start the same way.
 - Comments in first person, terse, specific: what I did, what I saw,
