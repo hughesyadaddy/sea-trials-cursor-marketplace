@@ -16,7 +16,7 @@ Shell/Await tools exist.
    in-chat foreground process can hold the PID lock:
 
    ```bash
-   bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" stop --pr <n>" || true
+   bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" stop --pr <n> || true
    ```
 
 3. Start the monitor with the **Shell** tool:

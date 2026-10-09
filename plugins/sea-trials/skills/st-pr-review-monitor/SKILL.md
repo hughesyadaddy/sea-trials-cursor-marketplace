@@ -31,8 +31,10 @@ current HEAD after the last push) or the user stops you.
 
 1. [`references/shared/cursor-in-chat-monitor.md`](references/shared/cursor-in-chat-monitor.md)
    — **Cursor mandatory** (Shell + Await + notify).
-2. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
-3. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
+2. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
+   — `$ST_PLUGIN_ROOT`, `$ST_REVIEW*` paths, fan-out rules.
+3. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
+4. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
    — Steps 2–6 when `>>> ACTION:` fires
 
 ## Autonomy
@@ -51,7 +53,8 @@ PR_NUM=<from message or gh pr view>
 
 Worktree loops: set `ACTIVE_ROOT=$WORKTREE_DIR` before Phase 1.
 
-Resolve `$ST_PLUGIN_ROOT` per `review-loop-contract.md`.
+Bootstrap `$ST_PLUGIN_ROOT` and `$ST_REVIEW*` per
+`references/shared/review-loop-contract.md` (env chain at top of § paths).
 
 ## Phase 1 — In-chat monitor (once per PR)
 

@@ -40,10 +40,10 @@ Agents bootstrap in shell:
 
 ```bash
 node "$(find ~/.cursor/plugins ~/.claude/plugins \
-  -path '*/sea-trials/scripts/lib/print-st-plugin-root.mjs' 2>/dev/null | head -1)"
+  -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)" print-plugin-root
 ```
 
-That script prints the resolved root (newest cache wins).
+That calls `resolveStPluginRoot()` (newest cache wins).
 
 ## Cursor features this plugin uses
 

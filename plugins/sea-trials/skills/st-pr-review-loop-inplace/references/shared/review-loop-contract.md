@@ -2,7 +2,7 @@
 # Review-loop contract (Sea Trials)
 
 Shared by `st-pr-review-loop-inplace`, `st-pr-review-loop-worktree`,
-`st-pr-ship`, and `st-pre-push-harden`. Read this before the review
+`st-pr-review-monitor`, `st-pr-ship`, and `st-pre-push-harden`. Read this before the review
 loop's preflight and before every push. The loop steps themselves live
 in `shared/review-loop-body.md`; this file holds the rules that body
 relies on.
@@ -134,15 +134,15 @@ Fallback when `pnpm` is unavailable (marketplace-only agent, any git repo):
 ```bash
 export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
 if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_PRINT="$(
+  _ST_RUN="$(
     find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" \
-      -path '*/sea-trials/scripts/lib/print-st-plugin-root.mjs' 2>/dev/null | head -1
+      -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1
   )"
-  if [[ -z "${_ST_PRINT}" ]]; then
+  if [[ -z "${_ST_RUN}" ]]; then
     echo "ERROR: sea-trials plugin not found (Customize → Team Marketplace → sea-trials)" >&2
     exit 1
   fi
-  ST_PLUGIN_ROOT="$(node "${_ST_PRINT}")"
+  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
   export ST_PLUGIN_ROOT
 fi
 ST_REVIEW="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-threads.mjs"

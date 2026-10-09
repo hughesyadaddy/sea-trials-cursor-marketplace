@@ -57,8 +57,9 @@ card's Context section; the critic pass catches bad calls.
 REPO_ROOT=$(git rev-parse --show-toplevel)
 export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
 if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_PRINT="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/lib/print-st-plugin-root.mjs' 2>/dev/null | head -1)"
-  ST_PLUGIN_ROOT="$(node "${_ST_PRINT}")"
+  _ST_RUN="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)"
+  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
+  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
 fi
 SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
 ```
