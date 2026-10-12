@@ -24,7 +24,8 @@ node --test scripts/setup-secrets.test.mjs \
   scripts/lib/android-debug-keystore.test.mjs \
   scripts/lib/firebase-oauth-harvest.test.mjs \
   scripts/lib/google-access-token.test.mjs \
-  scripts/verify_app_check_debug_token.test.mjs
+  scripts/verify_app_check_debug_token.test.mjs \
+  scripts/sentry-tenant-routing.test.mjs
 
 node scripts/verify_app_check_debug_token.mjs --static-only
 
@@ -57,4 +58,5 @@ bash code_magic_whitelabel_builder/tests/test_assert_no_dotsecrets.sh
 bash code_magic_whitelabel_builder/tests/test_generate_web_env_golden.sh
 bash code_magic_whitelabel_builder/tests/test_web_env_equivalence.sh
 bash code_magic_whitelabel_builder/tests/test_marketing_web_env_utils_local.sh
+bash code_magic_whitelabel_builder/tests/test_sentry_tenant_routing.sh
 bash scripts/supabase/test_resolve_pooler_db_url.sh
