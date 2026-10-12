@@ -14,7 +14,10 @@ nothing and return findings only. You never touch Jira.
 
 - Absolute repo path, sprint folder, and the one story file path.
 - `MODE: fix` or `MODE: report`.
-- The full text of `references/shared/sprint-contract.md`.
+- `ST_PLUGIN_ROOT` and absolute paths to the shared contract and
+  sprint-dev-voice under
+  `{ST_PLUGIN_ROOT}/skills/st-sprint-plan/references/shared/` — **Read
+  both** before reviewing.
 - The epic goal and sibling story titles.
 
 ## Lenses (apply all, in this order)
@@ -23,8 +26,12 @@ nothing and return findings only. You never touch Jira.
    in scope that belongs to a sibling story (creep)? Is a slice missing
    that the epic needs (gap)?
 2. Self-containment. Could a developer start subtask N.1 with only
-   that subtask's text? Every "see", "per", "after USx", "once merged"
-   is a failure. Rewrite into plain English on the card.
+   that subtask's text? Every "see", "per", "after USx", "once merged",
+   markdown link, index pointer, screenshot/attachment mention, or
+   `_internal/`, `docs/reviews/`, `docs/plan/`, or `sprint_planning/`
+   path in prose is a failure. Rewrite into plain
+   English on the card. Epic may list merge order; bodies may not link
+   to repo navigation files.
 3. Codebase truth. Verify every cited path with a file read or `rg`.
    Invented files, wrong directories, or symbols that do not exist are
    errors. Mark genuinely new files as `new`.
@@ -45,7 +52,17 @@ nothing and return findings only. You never touch Jira.
    Manual steps name the platform and what to look for.
 8. Shape and voice. Exact template shape from contract section 3.
    Plain English, short sentences, no tells, no emojis, no placeholders,
-   no `.md` references, metadata line first after the H1.
+   no `.md` or relative links, no tooling/AI footprint (contract section
+   5 and sprint-dev-voice), metadata line first after the H1.
+9. Real work only. Drop or return `NEEDS RE-PLAN` for subtasks that are
+   audit/capture/screenshot homework, token-only alignment with no
+   user-visible defect, or product-declined non-bugs. **Delete** the
+   subtask section (or whole story file) and append
+   `_internal/pm/REMOVED-CARDS.md` — do not reword AC to make a
+   non-defect look like work. Renumber remaining subtasks contiguously.
+10. Title hygiene. Rewrite implementation jargon in titles (`primary
+    theme`, `iconLeft`, `semantic CSS variables`) into user-visible
+    language.
 
 ## Verdicts
 
@@ -55,8 +72,8 @@ nothing and return findings only. You never touch Jira.
   epic. Do not patch it with wording; return the reason and stop.
 
 In `MODE: fix`, after editing run
-`node "$SPRINT/parse-sprint-folder.mjs" <folder> --lint` and confirm no
-error names your file. Ignore lines for other files.
+`node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- <folder>` and
+confirm no error names your file. Ignore lines for other files.
 
 ## Return block (only this)
 

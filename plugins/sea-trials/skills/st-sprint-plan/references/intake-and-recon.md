@@ -13,6 +13,7 @@ stated. Use these ids and option shapes; adapt labels to the repo.
 | `surfaces` | Which apps or surfaces are in scope? | multi-select, one per app dir found in the repo |
 | `constraints` | Hard constraints | `None`, `Must reuse: <pattern>`, `Must not touch: <area>`, `Deadline: <date>` |
 | `decided` | Anything already decided the cards must follow? | free text or `Nothing` |
+| `defects` | For UI/polish: user-visible bugs to fix (not audit scope) | free text list, or `Infer from recon + product judgment` |
 
 Never ask for: account ids, story points field id, board id, cloud id.
 Those are discovered by `/st-jira-upload` and written back to
@@ -27,6 +28,8 @@ Before recon, print 5-8 bullets:
 - Constraints: flags, deadlines, patterns to reuse, areas to avoid.
 - Decisions I will make myself: list them; the critic will check.
 - Not in this sprint: the two or three things most likely to creep.
+- For polish: which items are **real user-visible bugs** vs optional
+  token alignment (alignment needs explicit product yes).
 
 ## Recon areas (Phase 2)
 

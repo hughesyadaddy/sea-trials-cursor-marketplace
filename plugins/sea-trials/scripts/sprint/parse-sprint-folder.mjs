@@ -29,6 +29,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import {
+  AI_TELL_RULES,
+  CONTRACT_PHRASE_RULES,
+  IMG_MARKDOWN_RE,
+  MAX_STORY_DESCRIPTION_CHARS,
+  MAX_TASK_ITEM_CHARS,
+  MD_LINK_RE,
+  MEDIA_TELL_RE,
+  PM_FOLDER_RE,
+  PROCESS_META_RE,
+  REL_LINK_RE,
+  VAGUE_RULES,
+} from './sprint-lint-rules.mjs';
+
 // ===========================================================================
 // CONSTANTS
 // ===========================================================================
@@ -64,38 +78,6 @@ const TASK_ITEM_RE = /^\s*[-*+]\s+\[([ xX])\]\s+(.*)$/;
 const OPEN_TASK_RE = /^\s*[-*+]\s+\[ \]\s+\S/;
 const AC_HEADING_RE = /^(#{2,6})\s+(acceptance criteria|ac)\s*$/i;
 const FENCE_RE = /^ {0,3}(`{3,}|~{3,})/;
-
-// `[x](foo.md)` links, or bare `docs/plan/foo.md` style paths.
-const MD_LINK_RE = new RegExp(
-  '\\]\\([^)\\s]*\\.md(?:#[^)\\s]*)?\\)' +
-    '|(?:^|[\\s(`\'"])(?:\\.{1,2}/)?(?:[\\w.-]+/)+[\\w.-]+\\.md\\b',
-);
-
-const VAGUE_RULES = [
-  [/\bmaybe\b/i, 'maybe'],
-  [/\bconsider\b/i, 'consider'],
-  [/\bmight want to\b/i, 'might want to'],
-  [/\bexplore whether\b/i, 'explore whether'],
-  [/\binvestigate if\b/i, 'investigate if'],
-  [/\bTBD\b/, 'TBD'],
-  [/TODO:/, 'TODO:'],
-  [/\blook into\b/i, 'look into'],
-  [/^\s*[-*+]\s+\[[ xX]\]\s+research\b/i, 'Research (task item)'],
-];
-
-const AI_TELL_RULES = [
-  [/\bClaude\b/, 'Claude'],
-  [/\bCursor\b/, 'Cursor'],
-  [/\bChatGPT\b/i, 'ChatGPT'],
-  [/\bCopilot\b/, 'Copilot'],
-  [/\bAs an AI\b/i, 'As an AI'],
-  [/\bLLMs?\b/, 'LLM'],
-  [/\bsubagents?\b/i, 'subagent'],
-  [/\bTask\(/, 'Task('],
-];
-
-const MAX_TASK_ITEM_CHARS = 200;
-const MAX_STORY_DESCRIPTION_CHARS = 6000;
 
 // ===========================================================================
 // TEXT HELPERS
@@ -484,14 +466,23 @@ function snippet(line) {
   return t.length > 60 ? `${t.slice(0, 57)}...` : t;
 }
 
+/** Prose outside inline `code spans` (backtick segments at even indices). */
+function outsideBackticks(line) {
+  const parts = line.split('`');
+  let out = '';
+  for (let i = 0; i < parts.length; i += 2) out += parts[i];
+  return out;
+}
+
 /** Text rules shared by epic, story and subtask bodies. */
 function lintText(text, where, findings) {
   const prose = proseLines(text);
-  const all = normalize(text).split('\n');
 
   prose.forEach((line, i) => {
     if (!line) return;
-    if (MD_LINK_RE.test(line)) {
+    const scan = outsideBackticks(line);
+    const mdLink = MD_LINK_RE.test(scan);
+    if (mdLink) {
       findings.push({
         level: 'error',
         where,
@@ -499,6 +490,50 @@ function lintText(text, where, findings) {
           `line ${i + 1}: links to a markdown file ` +
           `(cards must be self-contained): ${snippet(line)}`,
       });
+    } else if (REL_LINK_RE.test(scan)) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: relative or file link ` +
+          `(Jira cards must not link out): ${snippet(line)}`,
+      });
+    }
+    if (IMG_MARKDOWN_RE.test(scan)) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: embedded image link ` +
+          `(attachments are not dev tasks): ${snippet(line)}`,
+      });
+    }
+    if (PM_FOLDER_RE.test(scan)) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: PM or docs path in prose ` +
+          `(keep evidence off the card): ${snippet(line)}`,
+      });
+    }
+    for (const [re, label] of MEDIA_TELL_RE) {
+      if (re.test(scan)) {
+        findings.push({
+          level: 'error',
+          where,
+          message: `line ${i + 1}: "${label}" (not a dev task): ${snippet(line)}`,
+        });
+      }
+    }
+    for (const [re, label] of PROCESS_META_RE) {
+      if (re.test(scan)) {
+        findings.push({
+          level: 'error',
+          where,
+          message: `line ${i + 1}: process/meta "${label}": ${snippet(line)}`,
+        });
+      }
     }
     for (const [re, label] of VAGUE_RULES) {
       if (re.test(line)) {
@@ -506,6 +541,15 @@ function lintText(text, where, findings) {
           level: 'error',
           where,
           message: `line ${i + 1}: non-actionable "${label}": ${snippet(line)}`,
+        });
+      }
+    }
+    for (const [re, label] of CONTRACT_PHRASE_RULES) {
+      if (re.test(scan)) {
+        findings.push({
+          level: 'error',
+          where,
+          message: `line ${i + 1}: contract ban "${label}": ${snippet(line)}`,
         });
       }
     }
@@ -521,9 +565,11 @@ function lintText(text, where, findings) {
     }
   });
 
-  all.forEach((line, i) => {
+  prose.forEach((line, i) => {
+    if (!line) return;
+    const scan = outsideBackticks(line);
     for (const [re, label] of AI_TELL_RULES) {
-      if (re.test(line)) {
+      if (re.test(scan)) {
         findings.push({
           level: 'error',
           where,

@@ -39,6 +39,17 @@ Import **only this aggregator**. If Dashboard also lists
 `rm -rf ~/.cursor/plugins/cache/*vgv-cursor-marketplace*`. Two imports load
 Wingspan and Flutter twice (duplicate skills, hooks, MCP).
 
+### Sprint planning vs Wingspan `/plan`
+
+| Goal | Skill | Plugin |
+| --- | --- | --- |
+| Jira sprint folder: user stories devs implement | `/st-sprint-plan`, `/st-sprint-refine` | **sea-trials** |
+| Push folder to Jira (delete withdrawn issues) | `/st-jira-upload` | **sea-trials** |
+| Feature design doc before code | `/plan`, `/build` | **vgv-wingspan** |
+
+Sprint card voice and anti-audit rules:
+`plugins/sea-trials/skills/_sources/sprint-dev-voice.md`.
+
 ### Claude Code
 
 ```text

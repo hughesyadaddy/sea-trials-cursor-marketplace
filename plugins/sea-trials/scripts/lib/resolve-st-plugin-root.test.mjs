@@ -75,6 +75,34 @@ describe('resolveStPluginRoot', () => {
     );
   });
 
+  it('prefers ST_PLUGIN_ROOT over CURSOR_PLUGIN_ROOT', () => {
+    const home = makeHome();
+    const stRoot = makePlugin(path.join(home, 'st-root'), 1000);
+    const cursorRoot = makePlugin(path.join(home, 'cursor-root'), 2000);
+    const result = resolveStPluginRoot({
+      env: {
+        ST_PLUGIN_ROOT: stRoot,
+        CURSOR_PLUGIN_ROOT: cursorRoot,
+      },
+      homeDir: home,
+      skipRepo: true,
+      selfRoot: null,
+    });
+    assert.equal(result, stRoot);
+  });
+
+  it('accepts CURSOR_PLUGIN_ROOT when ST_PLUGIN_ROOT unset', () => {
+    const home = makeHome();
+    const cursorRoot = makePlugin(path.join(home, 'cursor-root'), 1000);
+    const result = resolveStPluginRoot({
+      env: { CURSOR_PLUGIN_ROOT: cursorRoot },
+      homeDir: home,
+      skipRepo: true,
+      selfRoot: null,
+    });
+    assert.equal(result, cursorRoot);
+  });
+
   it('accepts CLAUDE_PLUGIN_ROOT when it is this plugin', () => {
     const home = makeHome();
     const claudeRoot = makePlugin(path.join(home, 'claude-root'), 1000);

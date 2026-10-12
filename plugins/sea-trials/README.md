@@ -117,7 +117,31 @@ gate fan-outs pin slugs the host actually accepts. See
 | Flaky-test quarantine | `/st-flake-quarantine`, `flake-quarantine.mjs` | Classifies, retries, quarantines with `skip:` + tracking issue |
 | Build sharding | `st-run st-build-shard-tasks`, `sprint-to-shards.mjs` | Disjoint file ownership; sprint folders become `shards.json` |
 | Host model probe | `st-run st-model-probe` | Detects host + accepted model slugs; `resolveModel()` picks worker tiers |
-| Sprint → Jira | `/st-sprint-plan`, `/st-jira-upload`, `/st-jira-test-review`, `/st-sprint-retro` | Markdown ↔ ADF round-trip lint, REST fallbacks, human-cadence writes |
+| Sprint → Jira | `/st-sprint-plan`, `/st-sprint-refine`, `/st-jira-upload`, `/st-jira-test-review`, `/st-sprint-retro` | Dev-ready cards in human English; see below |
+
+### Sprint cards (developers, not auditors)
+
+Wingspan `/plan` and `/build` target feature design in app repos.
+**Sprint execution cards** for Jira live in this plugin:
+
+| Skill | Use |
+| --- | --- |
+| `/st-sprint-plan` | New epic folder from a goal |
+| `/st-sprint-refine` | Fix vague, audit-flavored, or stale cards |
+| `/st-jira-upload` | Push to Jira; delete orphans, never `[Cancelled]` ghosts |
+
+From an app repo (sets `ST_PLUGIN_ROOT` automatically):
+
+```bash
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- sprint_planning/<folder>
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- --changed
+```
+
+Shared rules: `skills/_sources/sprint-contract.md` (shape + lint) and
+`skills/_sources/sprint-dev-voice.md` (plain titles, real user-visible
+defects, no screenshot homework on dev cards, `_internal/` for PM
+evidence). Run `node scripts/sync-skill-sources.mjs` after editing
+`_sources/`.
 
 ### Plugin root resolution (`scripts/lib/resolve-st-plugin-root.mjs`)
 
@@ -125,16 +149,20 @@ Scripts that need the plugin tree call `resolveStPluginRoot()`, which tries
 in order:
 
 1. `ST_PLUGIN_ROOT` (explicit; must contain `scripts/resolve-plugin-root.mjs`)
-2. `CLAUDE_PLUGIN_ROOT` (set by Claude for hooks/MCP; used only if it is
+2. `CURSOR_PLUGIN_ROOT` (Cursor plugin/MCP when injected)
+3. `CLAUDE_PLUGIN_ROOT` (set by Claude for hooks/MCP; used only if it is
    this plugin)
-3. `tools/sea-trials-cursor-plugin` inside the current git checkout
-4. Host caches, newest wins — Cursor
+4. `tools/sea-trials-cursor-plugin` inside the current git checkout
+5. Host caches, newest wins — Cursor
    `~/.cursor/plugins/cache/<marketplace>/sea-trials/<sha>` and
    `~/.cursor/plugins/local/sea-trials`; Claude
    `~/.claude/plugins/installed_plugins.json` → `installPath`,
    `~/.claude/plugins/cache/<marketplace>/sea-trials/<version>`,
    `~/.claude/plugins/marketplaces/<name>/plugins/sea-trials`
-5. The tree this module lives in (dev checkout fallback)
+6. The tree this module lives in (dev checkout fallback)
+
+See [`docs/CURSOR_AGNOSTIC_INSTALL.md`](docs/CURSOR_AGNOSTIC_INSTALL.md) for
+“any repo, no vendoring” setup.
 
 `scripts/st-run.mjs` always exports `ST_PLUGIN_ROOT` to the hook it spawns,
 so hooks under `scripts/hooks/` never guess.

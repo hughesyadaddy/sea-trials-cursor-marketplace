@@ -3,16 +3,17 @@
  *
  * Order:
  * 1. ST_PLUGIN_ROOT env (explicit override; must contain the marker)
- * 2. CLAUDE_PLUGIN_ROOT env (set by Claude Code inside hooks / MCP)
- * 3. tools/sea-trials-cursor-plugin emit tree in the current git repo
+ * 2. CURSOR_PLUGIN_ROOT env (Cursor plugin / MCP context when set)
+ * 3. CLAUDE_PLUGIN_ROOT env (set by Claude Code inside hooks / MCP)
+ * 4. tools/sea-trials-cursor-plugin emit tree in the current git repo
  *    (maintainer dev — beats any cache)
- * 4. Host plugin caches, newest marker mtime wins:
+ * 5. Host plugin caches, newest marker mtime wins:
  *    - Cursor: ~/.cursor/plugins/cache/<marketplace>/sea-trials/<sha>
  *              ~/.cursor/plugins/local/sea-trials
  *    - Claude: ~/.claude/plugins/installed_plugins.json installPath
  *              ~/.claude/plugins/cache/<marketplace>/sea-trials/<version>
  *              ~/.claude/plugins/marketplaces/<name>/plugins/sea-trials
- * 5. Dev fallback: the plugin tree this module lives in (import.meta.url)
+ * 6. Dev fallback: the plugin tree this module lives in (import.meta.url)
  *
  * Every candidate must contain `scripts/resolve-plugin-root.mjs`.
  */
@@ -242,6 +243,9 @@ export function resolveStPluginRoot(startDirOrOptions) {
 
   const fromSt = envRoot(env, 'ST_PLUGIN_ROOT', true);
   if (fromSt) return fromSt;
+
+  const fromCursor = envRoot(env, 'CURSOR_PLUGIN_ROOT', false);
+  if (fromCursor) return fromCursor;
 
   // Claude sets this for hooks/MCP; other plugins' roots are ignored.
   const fromClaude = envRoot(env, 'CLAUDE_PLUGIN_ROOT', false);

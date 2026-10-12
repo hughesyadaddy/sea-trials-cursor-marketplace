@@ -1,7 +1,19 @@
 # Refine checklist (extra lenses for existing cards)
 
-The contract is the rubric. This list covers what old cards tend to
-carry that new ones do not. Pass it to the critics with the contract.
+The contract and `sprint-dev-voice.md` are the rubric. This list covers
+what old cards tend to carry that new ones do not. Pass both to critics.
+
+## Delete list (remove card; log in `_internal/pm/REMOVED-CARDS.md`)
+
+| Pattern | Why |
+| --- | --- |
+| Subtask is screenshot capture, matrix run, attach PNG, audit synthesis | PM workflow, not dev work |
+| “Swap to primary theme” / navy→purple with no user report and acceptable current color | Token hygiene |
+| Product declined (“not a bug”, keep navy pill) | Not sprint work |
+| Refactor-only with no visible defect | Delete, do not reword |
+| Story exists only for `[Cancelled]` Jira hygiene | Delete issue in upload phase |
+
+After delete: renumber subtasks; fix story SP sum; never `[Cancelled]` prefix.
 
 ## Strip list (remove entirely, move any real content to Context)
 

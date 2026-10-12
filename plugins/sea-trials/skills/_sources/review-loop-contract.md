@@ -1,7 +1,7 @@
 # Review-loop contract (Sea Trials)
 
 Shared by `st-pr-review-loop-inplace`, `st-pr-review-loop-worktree`,
-`st-pr-ship`, and `st-pre-push-harden`. Read this before the review
+`st-pr-review-monitor`, `st-pr-ship`, and `st-pre-push-harden`. Read this before the review
 loop's preflight and before every push. The loop steps themselves live
 in `shared/review-loop-body.md`; this file holds the rules that body
 relies on.
@@ -126,38 +126,24 @@ it. Never hardcode an owner/repo in prompts or commands.
 
 `ST_PLUGIN_ROOT` is **optional** when working from a monorepo checkout
 (use `pnpm` shortcuts instead). Set it when debugging outside a repo, or
-let `_st_plugin_root` discover the cached Team Marketplace plugin.
+resolve the Team Marketplace install (no app-repo copies required).
 
-Fallback when `pnpm` is unavailable (marketplace-only agent, no repo):
+Fallback when `pnpm` is unavailable (marketplace-only agent, any git repo):
 
 ```bash
-_st_plugin_root() {
-  if [[ -n "${ST_PLUGIN_ROOT:-}" ]]; then
-    printf '%s\n' "$ST_PLUGIN_ROOT"
-    return 0
+export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
+if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
+  _ST_RUN="$(
+    find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" \
+      -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1
+  )"
+  if [[ -z "${_ST_RUN}" ]]; then
+    echo "ERROR: sea-trials plugin not found (Customize → Team Marketplace → sea-trials)" >&2
+    exit 1
   fi
-  local hit base
-  for base in \
-    "${HOME}/.cursor/plugins/cache/__DEFAULT__/sea-trials" \
-    "${HOME}/.cursor/plugins/cache/hughesyadaddy-sea-trials-cursor-marketplace" \
-    "${HOME}/.cursor/plugins/cache/sea-trials-cursor-marketplace"; do
-    [[ -d "$base" ]] || continue
-    hit="$(
-      find "$base" \( \
-        -path '*/sea-trials/*/scripts/resolve-plugin-root.mjs' \
-        -o -path '*/plugins/sea-trials/scripts/resolve-plugin-root.mjs' \
-        \) 2>/dev/null | head -1
-    )"
-    if [[ -n "$hit" ]]; then
-      dirname "$(dirname "$hit")"
-      return 0
-    fi
-  done
-  echo "ERROR: sea-trials Cursor plugin not found (enable Team Marketplace)" >&2
-  return 1
-}
-
-ST_PLUGIN_ROOT="$(_st_plugin_root)"
+  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
+  export ST_PLUGIN_ROOT
+fi
 ST_REVIEW="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-threads.mjs"
 ST_REVIEW_STATUS="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs"
 ST_REVIEW_LOOP="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs"

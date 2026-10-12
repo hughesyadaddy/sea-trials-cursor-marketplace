@@ -33,17 +33,23 @@ starting a new watcher — `Await` the background terminal for
 `ci-fail` or `threads`, continue at Step 2. After each fix round,
 `touch pr-<n>-handoff.ack` and return to `Await`.
 
-**Otherwise start the daemon once** from `$ACTIVE_ROOT` (Shell tool,
-`block_until_ms: 0`):
+**Otherwise start the in-chat monitor once** from `$ACTIVE_ROOT`:
+
+1. Read `shared/cursor-in-chat-monitor.md` (Cursor — **mandatory**).
+2. Stop any detached daemon: `bash "$ST_REVIEW_DAEMONCTL" stop --pr <n> || true`
+3. Shell tool: `block_until_ms: 0`, `notify_on_output` on `>>> ACTION:`.
+4. Foreground daemon:
 
 ```bash
 ST_REPO_ROOT="$ACTIVE_ROOT" \
-  node "$ST_REVIEW_DAEMON" -- --pr <n> --duration 24h
-# or detached: bash "$ST_REVIEW_DAEMONCTL" start --pr <n> --daemon
+  node "$ST_REVIEW_DAEMON" -- --pr <n> --duration 24h --silence 60
 ```
 
-See `shared/review-loop-monitor.md` for the full Cursor terminal
-protocol. Single-pass fallback (tests / no monitor skill):
+Do **not** use `daemonctl --daemon` alone in Cursor Agent chat — it does
+not wake this conversation when Codex reviews arrive.
+
+See `shared/review-loop-monitor.md` for sentinels and `Await` loop.
+Single-pass fallback (tests / no monitor skill):
 
 ```bash
 node "$ST_REVIEW_LOOP" -- --pr <n>            # exits on handoff

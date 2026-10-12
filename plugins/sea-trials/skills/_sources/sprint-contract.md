@@ -25,6 +25,15 @@ Story id is the `usN` part (`03-us3-...` is story `3`; `03-us3a-...` is
 `3a`). Story files sort by the `NN` prefix. Nothing else in the folder
 is uploaded.
 
+Optional dev entry: `00-START-HERE.md` (index + how to pick up work).
+Optional PM-only tree: `<folder>/_internal/` (screenshots, annotations,
+`pm/REMOVED-CARDS.md`, deferred stories). The parser and uploader
+ignore paths under `_internal/`; never link to them from cards.
+
+Human titles, real-defect bar, and delete-not-cancel rules live in
+`references/shared/sprint-dev-voice.md` — authors and critics must
+apply that file on every story.
+
 ## 2. `sprint.json`
 
 Every project-specific value lives here. Skill bodies never hardcode a
@@ -214,16 +223,37 @@ subtasks up to 10). One build/test AC per story is enough; do not
 repeat it on every subtask unless that subtask owns tests. Never write
 an AC that references another card's completion.
 
+### 4.1 UI and polish stories
+
+UI cards describe **user-visible problems** (unreadable text, clipped
+labels, broken tap targets, inconsistent control on the same flow).
+They are not token-alignment homework unless product explicitly asked
+for it in intake.
+
+- Titles and **Done when** lines use plain English (see sprint-dev-voice).
+- Do not use prop names (`iconLeft`, `theme="primary"`) in titles.
+- Prefer manual AC (“placeholder shows full text”) over DevTools RGB
+  unless contrast or an signed-off brand mismatch is the defect.
+- Dark mode: do not recolor surfaces the product already accepted; say
+  so in Out of scope.
+- Attachments and screenshot proof are PM workflow (`_internal/`), not
+  dev subtasks.
+
 ## 5. Banned phrasing
 
-Lint (`parse-sprint-folder.mjs --lint`) fails on the first group. The
-authoring and critic passes must also remove the second group.
+Lint (`st-run sprint-lint` / `parse-sprint-folder.mjs --lint`) fails on
+both groups below. Critics still enforce title hygiene and real-work
+bar when lint passes on edge wording.
 
-Lint errors: `maybe`, `consider`, `might want to`, `explore whether`,
-`investigate if`, `TBD`, `TODO:`, `look into`, a task item beginning
-`Research`, any link or path ending `.md`, and the tells `Claude`,
-`Cursor`, `ChatGPT`, `Copilot`, `As an AI`, `LLM`, `subagent`,
-`Task(`.
+Lint errors (see `parse-sprint-folder.mjs`): vague words (`maybe`,
+`consider`, …), task items starting `Research`, markdown links and
+relative `[text](path)` links, markdown images, paths under
+`_internal/`, `docs/reviews/`, `docs/plan/`, or `sprint_planning/` in
+prose (not inside inline code spans), screenshot/attachment/upload
+meta, PM sign-off gates, `see subtask N.M` / `see USn` pointers, and
+AI/tool tells (`Claude`, `Cursor`, `MCP`, `subagent`, `adversarial`,
+`auto-generated`, …). HTTPS product/Figma links and `src/...` paths in
+backticks are allowed.
 
 Contract bans: `research`, `spike`, `explore`, `investigate`,
 `evaluate options`, `as needed`, `if possible`, `where appropriate`,
@@ -233,6 +263,13 @@ Contract bans: `research`, `spike`, `explore`, `investigate`,
 `AI`, `agent`, `generated`, `assistant`, `prompt`, `model output`, any
 `{{placeholder}}` or `<angle-bracket>` left from a template, and
 emojis.
+
+Also ban in titles and user-facing sections (Context, Description,
+What the user sees, Done when): `audit`, `matrix`, `capture`,
+`screenshot`, `annotate`, `upload attachment`, `verify in Jira`,
+`adversarial`, `token swap`, `design token` (Files to touch may name
+the prop change once). Do not prefix summaries with `[Cancelled]`; delete
+the Jira issue instead (sprint-dev-voice).
 
 A card that needs research is not ready. Do the research while
 authoring, then write the decision into the card.
@@ -264,14 +301,30 @@ verifiers make. For those writes it replaces the 2-8 s spacing and
   no emojis, no sign-offs, never a word about tooling, automation, or
   how the card was produced.
 
-## 6. No-links rule
+## 6. No-links rule (Jira-uploaded bodies only)
 
-All information lives in the card. Never link to or name a markdown
-file, plan document, wiki page, or transcript as a substitute for
-content. Code paths written as text (`lib/billing/invoice_page.dart`)
-are required, not banned. URLs to the product under test, a design
-file, or an external API reference are allowed when the card would be
-incomplete without them.
+**Uploaded:** `00-epic.md` and every `NN-usN-*.md` story file. **Not
+uploaded:** `00-START-HERE.md`, `SUBTASK-INDEX.md`, `sprint.json`,
+`_internal/**` — those are repo conveniences for humans browsing git;
+they must not be linked from uploaded bodies.
+
+All information the developer needs lives **on the card**. Never link
+to or name a markdown file, index, folder, screenshot, attachment,
+plan document, wiki page, or transcript as a substitute for content.
+
+| Allowed in prose | Banned in prose |
+| --- | --- |
+| Source code paths in backticks (`src/...`) | `[label](./file.md)` or any relative `[text](path)` link |
+| Product URL the tester opens | Paths under `_internal/`, `docs/reviews/`, `docs/plan/` |
+| Figma / external API URL when essential | “See SUBTASK-INDEX”, “see REMOVED-CARDS”, “attached PNG” |
+| | Markdown images `![](...)` |
+
+Lint enforces this (`parse-sprint-folder.mjs --lint`). Fix the card,
+not the linter.
+
+Index files at the sprint root may link to each other for git browsing;
+**epic and story bodies must not link to them** — Jira copies epic and
+story text only.
 
 ## 7. Human voice
 
@@ -280,6 +333,8 @@ transitions must read as if that person typed them.
 
 - Plain English, short sentences, active voice. Written for readers
   who are not native English speakers.
+- No sign the card was machine-assisted: no tooling names, no “generated”,
+  no workflow narration (see section 5 AI tells and sprint-dev-voice).
 - Vary sentence openers and comment phrasing across cards; no two
   comments in one run start the same way.
 - Comments in first person, terse, specific: what I did, what I saw,
@@ -399,27 +454,55 @@ state file before continuing.
 
 ## 11. Script location
 
+The plugin lives in Cursor/Claude caches after Team Marketplace install.
+**Do not copy** `plugins/sea-trials` into app repos. Consumer repos only
+need `sprint_planning/` (and optional one-line npm shims that call
+`st-run`).
+
+Resolve **`ST_PLUGIN_ROOT`** in this order:
+
+1. Explicit `ST_PLUGIN_ROOT`
+2. `CURSOR_PLUGIN_ROOT` (Cursor plugin context)
+3. `CLAUDE_PLUGIN_ROOT` (Claude hooks/MCP)
+4. Node `scripts/lib/resolve-st-plugin-root.mjs` (newest cache wins)
+
+Bootstrap once per agent turn (any checkout directory):
+
 ```bash
-_st_plugin_root() {
-  if [[ -n "${ST_PLUGIN_ROOT:-}" ]]; then
-    printf '%s\n' "$ST_PLUGIN_ROOT"; return 0
-  fi
-  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" ]]; then
-    printf '%s\n' "$CLAUDE_PLUGIN_ROOT"; return 0
-  fi
-  local hit
-  hit="$(find "${HOME}/.cursor/plugins" \
-    -path '*sea-trials*/scripts/resolve-plugin-root.mjs' 2>/dev/null \
-    | head -1)"
-  [[ -n "$hit" ]] && dirname "$(dirname "$hit")" && return 0
-  echo "sea-trials plugin not found" >&2; return 1
-}
-SPRINT="$(_st_plugin_root)/scripts/sprint"
+export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
+if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
+  _ST_RUN="$(
+    find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" \
+      -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1
+  )"
+  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
+  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
+  export ST_PLUGIN_ROOT
+fi
 ```
 
-Then `node "$SPRINT/parse-sprint-folder.mjs"`, `node "$SPRINT/md-to-adf.mjs"`,
-`node "$SPRINT/jira-rest.mjs"`. Never write new helper scripts into the
-target repo; these three are the whole toolkit.
+`st-run print-plugin-root` calls `resolveStPluginRoot()` (newest cache wins).
+Do not use bash `find … | head -1` on plugin **roots** — only to locate `st-run.mjs`.
+
+From an app repo checkout:
+
+```bash
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- sprint_planning/<folder>
+node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" sprint-lint -- --changed
+```
+
+Sprint toolkit under `$ST_PLUGIN_ROOT/scripts/sprint/`:
+
+| Script | Role |
+| --- | --- |
+| `sprint-lint.mjs` | Dev-ready card lint (preferred entry) |
+| `parse-sprint-folder.mjs` | Payload JSON, `--lint`, `--diff` |
+| `md-to-adf.mjs` | Markdown → Jira ADF |
+| `jira-rest.mjs` | REST upload, attach, delete |
+
+Never add parallel upload or lint scripts in the app repo; use
+`/st-jira-upload` and `st-run sprint-lint`. PM evidence scripts may live
+under `sprint_planning/**/_internal/` only.
 
 ## 12. Dispatch conventions
 

@@ -5,8 +5,9 @@ description: >-
   the current Sea Trials checkout (no worktree). Use when the user asks
   for an in-place review loop, "fix reviews here", "PR review loop
   in-place", or to clear review threads on the current branch without a
-  worktree. Enforces a 30-minute bot-silence window, project-directory
-  lock, and pre-push-harden before every push. Prefers zero questions:
+  worktree. Runs the PR monitor in a Cursor in-chat background terminal
+  (Await + webhook or 3m poll) until 60m Codex-quiet after the last push.
+  Project-directory lock and pre-push-harden before every push. Prefers zero questions:
   auto-merges origin when push is rejected, fixes regressions, re-pushes.
 disable-model-invocation: true
 user-invocable: true
@@ -31,11 +32,12 @@ checkout clean and fully pushed when done.
 
 **Read first, in order:**
 
-1. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
+1. [`references/shared/cursor-in-chat-monitor.md`](references/shared/cursor-in-chat-monitor.md)
+   — **start here on Cursor** (in-chat Shell + `Await`, not detached daemon).
+2. [`references/shared/review-loop-contract.md`](references/shared/review-loop-contract.md)
    — `$ST_REVIEW*` paths, fan-out rules, bot reply format, hard stops.
-2. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
-   — 24h Cursor background terminal + `Await` protocol.
-3. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
+3. [`references/shared/review-loop-monitor.md`](references/shared/review-loop-monitor.md)
+4. [`references/shared/review-loop-body.md`](references/shared/review-loop-body.md)
    — the loop itself. **Follow it exactly.** This file only adds the
    in-place mode rules below; it never overrides the body.
 
@@ -104,10 +106,17 @@ this full-tree policy.
 - Never ask about non-fast-forward / origin ahead — Sync recovery.
 - Never ask permission to push review-fix commits.
 
+## In-chat monitor (before Step 1)
+
+Follow **`cursor-in-chat-monitor.md`**: stop detached daemon, Shell
+`block_until_ms: 0` + `notify_on_output` on `>>> ACTION:`, foreground
+`pr-review-daemon.mjs --silence 60`, then loop `Await` in **this chat**
+while executing the body. Do not exit the turn when Codex is still quiet
+within the 60-minute post-push window.
+
 ## Run the body
 
-Start **`/st-pr-review-monitor`** before Step 1. Execute
-`references/shared/review-loop-body.md` Steps 1–6 from
+Execute `references/shared/review-loop-body.md` Steps 1–6 from
 `$REPO_ROOT` until a hard stop condition holds. Every Shell
 `working_directory`, Read/Edit path, and `pnpm`/`melos`/`dart`/`flutter`
 call uses absolute paths under `$REPO_ROOT`.
