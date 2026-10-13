@@ -198,25 +198,32 @@ export function versionOf(file) {
  */
 export function checkMigrations({ added, baseNames, others }) {
   const problems = [];
-  const baseVersions = baseNames.map(versionOf).filter(Boolean);
-  const baseSet = new Set(baseVersions);
-  const maxBase = baseVersions.reduce((a, b) => (BigInt(b) > BigInt(a) ? b : a), '0');
-  const seen = new Map();
+  const shared = [];
+  const base = new Map(); // version -> basename
+  for (const n of baseNames) { const v = versionOf(n); if (v) base.set(v, n); }
+  const maxBase = [...base.keys()].reduce((a, b) => (BigInt(b) > BigInt(a) ? b : a), '0');
+  const seen = new Map(); // version -> path
   for (const f of added) {
     const v = versionOf(f);
     if (!v) continue;
+    const name = f.split('/').pop();
     if (seen.has(v)) problems.push(`duplicate version ${v} in PR: ${seen.get(v)} and ${f}`);
     seen.set(v, f);
-    if (baseSet.has(v)) problems.push(`version ${v} already exists on base (${f})`);
+    if (base.get(v) === name) { shared.push(`${name} already on base (identical file name — inherited, not a collision)`); continue; }
+    if (base.has(v)) problems.push(`version ${v} already used on base by ${base.get(v)} (${f})`);
     else if (BigInt(v) <= BigInt(maxBase)) problems.push(`version ${v} is not newer than base max ${maxBase} (${f}); renumber above ${maxBase}`);
   }
   for (const o of others) {
     for (const f of o.files) {
       const v = versionOf(f);
-      if (v && seen.has(v)) problems.push(`version ${v} also added by open PR #${o.number} (${f})`);
+      if (!v || !seen.has(v)) continue;
+      const mine = seen.get(v).split('/').pop();
+      if (base.get(v) === mine) continue;
+      if (f.split('/').pop() === mine) shared.push(`${mine} also carried by open PR #${o.number} (stacked/shared commit)`);
+      else problems.push(`version ${v} also added by open PR #${o.number} as ${f.split('/').pop()}`);
     }
   }
-  return { ok: problems.length === 0, problems, maxBase, added: [...seen.keys()] };
+  return { ok: problems.length === 0, problems, shared, maxBase, added: [...seen.keys()] };
 }
 
 function migrationReport(gh, repo, prMeta, dir) {

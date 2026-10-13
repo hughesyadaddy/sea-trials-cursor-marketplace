@@ -54,7 +54,11 @@ test('migration ordering, duplicates and cross-PR collisions', () => {
   const old = checkMigrations({ added: ['supabase/migrations/20261013140000_x.sql'], baseNames: base, others: [] });
   assert.equal(old.ok, false); assert.match(old.problems[0], /not newer/);
   const dup = checkMigrations({ added: ['supabase/migrations/20261013210000_x.sql'], baseNames: base, others: [] });
-  assert.match(dup.problems[0], /already exists/);
+  assert.match(dup.problems[0], /already used on base/);
+  const inherited = checkMigrations({ added: ['supabase/migrations/20261013210000_b.sql'], baseNames: base, others: [] });
+  assert.equal(inherited.ok, true);
+  const stacked = checkMigrations({ added: ['supabase/migrations/20261014000000_x.sql'], baseNames: base, others: [{ number: 5, files: ['supabase/migrations/20261014000000_x.sql'] }] });
+  assert.equal(stacked.ok, true); assert.equal(stacked.shared.length, 1);
   const cross = checkMigrations({ added: ['supabase/migrations/20261014000000_x.sql'], baseNames: base, others: [{ number: 9, files: ['supabase/migrations/20261014000000_y.sql'] }] });
   assert.match(cross.problems[0], /open PR #9/);
 });
