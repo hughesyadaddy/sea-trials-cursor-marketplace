@@ -87,7 +87,7 @@ monitor AWAIT → ACTION → loop Steps 2–6 → ack → AWAIT → … → GREE
 **Hard completion** (all required):
 
 1. `>>> GREEN:` from daemon (0 threads, CI green)
-2. `pnpm pr-review-status -- --pr <n>` confirms
+2. `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs --pr <n>` confirms
 3. PR `mergeable=MERGEABLE`, `mergeState=CLEAN` (or report blocker)
 
 Do **not** stop after one green poll if threads or CI regress on the
@@ -99,8 +99,8 @@ next push.
 - **One push per bot round** — batch promotion fixes
 - **Flake routing** — `/st-flake-quarantine` only when local gate green
   and failure not in PR diff
-- **Never bare `git push`** — `pnpm pr-review-push -- --pr <n>` only
-- **Merge** — report merge-ready; user or GitHub merges (out of scope
+- **Never bare `git push`** — `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>` only
+- **Merge** — only via `/st-pr-merge` when asked (never `--admin`); otherwise report merge-ready (out of scope
   unless explicitly asked)
 
 ## Forbidden

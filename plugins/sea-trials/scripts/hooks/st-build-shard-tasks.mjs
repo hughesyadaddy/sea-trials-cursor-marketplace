@@ -427,7 +427,7 @@ export function buildPrompt(shard, ctx) {
     'If an export/registration/dependency in a shared file is needed, ' +
       'list it under needsIntegration instead of editing the file.',
     'Mirror test/ for lib/ changes. Before returning run: ' +
-      'pnpm agent-validate -- <changed files> (or node ' +
+      'node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs <changed files> (or node ' +
       '$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs).',
     'Finish by printing exactly one JSON line: ' +
       `{"shard":"${shard.id}","status":"done|blocked",` +

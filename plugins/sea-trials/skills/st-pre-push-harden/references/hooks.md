@@ -21,7 +21,7 @@ Files: `hooks/cursor/hooks.json`, `hooks/claude/hooks.json`.
 `exec`s the Node guard; new configs should reference the `.mjs` directly.
 
 The guard only shells out to git when a bare push reaches a repo; flag
-checks are pure string work. `pnpm pr-review-push` is never matched
+checks are pure string work. `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs` is never matched
 (no `git` token), and the `git push` it runs from a Node child process
 is invisible to agent-shell hooks, which is why it is the only path.
 
@@ -36,9 +36,9 @@ misread.
 
 | Command shape | Decision | Exact message |
 | --- | --- | --- |
-| `git push --no-verify`, `git push -n`, `git push --dry-run`, bundled `-nf` | DENY, no override | `Sea Trials: never git push with --no-verify, -n, or --dry-run. Run: pnpm pr-review-push -- --pr <n>` |
-| `git push --force`, `-f`, `--force-with-lease[=…]` | DENY unless `ST_ALLOW_FORCE_PUSH=1` | `Sea Trials: force push is blocked (--force, -f, --force-with-lease). Run: pnpm pr-review-push -- --pr <n>. ST_ALLOW_FORCE_PUSH=1 only for an explicitly approved rewrite.` |
-| Bare `git push …` in a **gated** repo, no fresh gate-pass token | DENY unless `ST_ALLOW_BARE_PUSH=1` | `Sea Trials: bare git push is blocked here. Run: pnpm pr-review-push -- --pr <n> (<reason>)` where reason is `no gate token`, `gate token is for a different HEAD`, `working tree changed since the gate ran`, `gate token is stale`, or `gate token lacks phase prepush` |
+| `git push --no-verify`, `git push -n`, `git push --dry-run`, bundled `-nf` | DENY, no override | `Sea Trials: never git push with --no-verify, -n, or --dry-run. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>` |
+| `git push --force`, `-f`, `--force-with-lease[=…]` | DENY unless `ST_ALLOW_FORCE_PUSH=1` | `Sea Trials: force push is blocked (--force, -f, --force-with-lease). Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>. ST_ALLOW_FORCE_PUSH=1 only for an explicitly approved rewrite.` |
+| Bare `git push …` in a **gated** repo, no fresh gate-pass token | DENY unless `ST_ALLOW_BARE_PUSH=1` | `Sea Trials: bare git push is blocked here. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> (<reason>)` where reason is `no gate token`, `gate token is for a different HEAD`, `working tree changed since the gate ran`, `gate token is stale`, or `gate token lacks phase prepush` |
 | Bare `git push …` in a gated repo **with** a fresh token | ALLOW (stderr note `gate already passed for this HEAD`) | — |
 | `git push …` in a repo **without** the gate (e.g. this marketplace) | ALLOW | — |
 | `git push …` outside any git repo | ALLOW (the push fails on its own) | — |

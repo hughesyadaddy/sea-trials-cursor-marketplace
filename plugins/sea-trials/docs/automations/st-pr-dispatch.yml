@@ -1,0 +1,108 @@
+# TEMPLATE — copy to <app repo>/.github/workflows/st-pr-dispatch.yml only
+# after review. Deterministic dispatcher for Sea Trials PR review loops.
+#
+#  * Wakes instantly on Codex reviews, review comments and CI completion.
+#  * Serialises per PR (concurrency group) — no agent stampede when 40
+#    check runs finish at once.
+#  * Spends zero agent time when there is nothing to do (merge-gate
+#    --dry-run decides).
+#  * Fires the Cursor Automation webhook ("st-pr-review-round") for fix
+#    work; merges itself (no LLM) when the PR is labelled st:automerge and
+#    the gate is green. Never --admin.
+#  * A 15-minute sweep retries anything missed or any failed agent round.
+name: st-pr-dispatch
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request_review_comment:
+    types: [created]
+  workflow_run:
+    workflows: ["PR Checks"]
+    types: [completed]
+  check_suite:
+    types: [completed]
+  pull_request:
+    types: [labeled, synchronize, ready_for_review]
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr: { description: "PR number", required: true }
+
+permissions:
+  contents: write        # merge
+  pull-requests: write   # merge
+  checks: read
+  statuses: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      prs: ${{ steps.prs.outputs.prs }}
+    steps:
+      - id: prs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EV: ${{ toJson(github.event) }}
+        run: |
+          set -euo pipefail
+          case "${{ github.event_name }}" in
+            schedule) prs=$(gh pr list --state open --json number,isDraft -q '[.[]|select(.isDraft|not)|.number]') ;;
+            workflow_dispatch) prs="[${{ inputs.pr }}]" ;;
+            workflow_run) prs=$(jq -c '[.workflow_run.pull_requests[].number]' <<<"$EV") ;;
+            check_suite) prs=$(jq -c '[.check_suite.pull_requests[].number]' <<<"$EV") ;;
+            *) prs=$(jq -c '[.pull_request.number]' <<<"$EV") ;;
+          esac
+          echo "prs=${prs:-[]}" >> "$GITHUB_OUTPUT"
+
+  dispatch:
+    needs: resolve
+    if: needs.resolve.outputs.prs != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pr: ${{ fromJson(needs.resolve.outputs.prs) }}
+    concurrency:
+      group: st-pr-${{ matrix.pr }}
+      cancel-in-progress: false
+    steps:
+      - name: Fetch sea-trials plugin (pinned)
+        run: |
+          # Public repo — no token needed. Pin with the ST_PLUGIN_REF repo variable.
+          git clone --depth 1 --branch "${{ vars.ST_PLUGIN_REF || 'main' }}" \
+            https://github.com/hughesyadaddy/sea-trials-cursor-marketplace st
+      - name: Gate (dry run)
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set +e
+          node st/plugins/sea-trials/skills/st-pr-merge/scripts/merge-gate.mjs \
+            --pr ${{ matrix.pr }} --dry-run --settle-sec 30 --json > gate.json
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          cat gate.json
+      - name: Merge (label opt-in, deterministic, never --admin)
+        if: steps.gate.outputs.exit == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if gh pr view ${{ matrix.pr }} --json labels -q '.labels[].name' | grep -qx 'st:automerge'; then
+            node st/plugins/sea-trials/skills/st-pr-merge/scripts/merge-gate.mjs --pr ${{ matrix.pr }} --settle-sec 30
+          fi
+      - name: Wake Cursor review-round automation
+        # 2 threads · 3 CI fail · 4 migration order · 5 behind/conflict
+        if: contains(fromJson('["2","3","4","5"]'), steps.gate.outputs.exit)
+        env:
+          URL: ${{ secrets.CURSOR_ST_ROUND_WEBHOOK_URL }}
+          KEY: ${{ secrets.CURSOR_ST_ROUND_WEBHOOK_KEY }}
+        run: |
+          head=$(jq -r .head gate.json)
+          curl -fsS -X POST "$URL" -H "Authorization: Bearer $KEY" \
+            -H 'Content-Type: application/json' \
+            -d "$(jq -c --arg r '${{ github.repository }}' --argjson pr ${{ matrix.pr }} \
+                  '{repo:$r, pr:$pr, head:.head, exit:.verdict.exit, reason:.verdict.reason}' gate.json)"

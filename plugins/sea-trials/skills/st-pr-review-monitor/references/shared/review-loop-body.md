@@ -42,7 +42,7 @@ starting a new watcher — `Await` the background terminal for
 
 ```bash
 ST_REPO_ROOT="$ACTIVE_ROOT" \
-  node "$ST_REVIEW_DAEMON" -- --pr <n> --duration 24h --silence 60
+  node "$ST_REVIEW_DAEMON" --pr <n> --duration 24h --silence 60
 ```
 
 Do **not** use `daemonctl --daemon` alone in Cursor Agent chat — it does
@@ -52,9 +52,9 @@ See `shared/review-loop-monitor.md` for sentinels and `Await` loop.
 Single-pass fallback (tests / no monitor skill):
 
 ```bash
-node "$ST_REVIEW_LOOP" -- --pr <n>            # exits on handoff
-node "$ST_REVIEW_LOOP" -- --pr <n> --webhook
-node "$ST_REVIEW_LOOP" -- --pr <n> --json
+node "$ST_REVIEW_LOOP" --pr <n>            # exits on handoff
+node "$ST_REVIEW_LOOP" --pr <n> --webhook
+node "$ST_REVIEW_LOOP" --pr <n> --json
 ```
 
 It drives the **bot review settled machine**
@@ -96,7 +96,7 @@ failure and fix via Step 3/4. Never quarantine a local failure or a
 protected test (`integration_test/`, `scenario_`, `golden`,
 `security`, `auth`, `payment`, `billing`).
 
-Spot-check any time with `node "$ST_REVIEW_STATUS" -- --pr <n>` (prints
+Spot-check any time with `node "$ST_REVIEW_STATUS" --pr <n>` (prints
 `settled.state`, unresolved bot count, CI per check). Queue and state
 live under `docs/code-review/<scope>/` in the active root.
 
@@ -121,7 +121,7 @@ intentional · (d) incorrect. Run the adversarial vet from the contract
 For every thread in class (a), emit one path-scoped task per file:
 
 ```bash
-node "$ST_FIX" -- --pr <n>
+node "$ST_FIX" --pr <n>
 ```
 
 Dispatch one worker per JSON line in a single parent turn (batch by
@@ -132,7 +132,7 @@ diff. Minimal fixes only; no drive-bys; architecture rules preserved.
 ## Step 4 — Parallel local gate, then commit
 
 ```bash
-node "$ST_REVIEW_PUSH" -- --pr <n> --list-tasks
+node "$ST_REVIEW_PUSH" --pr <n> --list-tasks
 ```
 
 Each JSON line is one gate lane (dirty tree, committed diff, PR CI
@@ -165,7 +165,7 @@ this step.
 ## Step 5 — Push (the only path)
 
 ```bash
-node "$ST_REVIEW_PUSH" -- --pr <n>
+node "$ST_REVIEW_PUSH" --pr <n>
 ```
 
 This is the **only** push path: it re-checks the gate plan and runs
@@ -203,13 +203,72 @@ Then **re-enter Step 1** — the daemon keeps running; write
 `pr-<n>-handoff.ack` and `Await` again (no need to restart the daemon
 on each push).
 
+## Step 0 — Ownership, resume, idempotency (before Step 1)
+
+One owner per PR. Before starting:
+
+1. `bash "$ST_REVIEW_DAEMONCTL" status --pr <n>` — a live in-chat daemon
+   owned by **another** agent → do not start a second loop; report and
+   stop. The PID lock is per checkout: cloud agents on different VMs do
+   not see each other, so the event-driven setup must serialize runs
+   per PR (see the plugin README "Always-on" section).
+2. Resume from state, never from memory: read
+   `docs/code-review/<scope>/pr-review-state.json` and
+   `pr-<n>-acting.signal`. Threads already resolved, SHAs already pushed
+   and replies already posted are skipped — every step below is safe to
+   re-run (`close` skips resolved threads; push is a no-op when
+   `origin/<branch>` already has HEAD).
+3. If the agent was interrupted mid-round (uncommitted fix edits,
+   unpushed commits): finish that round first — gate → push → reply.
+
+## Step 4b — Migration preflight (any PR touching `supabase/migrations/`)
+
+Run before every push that adds a migration:
+
+```bash
+node "$ST_MERGE" --pr <n> --dry-run --settle-sec 0 --json   # read the "migrations" block
+```
+
+Problems (`not newer than base max`, `already exists on base`,
+`also added by open PR #m`) → renumber the **new** file with
+`git mv` to a timestamp above the reported max (and above any sibling
+PR's claim), regenerate any project migration contract the project CI
+requires, re-gate, push. Never renumber a migration already merged to
+the base or applied to a hosted DB.
+
+## Stacked PRs and rebases
+
+- Base is another feature branch (stacked): after the parent merges,
+  `git fetch`, merge the **new** base tip into the PR branch (never
+  rebase a pushed branch, never force), resolve, gate, push. If GitHub
+  retargeted the base, re-read `baseRefName` before Step 4b.
+- Remote branch was rewritten by someone else (`git merge-base
+  --is-ancestor origin/<b> HEAD` fails and local has no unique work):
+  `git reset --keep origin/<b>` in the **worktree**; with unique local
+  work, merge `origin/<b>` in. Record both SHAs in the report.
+
+## Step 7 — Merge (only when asked to merge, or run by the merge automation)
+
+Never merge from this body by hand. Hand off to `st-pr-merge`:
+
+```bash
+node "$ST_MERGE" --pr <n> --wait 30
+```
+
+Exit `0` merged · `2` threads → Step 2 · `3` CI red → fix path ·
+`4` migration order → Step 4b · `5` behind/conflict/blocked → sync
+(merge base in) and loop, or report protection blocker · `6` head moved
+→ Step 1 · `8` still pending → keep watching, re-run later.
+
 ## Hard stop conditions
 
 Stop and report (do not keep looping) when any of these hold:
 
-1. `$ST_REVIEW_LOOP` exits `0` after the post-push quiet window — done.
-2. The **30-minute max-silence cap** (`--silence`, default 30) elapses
-   with CI still pending on HEAD — exit `8`; report CI as the blocker.
+1. `$ST_REVIEW_LOOP` exits `0` after the post-push quiet window — done
+   (or, when merging was requested, `st-pr-merge` exits `0`).
+2. CI is still pending on HEAD after **3 consecutive** silence caps
+   (`--silence 60` → ~3h) with no runner progress — report CI as the
+   blocker. A single exit `8` is never a stop: keep watching.
 3. Push rejected 5 times in a row after Sync recovery.
 4. A gate lane stays red after a root-cause fix attempt and the
    remaining failure needs a product/API decision — ask once via the

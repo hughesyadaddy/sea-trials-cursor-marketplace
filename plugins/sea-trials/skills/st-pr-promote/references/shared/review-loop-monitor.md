@@ -61,11 +61,11 @@ bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" \
   start --pr <n> --daemon -- --duration 24h --silence 60
 ```
 
-`pnpm` shortcuts (when the monorepo wires them):
+Same, via the resolved plugin paths:
 
 ```bash
-pnpm pr-review-daemonctl -- start --pr <n> --daemon -- --duration 24h
-pnpm pr-review-daemon -- --pr <n> --silence 60
+bash "$ST_REVIEW_DAEMONCTL" start --pr <n> --daemon -- --duration 24h
+node "$ST_REVIEW_DAEMON" --pr <n> --silence 60
 ```
 
 ## Sentinels (grep / Await patterns)
@@ -150,11 +150,12 @@ Stop when: PR merged, user says stop, or replacing with a new PR number.
 
 - **Cursor Agent:** detached-only monitor (`daemonctl --daemon`) without an
   in-chat foreground terminal + `Await`
-- Hand-rolled `while true; pnpm pr-review-status` loops in chat (use daemon)
+- Hand-rolled `while true; node "$ST_REVIEW_STATUS"` loops in chat (use daemon)
 - **Adding review-loop or promotion watcher `.sh` / `.mjs` scripts inside
   the app repo** — orchestration lives only in the Sea Trials plugin
-  (`$ST_PLUGIN_ROOT/scripts/hooks/`). App repos keep `pnpm` wiring +
-  `docs/code-review/<scope>/` runtime artifacts only.
+  (`$ST_PLUGIN_ROOT/scripts/hooks/`). App repos keep only
+  `docs/code-review/<scope>/` runtime artifacts (gitignored) and the
+  project's own CI lane registry (`scripts/ci/pr-lane-registry.mjs`).
 - Stopping after 1–2 `WAIT` polls ("bots usually respond by now")
 - Ending the agent turn on `>>> GREEN:` without continuing `Await`
 - Waiting for Codex when CI is red

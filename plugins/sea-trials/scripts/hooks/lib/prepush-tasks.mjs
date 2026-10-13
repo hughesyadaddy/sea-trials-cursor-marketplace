@@ -311,6 +311,19 @@ export function buildPrepushTasks(repoRoot, ctx, opts = {}) {
         options: { cwd: lintDir },
         weight: 1,
       });
+    } else if (fs.existsSync(lintDir)) {
+      // Never pass the gate silently when migrations changed but the
+      // linter could not be installed (offline / npm failure).
+      tasks.push({
+        label: 'migration lint (unavailable — failing closed)',
+        cmd: process.execPath,
+        args: [
+          '-e',
+          'console.error("migration lint could not be installed in scripts/migration_lint; run npm ci there and re-run the gate");process.exit(1)',
+        ],
+        options: { cwd: repoRoot },
+        weight: 1,
+      });
     }
   }
 

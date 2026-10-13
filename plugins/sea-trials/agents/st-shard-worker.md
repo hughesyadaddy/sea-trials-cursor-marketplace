@@ -60,7 +60,7 @@ note. Do not guess a scope.
 ## Validate before returning
 
 ```bash
-pnpm agent-validate -- <changed lib/test files>
+node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs <changed lib/test files>
 # or, from any host:
 node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs" <files>
 ```

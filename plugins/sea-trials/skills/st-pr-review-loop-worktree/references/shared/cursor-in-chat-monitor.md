@@ -1,5 +1,9 @@
 <!-- GENERATED from skills/_sources/cursor-in-chat-monitor.md — do not edit; run node scripts/sync-skill-sources.mjs -->
-# Cursor in-chat PR monitor (mandatory)
+# Cursor in-chat PR monitor (mandatory in Interactive mode)
+
+> **Event-round mode** (cloud agent launched by a Cursor Automation or the
+> Cloud Agents API on a GitHub event) does **not** start this monitor: it
+> runs one round and exits; the next event starts the next round.
 
 When the user runs `/st-pr-review-loop-inplace`, `/st-pr-review-loop-worktree`,
 or `/st-pr-review-monitor` in **Cursor Agent chat**, the watch **must** run in
@@ -75,7 +79,7 @@ After every fix push: `touch …/pr-<n>-handoff.ack` — do **not** restart the 
 
 Keep the in-chat monitor running until **all** hold:
 
-1. `node "$ST_REVIEW_STATUS" -- --pr <n>` → exit `0` (0 bot threads, CI green, settled `DONE`).
+1. `node "$ST_REVIEW_STATUS" --pr <n>` → exit `0` (0 bot threads, CI green, settled `DONE`).
 2. **60 minutes** with no new Codex review activity on the current HEAD since the
    last push (daemon `--silence 60` + settled machine; confirm with status JSON).
 3. Or user says stop / PR merged.

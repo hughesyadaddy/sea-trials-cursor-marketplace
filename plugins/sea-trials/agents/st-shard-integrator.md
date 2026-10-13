@@ -35,7 +35,7 @@ from the host probe (`references/model-probe.md`), never from memory.
 4. **Validate** the whole changed set:
 
    ```bash
-   pnpm agent-validate
+   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
    # or: node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs"
    ```
 

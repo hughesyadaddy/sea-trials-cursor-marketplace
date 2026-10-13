@@ -13,10 +13,10 @@ the host allows** — never serialize work the parent can fan out.
 
 | Workflow | Emitter | Parent action |
 | --- | --- | --- |
-| Push gate lanes | `pnpm pr-review-push -- --pr <n> --list-tasks` | One worker per JSON line |
-| PR adversarial vet | `pnpm pr-review-adversarial-tasks -- --pr <n>` | 3 × thread count |
-| PR code fixes | `pnpm pr-review-fix-tasks -- --pr <n>` | 1 × path (path-scoped) |
-| Build shards | `pnpm st-build-shard-tasks -- --manifest shards.json` | 1 × ready shard |
+| Push gate lanes | `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks` | One worker per JSON line |
+| PR adversarial vet | `node "$ST_ADVERSARIAL" --pr <n>` | 3 × thread count |
+| PR code fixes | `node "$ST_FIX" --pr <n>` | 1 × path (path-scoped) |
+| Build shards | `node "$ST_BUILD_SHARD" --manifest shards.json` | 1 × ready shard |
 | Pre-push review | Harden Phase 3 agents (4 types) | One worker each, same turn |
 
 **Rules:**
@@ -33,13 +33,13 @@ the host allows** — never serialize work the parent can fan out.
    (Cursor: `composer-2.5`) and `claudeModel` (Claude: `haiku`) hints.
 
 ```bash
-pnpm pr-review-push -- --pr <n> --list-tasks
-pnpm pr-review-fix-tasks -- --pr <n>
-pnpm pr-review-adversarial-tasks -- --pr <n>
-pnpm st-build-shard-tasks -- --manifest shards.json --root "$ACTIVE_ROOT"
+node "$ST_REVIEW_PUSH" --pr <n> --list-tasks
+node "$ST_FIX" --pr <n>
+node "$ST_ADVERSARIAL" --pr <n>
+node "$ST_BUILD_SHARD" --manifest shards.json --root "$ACTIVE_ROOT"
 ```
 
-`pnpm st-parallel-tasks -- --pr <n>` still exists as a convenience that
+`node "$ST_PARALLEL" --pr <n>` still exists as a convenience that
 merges the review emitters with the gate lanes into one list.
 
 `/st-build-with-subagents`, `/st-pre-push-harden`, `/st-pr-review-loop-*`,
@@ -100,50 +100,30 @@ secrets, workspace packages) only works inside this checkout.
    worktree of `$REPO_ROOT`; mixing edits between `$REPO_ROOT` and
    `$WORKTREE_DIR` in the same loop.
 
-## Sea Trials plugin CLI
+## Sea Trials plugin CLI (self-contained — no project scripts)
 
-PR review hooks ship on the **sea-trials** Cursor plugin. **Prefer
-`pnpm` shortcuts** from any monorepo checkout (or worktree) — no plugin
-root hunt required:
+Every review-loop, push and merge tool ships **inside this plugin**. The
+app repo needs **no** `pnpm pr-review-*` scripts, `.husky/st-plugin-run.sh`
+shim, `scripts/overlay-st-plugin-review-hooks.mjs`, or `codex-*` helpers.
+If those still exist in a checkout, ignore them — they are legacy wiring
+and may be older than the plugin. **Never** run the overlay script: it
+copies app-repo files over the installed plugin.
 
-```bash
-pnpm pr-review-threads -- list --pr <n>
-pnpm pr-review-adversarial-tasks -- --pr <n>
-pnpm pr-review-fix-tasks -- --pr <n>
-pnpm st-build-shard-tasks -- --manifest shards.json
-pnpm pr-review-status -- --pr <n>
-pnpm pr-review-daemon -- --pr <n> [--duration 24h]
-pnpm pr-review-daemonctl -- start --pr <n> --daemon
-pnpm pr-review-loop -- --pr <n> [--webhook] [--json]
-pnpm pr-review-push -- --pr <n> --list-tasks
-pnpm pr-review-push -- --pr <n> --check-only
-pnpm pr-review-push -- --pr <n>
-```
-
-Every hook resolves `owner/name` from the checkout's `origin` remote
-(`resolveGithubOwnerRepo`); `--repo` and the `GH_REPO` env var override
-it. Never hardcode an owner/repo in prompts or commands.
-
-`ST_PLUGIN_ROOT` is **optional** when working from a monorepo checkout
-(use `pnpm` shortcuts instead). Set it when debugging outside a repo, or
-resolve the Team Marketplace install (no app-repo copies required).
-
-Fallback when `pnpm` is unavailable (marketplace-only agent, any git repo):
+Resolve the plugin root once per session. `ST_PLUGIN_ROOT` is the
+directory two levels above the `SKILL.md` you are reading (`…/sea-trials`):
 
 ```bash
-export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
-if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_RUN="$(
-    find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" \
-      -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1
-  )"
-  if [[ -z "${_ST_RUN}" ]]; then
-    echo "ERROR: sea-trials plugin not found (Customize → Team Marketplace → sea-trials)" >&2
-    exit 1
-  fi
-  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
-  export ST_PLUGIN_ROOT
-fi
+st_root() {
+  for c in "${ST_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${CLAUDE_PLUGIN_ROOT:-}"; do
+    [ -n "$c" ] && [ -f "$c/scripts/st-run.mjs" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  # Newest installed copy wins (Cursor cache, Cursor local, Claude cache, box).
+  find "$HOME/.cursor/plugins" "$HOME/.claude/plugins" "$HOME/agent-data/plugins" \
+    -path '*/sea-trials/*/scripts/st-run.mjs' -o -path '*/sea-trials/scripts/st-run.mjs' \
+    2>/dev/null | xargs -r ls -t 2>/dev/null | head -1 | xargs -r dirname | xargs -r dirname
+}
+export ST_PLUGIN_ROOT="$(st_root)"
+test -n "$ST_PLUGIN_ROOT" || { echo "sea-trials plugin not installed" >&2; exit 1; }
 ST_REVIEW="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-threads.mjs"
 ST_REVIEW_STATUS="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs"
 ST_REVIEW_LOOP="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs"
@@ -154,10 +134,46 @@ ST_PARALLEL="$ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs"
 ST_BUILD_SHARD="$ST_PLUGIN_ROOT/scripts/hooks/st-build-shard-tasks.mjs"
 ST_ADVERSARIAL="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-adversarial-tasks.mjs"
 ST_FIX="$ST_PLUGIN_ROOT/scripts/hooks/pr-review-fix-tasks.mjs"
+ST_MERGE="$ST_PLUGIN_ROOT/skills/st-pr-merge/scripts/merge-gate.mjs"
 ```
 
-All review-loop commands below use these paths when `pnpm` shortcuts are
-unavailable. Never hand-roll `gh api` for reply/resolve.
+Shell state does not always persist between agent tool calls — re-run
+the block (it is idempotent) at the start of any new Shell session.
+
+```bash
+node "$ST_REVIEW" list --pr <n>
+node "$ST_ADVERSARIAL" --pr <n>
+node "$ST_FIX" --pr <n>
+node "$ST_REVIEW_STATUS" --pr <n>
+node "$ST_REVIEW_DAEMON" --pr <n> [--duration 24h]
+node "$ST_REVIEW_LOOP" --pr <n> [--webhook] [--json]
+node "$ST_REVIEW_PUSH" --pr <n> --list-tasks
+node "$ST_REVIEW_PUSH" --pr <n> --check-only
+node "$ST_REVIEW_PUSH" --pr <n>
+node "$ST_MERGE" --pr <n> --dry-run        # merge readiness, never merges
+node "$ST_MERGE" --pr <n> --wait 30        # the only merge path
+```
+
+Every hook resolves `owner/name` from the checkout's `origin` remote;
+`--repo` / `GH_REPO` override it. Never hardcode an owner/repo.
+Never hand-roll `gh api` for reply/resolve, and never type `gh pr merge`
+yourself — the plugin hook denies it (and always denies `--admin`).
+
+### Exit-code semantics you must not misread
+
+`pr-review-push` prints `✅ git push` and **then** may exit `8` ("PR head
+not yet propagated / CI pending"). Under `pnpm` this shows as
+`ELIFECYCLE Command failed with exit code 8` — **the push succeeded**.
+Confirm with `git rev-parse HEAD` vs `git ls-remote origin <branch>`;
+never re-commit or re-push because of exit `8`.
+
+### GitHub rate limits
+
+GraphQL budget is shared by every agent on the same token. When a tool
+reports `RATE_LIMITED` / `API rate limit exceeded`: do not spin. Read the
+reset time (`gh api rate_limit -q .resources.graphql.reset`), keep local
+commits, `Await`/sleep until reset, then push. Never fall back to bare
+`git push` to dodge the gate.
 
 ## Adversarial vet (3 agents × every unresolved thread)
 
@@ -167,7 +183,7 @@ parent turn** (20 threads → 60 Tasks). Never skip because the thread
 count is small.
 
 ```bash
-pnpm pr-review-adversarial-tasks -- --pr <n>
+node "$ST_ADVERSARIAL" --pr <n>
 ```
 
 Each JSON line has `subagent_type`, `threadId`, `path`, `line`, and a
@@ -188,23 +204,23 @@ self-contained `prompt`. Default agents (fixed order):
 - Split verdict → parent re-reads diff; conservative tie-break: fix real
   bugs, `reject` with evidence for intentional contracts.
 
-Then build the reply with `pnpm pr-review-threads -- format` and close
-with `pnpm pr-review-threads -- close`. Silent resolve is forbidden.
+Then build the reply with `node "$ST_REVIEW" format` and close
+with `node "$ST_REVIEW" close`. Silent resolve is forbidden.
 
 ## Single gate, then push (before every push)
 
 The local push gate runs **once per round**, fanned out, and the push
 command re-uses that result. Never run the same lanes three times
-(`st-parallel-tasks` + `pnpm prepush` + `pr-review-push`).
+(`st-parallel-tasks` + `prepush` + `pr-review-push`).
 
-1. Emit lanes: `pnpm pr-review-push -- --pr <n> --list-tasks`.
+1. Emit lanes: `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks`.
 2. Dispatch one worker per JSON line (Cursor: `Task`; Claude: `Agent`),
    all in one parent turn (batch by 16). Each worker runs
    `node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs" '<json>'`.
    A single line → the parent may run it inline.
 3. Red lane → root-cause fix → re-run that lane until green.
 4. **Commit only after every lane is green.**
-5. Push **only** through `pnpm pr-review-push -- --pr <n>`. It replays
+5. Push **only** through `node "$ST_REVIEW_PUSH" --pr <n>`. It replays
    the gate plan (the gate-pass token in
    `scripts/hooks/lib/gate-pass-token.mjs` lets the husky pre-push skip
    lanes already proven on an unchanged tree) and then runs `git push`
@@ -266,11 +282,11 @@ Watcher commands:
 
 | Command | Purpose |
 | --- | --- |
-| `node "$ST_REVIEW_STATUS" -- --pr <n>` | One-shot: threads + CI + `settled.state` |
-| `node "$ST_REVIEW_DAEMON" -- --pr <n> [--duration 24h]` | **24h monitor** — never exits on handoff; `>>> ACTION:` sentinels |
+| `node "$ST_REVIEW_STATUS" --pr <n>` | One-shot: threads + CI + `settled.state` |
+| `node "$ST_REVIEW_DAEMON" --pr <n> [--duration 24h]` | **24h monitor** — never exits on handoff; `>>> ACTION:` sentinels |
 | `bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" start --pr <n> --daemon` | Detached daemon (setsid; survives chat close) |
-| `node "$ST_REVIEW_LOOP" -- --pr <n> [--webhook] [--json]` | Single-pass detect (exits on handoff; fallback/tests) |
-| `node "$ST_REVIEW_PUSH" -- --pr <n>` | Single gate → `git push` (hooks on) |
+| `node "$ST_REVIEW_LOOP" --pr <n> [--webhook] [--json]` | Single-pass detect (exits on handoff; fallback/tests) |
+| `node "$ST_REVIEW_PUSH" --pr <n>` | Single gate → `git push` (hooks on) |
 
 Full monitor protocol (Cursor background terminal, `Await`, ack files):
 `shared/review-loop-monitor.md`. Slash command: `/st-pr-review-monitor`.
@@ -311,9 +327,9 @@ quarantines a test in a file the PR touched, refuses protected tests
 human. Its commit rejoins this contract: single gate, then
 `pr-review-push`, never bare `git push`.
 
-After every fix round: gate → `node "$ST_REVIEW_PUSH" -- --pr <n>` →
+After every fix round: gate → `node "$ST_REVIEW_PUSH" --pr <n>` →
 reply+resolve every addressed thread citing the pushed SHA → restart
-`node "$ST_REVIEW_LOOP" -- --pr <n>` in the background. Do not end the
+`node "$ST_REVIEW_LOOP" --pr <n>` in the background. Do not end the
 turn with open threads or before the machine reaches `DONE` unless the
 user explicitly stops the loop.
 
@@ -428,7 +444,7 @@ Before any push that carries code (including merge-recovery pushes):
    in the active root (`$REPO_ROOT` or `$WORKTREE_DIR`). The
    `st-pre-push-harden` skill wraps this with a regression sweep and
    review fan-out and ends with `pr-review-push --check-only` → READY.
-2. Push with **`pnpm pr-review-push -- --pr <n>`** — never bare
+2. Push with **`node "$ST_REVIEW_PUSH" --pr <n>`** — never bare
    `git push`.
 3. Do not push until the gate is green / harden reports **READY**.
 4. Never `--force`, never `--no-verify`.

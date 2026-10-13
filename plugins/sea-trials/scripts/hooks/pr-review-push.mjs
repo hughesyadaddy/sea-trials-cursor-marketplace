@@ -2,9 +2,9 @@
 /**
  * Canonical push gate — one entry point for checks + push.
  *
- *   pnpm pr-review-push -- --pr <n>           # full gate + push
- *   pnpm pr-review-push -- --pr <n> --list-tasks  # subagent fan-out
- *   pnpm pr-review-push -- --pr <n> --check-only  # gate without push
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>           # full gate + push
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks  # subagent fan-out
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only  # gate without push
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -14,9 +14,11 @@ import {
   fetchPrMeta,
   getRepoRoot,
   parsePrArgs,
+  pruneClosedReviewArtifacts,
   reviewPaths,
   runGitPush,
   runLocalPushGate,
+  waitForPrHeadPropagation,
   writeJson,
 } from './lib/pr-review-lib.mjs';
 import {
@@ -90,14 +92,14 @@ function printHelp() {
   process.stdout.write(`\
 Canonical push gate (one entry point).
 
-  pnpm pr-review-push -- --pr <n>
-  pnpm pr-review-push -- --pr <n> --list-tasks
-  pnpm pr-review-push -- --pr <n> --check-only
-  pnpm pr-review-push -- --pr <n> --phases dirty,prepush,ci
-  pnpm pr-review-push -- --pr <n> --list-tasks --granularity fine|coarse
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --phases dirty,prepush,ci
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks --granularity fine|coarse
 
 Subagents: one Task per JSON line from --list-tasks; run via
-  pnpm run-gate-task -- '<json>'
+  node $ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs '<json>'
 Parent re-runs pr-review-push after fixes (never bare git push).
 `);
 }
@@ -108,6 +110,15 @@ async function main() {
     parsePushArgs(process.argv.slice(2));
   const pr = fetchPrMeta(repoRoot, prNumber);
   const artifactPaths = reviewPaths(repoRoot, prNumber);
+  const pruned = pruneClosedReviewArtifacts(repoRoot, {
+    activePrNumbers: [prNumber],
+  });
+  if (pruned.pruned.length > 0) {
+    process.stdout.write(
+      `🧹 pruned stale review artifacts for PR(s): `
+        + `${pruned.pruned.join(', ')}\n`,
+    );
+  }
 
   if (listTasks) {
     const plan = await buildPushGatePlan({
@@ -180,6 +191,7 @@ async function main() {
   }
   process.stdout.write('✅ git push (prepush hook)\n');
 
+  waitForPrHeadPropagation(repoRoot, prNumber, headBeforePush);
   const snapshot = buildReviewSnapshot(repoRoot, prNumber);
   const headPropagated = snapshot.pr.headRefOid === headBeforePush;
   const verdict = evaluateSnapshot(snapshot);
@@ -190,7 +202,8 @@ async function main() {
 
   if (!headPropagated) {
     process.stdout.write(
-      '⏳ PR head not yet propagated; run pnpm pr-review-loop\n',
+      '⏳ PR head not yet propagated after retries; '
+        + 'run node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs\n',
     );
     process.exit(8);
   }
@@ -198,7 +211,7 @@ async function main() {
   if (snapshot.ci.hasPending) {
     process.stdout.write(
       `⏳ CI pending (${snapshot.ci.pending.length}); `
-        + 'run pnpm pr-review-loop\n',
+        + 'run node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs\n',
     );
     process.exit(8);
   }
