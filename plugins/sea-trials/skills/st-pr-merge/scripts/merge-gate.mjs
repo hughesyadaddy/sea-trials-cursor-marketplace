@@ -278,7 +278,7 @@ process.stdout.write(JSON.stringify({status:res.status,body:await res.text()}));
 
 /**
  * Read-only lookup on env.ref's supabase_migrations.schema_migrations.
- * Returns { applied: Set<version> (subset of `versions`), maxApplied }.
+ * Returns { applied: Map<version, name|null> (subset of `versions`), maxApplied }.
  * Throws on any failure (callers fail closed). Token never printed.
  */
 export function defaultAppliedVersions(env, versions) {
@@ -286,7 +286,7 @@ export function defaultAppliedVersions(env, versions) {
   const token = managementToken(env.flavor);
   if (!token) throw new Error(`no SUPABASE_ACCESS_TOKEN (env, .env.${env.flavor} or .env.base)`);
   const list = versions.length ? versions.map((v) => `'${v}'`).join(',') : 'null';
-  const query = `select coalesce(json_agg(version) filter (where version in (${list})), '[]'::json) as hits, max(version) as max_applied from supabase_migrations.schema_migrations`;
+  const query = `select coalesce(json_agg(json_build_object('version', version, 'name', name)) filter (where version in (${list})), '[]'::json) as hits, max(version) as max_applied from supabase_migrations.schema_migrations`;
   const url = `https://api.supabase.com/v1/projects/${env.ref}/database/query/read-only`;
   const r = spawnSync(process.execPath, ['-e', FETCH_CHILD], { encoding: 'utf8', input: JSON.stringify({ url, token, query }), timeout: 45_000 });
   if (r.status !== 0) throw new Error(`lookup process failed (${r.status ?? r.signal}): ${(r.stderr ?? '').trim().slice(0, 200)}`);
@@ -294,13 +294,17 @@ export function defaultAppliedVersions(env, versions) {
   if (status < 200 || status >= 300) throw new Error(status === 0 ? `request failed: ${body}` : `Management API HTTP ${status}: ${String(body).slice(0, 200)}`);
   const rows = JSON.parse(body);
   if (!Array.isArray(rows) || rows.length !== 1 || !Array.isArray(rows[0].hits)) throw new Error('unexpected Management API response');
-  return { applied: new Set(rows[0].hits.map(String)), maxApplied: rows[0].max_applied ? String(rows[0].max_applied) : '0' };
+  return { applied: new Map(rows[0].hits.map((h) => [String(h.version), h.name == null ? null : String(h.name)])), maxApplied: rows[0].max_applied ? String(rows[0].max_applied) : '0' };
 }
 
 /**
  * Pure check for renamed/removed migrations.
  * changes: [{ status: 'renamed'|'removed', oldFile, newFile? }]
- * applied: () => { applied: Set<version>, maxApplied } (may throw → fail closed).
+ * applied: () => { applied: Map<version, name|null> | Set<version>, maxApplied }
+ *   (may throw → fail closed). A row counts as THIS migration being applied
+ *   when its name matches the old file's name, or the name is unknown.
+ *   A row with the same version but a different name is another migration
+ *   holding that version (collision) — the old file itself was never applied.
  * addedFiles: files this PR adds (claims). others: open PRs' claims
  * (added files + rename destinations).
  */
@@ -339,7 +343,13 @@ export function checkRenames({ changes, env, baseRef, applied, baseNames = [], o
   for (const c of changes) {
     const v = versionOf(c.oldFile);
     if (!v) continue;
-    if (set.has(v)) { problems.push(`existing migration ${label(c)}: version ${v} is applied on ${env.name} (${env.ref}) (never rename/delete applied migrations)`); continue; }
+    const oldSlug = c.oldFile.split('/').pop().replace(/^\d+_/, '').replace(/\.sql$/, '');
+    let heldBy = null;
+    if (set.has(v)) {
+      const rowName = set instanceof Map ? set.get(v) : null;
+      if (rowName == null || rowName === '' || rowName === oldSlug) { problems.push(`existing migration ${label(c)}: version ${v} is applied on ${env.name} (${env.ref})${rowName ? ` as ${rowName}` : ''} (never rename/delete applied migrations)`); continue; }
+      heldBy = rowName;
+    }
     if (c.status === 'renamed' && c.newFile.startsWith(`${dir}/`)) {
       const nv = versionOf(c.newFile);
       const nn = c.newFile.split('/').pop();
@@ -351,7 +361,9 @@ export function checkRenames({ changes, env, baseRef, applied, baseNames = [], o
       const clash = others.find((o) => o.files.some((f) => versionOf(f) === nv && f.split('/').pop() !== nn));
       if (clash) { problems.push(`${label(c)}: version ${nv} also added by open PR #${clash.number}`); continue; }
     }
-    allowed.push(`${label(c)} — version ${v} never applied on ${env.name} (${env.ref}); allowed`);
+    allowed.push(heldBy
+      ? `${label(c)} — ${oldSlug} never applied on ${env.name} (${env.ref}); version ${v} there belongs to ${heldBy}; allowed`
+      : `${label(c)} — version ${v} never applied on ${env.name} (${env.ref}); allowed`);
   }
   return { ok: problems.length === 0, problems, allowed };
 }

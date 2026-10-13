@@ -196,3 +196,15 @@ test('applied history is re-read right before merging', () => {
   assert.equal(r.verdict.exit, EXIT.MIGRATIONS);
   assert.ok(!calls.some((c) => c[1] === 'merge'));
 });
+
+test('same version applied under a different name = collision holder, old file never applied → allowed', () => {
+  const r = checkRenames({ changes: [ren('20261013220000_rich_pr1b.sql', '20261013221000_rich_pr1b.sql')], env: dev, baseRef: 'feat/rich-content', applied: () => ({ applied: new Map([['20261013220000', 'global_assistant_thread_anchor_dedupe']]), maxApplied: '20261013220000' }) });
+  assert.equal(r.ok, true);
+  assert.match(r.allowed[0], /belongs to global_assistant_thread_anchor_dedupe/);
+});
+test('same version applied under the same name, or with unknown name → blocked', () => {
+  const same = checkRenames({ changes: [ren('20261013220000_rich_pr1b.sql', '20261013221000_rich_pr1b.sql')], env: dev, baseRef: 'dev', applied: () => ({ applied: new Map([['20261013220000', 'rich_pr1b']]), maxApplied: '20261013220000' }) });
+  assert.equal(same.ok, false); assert.match(same.problems[0], /is applied on Dev .* as rich_pr1b/);
+  const unknown = checkRenames({ changes: [ren('20261013220000_rich_pr1b.sql', '20261013221000_rich_pr1b.sql')], env: dev, baseRef: 'dev', applied: () => ({ applied: new Map([['20261013220000', null]]), maxApplied: '20261013220000' }) });
+  assert.equal(unknown.ok, false);
+});
