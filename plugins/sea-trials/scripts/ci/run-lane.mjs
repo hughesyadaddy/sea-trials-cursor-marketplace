@@ -218,7 +218,12 @@ export function computeChangedFiles({
   env = process.env,
 }) {
   if (resolvePromotionBaseRef({ base, env })) {
-    return [...new Set(changedFilesForCiPush({ git, env }))].sort();
+    const pushFiles = [...new Set(changedFilesForCiPush({ git, env }))].sort();
+    // A promotion repush can legitimately be tree-identical to the previous
+    // push (e.g. a back-merge of stg/main that nets out). The push-scoped
+    // diff is then empty, which is not a broken base ref. Fall back to the
+    // cumulative merge-base diff so the lane still verifies the promotion.
+    if (pushFiles.length > 0) return pushFiles;
   }
 
   // Deletions and rename sources are included: when a public Dart API

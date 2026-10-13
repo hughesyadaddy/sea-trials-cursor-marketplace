@@ -631,3 +631,27 @@ test('computeChangedFiles keeps merge-base diff on dev PRs', () => {
   );
   assert.equal(calls[0][0], 'merge-base');
 });
+
+test('computeChangedFiles falls back to merge-base diff when a promotion repush is tree-identical', () => {
+  const git = (args) => {
+    if (args[0] === 'diff' && args.includes('before123')) return '';
+    if (args[0] === 'merge-base') return 'mb\n';
+    if (args[0] === 'diff' && args.includes('--name-status')) return '';
+    if (args[0] === 'diff' && args.includes('mb..HEAD')) {
+      return 'flutter/lib/main.dart\n';
+    }
+    throw new Error(`unexpected git ${args.join(' ')}`);
+  };
+  assert.deepEqual(
+    computeChangedFiles({
+      base: 'origin/stg',
+      git,
+      env: {
+        GITHUB_BASE_REF: 'stg',
+        GITHUB_EVENT_BEFORE: 'before123',
+        GITHUB_EVENT_AFTER: 'after456',
+      },
+    }),
+    ['flutter/lib/main.dart'],
+  );
+});
