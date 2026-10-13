@@ -71,8 +71,9 @@ jobs:
     steps:
       - name: Fetch sea-trials plugin (pinned)
         run: |
-          git clone --depth 1 --branch "${ST_PLUGIN_REF:-main}" \
-            https://x-access-token:${{ secrets.ST_PLUGIN_READ_TOKEN }}@github.com/hughesyadaddy/sea-trials-cursor-marketplace st
+          # Public repo — no token needed. Pin with the ST_PLUGIN_REF repo variable.
+          git clone --depth 1 --branch "${{ vars.ST_PLUGIN_REF || 'main' }}" \
+            https://github.com/hughesyadaddy/sea-trials-cursor-marketplace st
       - name: Gate (dry run)
         id: gate
         env:

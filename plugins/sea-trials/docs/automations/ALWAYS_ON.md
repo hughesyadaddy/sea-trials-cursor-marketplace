@@ -52,8 +52,9 @@ Merging is done by the dispatcher itself via `st-pr-merge/merge-gate.mjs`
    > via pr-review-push. Never merge, never `--admin`, never force-push.
    > If `head` differs from the live PR head, re-read state first. Finish
    > with the state file written.
-3. Add repo secrets `CURSOR_ST_ROUND_WEBHOOK_URL`, `CURSOR_ST_ROUND_WEBHOOK_KEY`,
-   `ST_PLUGIN_READ_TOKEN` (read-only on the marketplace repo).
+3. Add repo secrets `CURSOR_ST_ROUND_WEBHOOK_URL` and `CURSOR_ST_ROUND_WEBHOOK_KEY`
+   (shown once when the Automation is saved). The marketplace repo is public,
+   so no read token is needed.
 4. Copy `st-pr-dispatch.yml` into `.github/workflows/`.
 5. Opt a PR into auto-merge with the `st:automerge` label.
 
