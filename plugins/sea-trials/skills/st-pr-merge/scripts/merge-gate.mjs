@@ -267,40 +267,44 @@ function managementToken(flavor) {
     ?? envFileValue(join(root, '.env.base'), 'SUPABASE_ACCESS_TOKEN');
 }
 
+// Child process so the gate stays synchronous; uses Node's built-in fetch
+// (no curl dependency). Request (incl. token) arrives on stdin, never argv.
+const FETCH_CHILD = `let b='';process.stdin.on('data',(c)=>{b+=c;}).on('end',async()=>{
+const r=JSON.parse(b);try{const res=await fetch(r.url,{method:'POST',
+headers:{Authorization:'Bearer '+r.token,'Content-Type':'application/json'},
+body:JSON.stringify({query:r.query}),signal:AbortSignal.timeout(30000)});
+process.stdout.write(JSON.stringify({status:res.status,body:await res.text()}));
+}catch(e){process.stdout.write(JSON.stringify({status:0,body:String(e&&e.message||e)}));}});`;
+
 /**
- * Read-only: which of `versions` are in supabase_migrations.schema_migrations
- * on env.ref. Throws on any failure (callers fail closed). The token goes to
- * curl via stdin config, never argv, and is never printed.
+ * Read-only lookup on env.ref's supabase_migrations.schema_migrations.
+ * Returns { applied: Set<version> (subset of `versions`), maxApplied }.
+ * Throws on any failure (callers fail closed). Token never printed.
  */
 export function defaultAppliedVersions(env, versions) {
   if (!versions.every((v) => /^\d{1,20}$/.test(v))) throw new Error('non-numeric migration version');
   const token = managementToken(env.flavor);
   if (!token) throw new Error(`no SUPABASE_ACCESS_TOKEN (env, .env.${env.flavor} or .env.base)`);
-  const query = `select version from supabase_migrations.schema_migrations where version in (${versions.map((v) => `'${v}'`).join(',')})`;
-  const r = spawnSync('curl', [
-    '-sS', '--max-time', '30', '-K', '-', '-X', 'POST',
-    '-H', 'Content-Type: application/json',
-    '-w', '\n%{http_code}',
-    '--data-binary', JSON.stringify({ query }),
-    `https://api.supabase.com/v1/projects/${env.ref}/database/query/read-only`,
-  ], { encoding: 'utf8', input: `header = "Authorization: Bearer ${token}"\n` });
-  if (r.status !== 0) throw new Error(`curl failed (${r.status}): ${(r.stderr ?? '').trim()}`);
-  const out = r.stdout ?? '';
-  const nl = out.lastIndexOf('\n');
-  const code = Number(out.slice(nl + 1));
-  const body = out.slice(0, nl);
-  if (code < 200 || code >= 300) throw new Error(`Management API HTTP ${code}: ${body.slice(0, 200)}`);
+  const list = versions.length ? versions.map((v) => `'${v}'`).join(',') : 'null';
+  const query = `select coalesce(json_agg(version) filter (where version in (${list})), '[]'::json) as hits, max(version) as max_applied from supabase_migrations.schema_migrations`;
+  const url = `https://api.supabase.com/v1/projects/${env.ref}/database/query/read-only`;
+  const r = spawnSync(process.execPath, ['-e', FETCH_CHILD], { encoding: 'utf8', input: JSON.stringify({ url, token, query }), timeout: 45_000 });
+  if (r.status !== 0) throw new Error(`lookup process failed (${r.status ?? r.signal}): ${(r.stderr ?? '').trim().slice(0, 200)}`);
+  const { status, body } = JSON.parse(r.stdout);
+  if (status < 200 || status >= 300) throw new Error(status === 0 ? `request failed: ${body}` : `Management API HTTP ${status}: ${String(body).slice(0, 200)}`);
   const rows = JSON.parse(body);
-  if (!Array.isArray(rows)) throw new Error('unexpected Management API response');
-  return new Set(rows.map((row) => String(row.version)));
+  if (!Array.isArray(rows) || rows.length !== 1 || !Array.isArray(rows[0].hits)) throw new Error('unexpected Management API response');
+  return { applied: new Set(rows[0].hits.map(String)), maxApplied: rows[0].max_applied ? String(rows[0].max_applied) : '0' };
 }
 
 /**
  * Pure check for renamed/removed migrations.
  * changes: [{ status: 'renamed'|'removed', oldFile, newFile? }]
- * applied: () => Set<version> (may throw → fail closed).
+ * applied: () => { applied: Set<version>, maxApplied } (may throw → fail closed).
+ * addedFiles: files this PR adds (claims). others: open PRs' claims
+ * (added files + rename destinations).
  */
-export function checkRenames({ changes, env, baseRef, applied, baseNames = [], others = [], dir = 'supabase/migrations' }) {
+export function checkRenames({ changes, env, baseRef, applied, baseNames = [], others = [], addedFiles = [], dir = 'supabase/migrations' }) {
   const problems = [];
   const allowed = [];
   if (changes.length === 0) return { ok: true, problems, allowed };
@@ -316,14 +320,22 @@ export function checkRenames({ changes, env, baseRef, applied, baseNames = [], o
     return { ok: false, problems, allowed };
   }
   let set;
+  let maxApplied;
   try {
-    set = versions.length ? applied() : new Set();
+    ({ applied: set, maxApplied } = applied());
   } catch (e) {
     for (const c of changes) problems.push(`existing migration ${label(c)}: cannot read ${env.name} (${env.ref}) schema_migrations — ${e.message} (fail closed)`);
     return { ok: false, problems, allowed };
   }
   const base = new Map();
   for (const n of baseNames) { const v = versionOf(n); if (v) base.set(v, n); }
+  // Every version this PR claims: added files + rename destinations.
+  const claims = new Map();
+  for (const f of [...addedFiles, ...changes.filter((c) => c.status === 'renamed' && c.newFile.startsWith(`${dir}/`)).map((c) => c.newFile)]) {
+    const v = versionOf(f);
+    if (!v) continue;
+    claims.set(v, (claims.get(v) ?? 0) + 1);
+  }
   for (const c of changes) {
     const v = versionOf(c.oldFile);
     if (!v) continue;
@@ -334,6 +346,8 @@ export function checkRenames({ changes, env, baseRef, applied, baseNames = [], o
       const oldName = c.oldFile.split('/').pop();
       if (!nv) { problems.push(`${label(c)}: new name has no migration version`); continue; }
       if (base.has(nv) && base.get(nv) !== oldName && base.get(nv) !== nn) { problems.push(`${label(c)}: version ${nv} already used on base by ${base.get(nv)}`); continue; }
+      if ((claims.get(nv) ?? 0) > 1) { problems.push(`${label(c)}: version ${nv} claimed more than once in this PR`); continue; }
+      if (BigInt(nv) <= BigInt(maxApplied)) { problems.push(`${label(c)}: new version ${nv} is not newer than the latest migration applied on ${env.name} (${maxApplied}); db push would skip it — renumber above ${maxApplied}`); continue; }
       const clash = others.find((o) => o.files.some((f) => versionOf(f) === nv && f.split('/').pop() !== nn));
       if (clash) { problems.push(`${label(c)}: version ${nv} also added by open PR #${clash.number}`); continue; }
     }
@@ -359,15 +373,17 @@ function migrationReport(gh, repo, prMeta, dir, appliedFn = defaultAppliedVersio
   for (const { number } of open) {
     if (number === prMeta.number) continue;
     const f = listPrFiles(gh, repo, number)
-      .filter((x) => x.status === 'added' && x.filename.startsWith(`${dir}/`))
+      .filter((x) => (x.status === 'added' || x.status === 'renamed') && x.filename.startsWith(`${dir}/`))
       .map((x) => x.filename);
     if (f.length) others.push({ number, files: f });
   }
   const rep = checkMigrations({ added, baseNames, others });
+  const renameDests = new Set(changes.filter((c) => c.status === 'renamed').map((c) => versionOf(c.newFile)).filter(Boolean));
+  for (const f of added) { const v = versionOf(f); if (v && renameDests.has(v)) rep.problems.push(`version ${v} added (${f}) and also a rename destination in this PR`); }
   const env = targetEnvFor(prMeta.baseRefName);
   const versions = changes.map((c) => versionOf(c.oldFile)).filter(Boolean);
   const rn = checkRenames({
-    changes, env, baseRef: prMeta.baseRefName, baseNames, others, dir,
+    changes, env, baseRef: prMeta.baseRefName, baseNames, others, addedFiles: added, dir,
     applied: () => appliedFn(env, versions),
   });
   rep.problems.push(...rn.problems);
@@ -437,6 +453,11 @@ export function runGate(opts, gh = defaultGh, sleep = sleepMs, appliedFn = defau
       continue;
     }
     if (verdict.exit !== EXIT.OK || opts.dryRun) return { ...s, migrations, verdict };
+    if (opts.migrations) {
+      // Applied history can change during waits: re-read right before merging.
+      migrations = migrationReport(gh, opts.repo, s.prMeta, opts.migrationsDir, appliedFn);
+      if (!migrations.ok) return { ...s, migrations, verdict: { exit: EXIT.MIGRATIONS, reason: migrations.problems.join('; ') } };
+    }
     const r = gh(buildMergeArgs({ pr: opts.pr, repo: opts.repo, method: opts.method, headOid: s.prMeta.headRefOid }));
     if (r.status !== 0) {
       const msg = `${r.stderr}${r.stdout}`;
