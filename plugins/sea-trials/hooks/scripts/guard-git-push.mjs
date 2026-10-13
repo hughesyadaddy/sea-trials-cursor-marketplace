@@ -13,6 +13,9 @@
  *                                  (written by pr-review-push) exists
  *                                  or ST_ALLOW_BARE_PUSH=1
  *   push in a repo without gate    ALLOW
+ *   sprint docs only               ALLOW when every commit being pushed
+ *                                  touches only sprint_planning/** (no PR
+ *                                  review loop for sprint docs)
  *
  * A repo "has the gate" when its root has `.husky/st-plugin-run.sh` or a
  * `pr-review-push` script in package.json.
@@ -423,6 +426,31 @@ export async function gatePassIsFresh(repoRoot, env) {
   });
 }
 
+/** Paths that never go through the push gate or PR review loops. */
+export const SPRINT_DOCS_PREFIX = 'sprint_planning/';
+
+/**
+ * True when every commit HEAD would push touches only sprint_planning/**.
+ * Compares against the upstream, else origin/HEAD, else origin/main.
+ * Returns false (gate applies) when nothing can be compared.
+ *
+ * @param {string} repoRoot
+ * @returns {boolean}
+ */
+export function pushTouchesOnlySprintDocs(repoRoot) {
+  const bases = ['@{upstream}', 'origin/HEAD', 'origin/main'];
+  for (const base of bases) {
+    const mergeBase = git(repoRoot, ['merge-base', base, 'HEAD']);
+    if (!mergeBase) continue;
+    const out = git(repoRoot, ['diff', '--name-only', `${mergeBase}..HEAD`]);
+    if (out === null) return false;
+    const files = out.split('\n').map((f) => f.trim()).filter(Boolean);
+    if (files.length === 0) return false;
+    return files.every((f) => f.startsWith(SPRINT_DOCS_PREFIX));
+  }
+  return false;
+}
+
 // ---------------------------------------------------------------------------
 // Decision
 // ---------------------------------------------------------------------------
@@ -487,6 +515,10 @@ export async function decide(input, opts = {}) {
     }
     if (!repoRoot) continue; // not a repo (push would fail anyway)
     if (!repoHasGate(repoRoot)) continue;
+    if (pushTouchesOnlySprintDocs(repoRoot)) {
+      notes.push('Sea Trials push guard: sprint_planning/** only; no gate needed.');
+      continue;
+    }
 
     let pass = { ok: false, reason: 'no gate token' };
     try {

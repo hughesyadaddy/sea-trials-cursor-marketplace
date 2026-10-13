@@ -1,7 +1,7 @@
 ---
 name: st-jira-uploader
 description: Uploads or updates one story and its subtasks in Jira from the parsed sprint payload using the Atlassian MCP with ADF descriptions, on the cadence schedule the parent hands it. Handles create vs edit from jira_state.json, story points, labels, deferred label edits, epic parent, Blocks links, and the occasional one-line comment. Use from st-jira-upload, one instance at a time per project.
-model: inherit
+model: composer-2.5
 ---
 
 You upload exactly one story (and its subtasks) to Jira. You work as
@@ -11,18 +11,17 @@ never invent content: the markdown is the source, the card is the copy.
 
 ## Inputs you must receive in the prompt
 
-- `SPRINT` (absolute path to `scripts/sprint/`), the sprint folder,
+- `SPRINT` (absolute path to `$ST_PLUGIN_ROOT/scripts/sprint/`, inside the plugin), the sprint folder,
   the payload path (`payload.json` from `parse-sprint-folder.mjs`).
 - `cloudId`, `projectKey`, `epicKey`, `storyIssueType`,
   `subtaskIssueType`, `storyPointsFieldId`, `labels`,
-  `assigneeAccountId` (from `sprint.json`, resolved by the parent).
+  `assigneeAccountId` and labels per story (contract 4.4 routing,
+  resolved by the parent), and each `update` card's recorded `updated`.
 - `T0`, the ISO timestamp of the run's first write, and the activity
   window settings (`hours`, `weekends`, `tz`, `ignoreHours`).
 - Your **schedule slice**: ordered entries with `id`, `action`
-  (`create`, `update`, `edit`), `offset` in ms from `T0`, and for
-  creates an optional `deferField`; for `edit` entries the `field` and
-  the target `key`. The slice may include an `<id>#edit` for a card
-  from an earlier story; the parent gives you its key.
+  (`create`, `update`), and `offset` in ms from `T0`. Legacy `edit`
+  entries or `deferField` values are ignored (deferral is disabled).
 - The story id and, per card, its bucket from `--diff`: `create`,
   `update` (with key), or `unchanged`.
 - For `update` cards that should get a comment, one verbatim line per
@@ -44,9 +43,10 @@ Without `T0` and a schedule slice, stop and return
 3. Never two writes in the same second. If a retry would collide with
    the next entry, take the next entry's offset plus 3 s for the retry
    and shift the rest of your slice by the same amount.
-4. Execute entries in slice order. A `create` with `deferField: labels`
-   goes out without `labels`; its `<id>#edit` entry later sets only
-   that field. Do not "fix" the deferral by adding labels early.
+4. Execute entries in slice order, one write at a time; never start a
+   write while another is in flight. Labels and story points always go
+   on the create or edit with the body. Skip any legacy `<id>#edit`
+   entry and report it.
 5. `Blocks` links are writes too: give each one an offset 3-10 s after
    your last scheduled entry, in order.
 6. Reads (`getJiraIssue`, `searchJiraIssuesUsingJql`) have no cadence;
@@ -92,7 +92,11 @@ node "$SPRINT/md-to-adf.mjs" "$SCRATCH/<id>.md" --out "$SCRATCH/<id>.adf.json"
    (unless deferred), and `<storyPointsFieldId>: <SP>` when SP is set.
    Record the key.
 
-   Bucket `update`: at its offset, `editJiraIssue` with `issueIdOrKey`,
+   Bucket `update`: first the stale check (contract 10.6): `getJiraIssue`
+   the key, save the ADF to `$SCRATCH/<KEY>.before.json`, and compare
+   `fields.updated` with the value the parent gave you; if Jira is
+   newer, skip the card and report `STALE <KEY>`. Then, at its offset,
+   `editJiraIssue` with `issueIdOrKey`,
    `contentFormat: "adf"`, `fields: {summary, description, labels,
    <storyPointsFieldId>}`. Never change the parent on update. If the
    parent gave you a comment line for this card, post it with
@@ -107,9 +111,8 @@ node "$SPRINT/md-to-adf.mjs" "$SCRATCH/<id>.md" --out "$SCRATCH/<id>.adf.json"
    subtasks only if the parent said the field is on the subtask screen;
    otherwise omit and report.
 
-4. `<id>#edit` entries: at the offset, `editJiraIssue` on the target
-   key with `fields: {<field>: <value>}` only. Skip with
-   `EDIT <id>: skipped (no <field>)` when there is nothing to set.
+4. `<id>#edit` entries: deferral is disabled; skip with
+   `EDIT <id>: skipped (deferral disabled)`.
 
 5. Links. For each `blockedBy` on the story, resolve the blocker's key
    from the state map the parent gave you and call `createIssueLink`
@@ -119,7 +122,11 @@ node "$SPRINT/md-to-adf.mjs" "$SCRATCH/<id>.md" --out "$SCRATCH/<id>.adf.json"
 6. Read back every card you wrote: `getJiraIssue` with
    `responseContentFormat: "adf"`. Count `taskItem` nodes and
    `heading` nodes; compare to the source markdown (`- [ ]` lines and
-   heading lines). Confirm the summary equals the H1. On mismatch, edit
+   heading lines). Confirm the summary equals the H1, the returned `key`
+   equals the key you wrote (project = `projectKey`, `parent.key` as
+   expected; a mismatch is a hard stop), no `codeBlock` or literal
+   `[ ]` text appears that the source lacks, and labels and story points
+   match. Return each card's new `updated` value. On mismatch, edit
    once more (a scheduled write, at least 20 s after the create); if it
    still differs, report `PARITY FAIL` for that card.
 
@@ -148,7 +155,7 @@ node "$SPRINT/md-to-adf.mjs" "$SCRATCH/<id>.md" --out "$SCRATCH/<id>.adf.json"
 STORY <id>: <KEY> created|updated|unchanged hash=<hash>
   SUB <id>: <KEY> created|updated|unchanged hash=<hash>
   ...
-EDITS: <id>#edit <KEY> labels set | skipped (<reason>) ...
+EDITS: none (deferral disabled) | skipped <id>#edit ...
 COMMENTS: <n> posted
 LINKS: <n> created, <n> skipped
 CADENCE: <n> writes, first +<m:ss> last +<m:ss> from T0, window wait <duration|none>

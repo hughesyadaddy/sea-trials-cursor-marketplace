@@ -7,7 +7,8 @@ what old cards tend to carry that new ones do not. Pass both to critics.
 
 | Pattern | Why |
 | --- | --- |
-| Subtask is screenshot capture, matrix run, attach PNG, audit synthesis | PM workflow, not dev work |
+| Subtask is evidence screenshot capture, matrix run, audit synthesis | PM workflow, not dev work (mockup or attach-image subtasks per contract 4.2 are **kept**) |
+| Testing task: test plan, run tests, checks, gates, QA pass, soak period | No testing work on cards |
 | “Swap to primary theme” / navy→purple with no user report and acceptable current color | Token hygiene |
 | Product declined (“not a bug”, keep navy pill) | Not sprint work |
 | Refactor-only with no visible defect | Delete, do not reword |
@@ -23,7 +24,7 @@ After delete: renumber subtasks; fix story SP sum; never `[Cancelled]` prefix.
 | "after US3 merges", "once 2.1 is done", "see subtask 1.2" | Not self-contained |
 | `Phase 0`, `G0`-`G3`, `CP-`, "passes gate", "checkpoint", "rollback plan" | Build-plan language, not card language |
 | `### Implementation`, `### Verification` as standalone sections | Fold into Files to touch and Acceptance criteria |
-| Verification tables of `rg` commands on every subtask | One build AC per story is enough |
+| Verification tables of `rg` commands, `## Test plan`, command AC (`exits 0`) | No testing on cards; rewrite AC as Given/When/Then product behaviour |
 | `00-overview.md`, `docs/plan/...`, any `.md` path | No-links rule |
 | Jira keys in body text | Keys live on the metadata line only |
 | `* [ ]` and `+ [ ]` | Normalise to `- [ ]` |
@@ -48,12 +49,13 @@ After delete: renumber subtasks; fix story SP sum; never `[Cancelled]` prefix.
 | --- | --- |
 | UI | `## What the user sees`; AC name the screen, control label, and visible result |
 | Ops | `## Commands` numbered and copy-paste ready; `## Expected results` with literal output to look for |
-| Verification | `## What to test`, `## Platforms`; AC up to 10, each one device or path |
-| Data | Migration file path, rollback command in Files to touch, an AC that queries the new shape |
+| Verification | Not allowed. Delete the card (no testing work on cards) |
+| Data | Migration file path and rollback command in Files to touch; a Given/When/Then AC on the new behaviour |
+| Config | New revision published via S3 (contract 4.3); never edits a published Neon revision in place |
 
 ## Reopen rules
 
 - A `[x]` stays checked only if the AC text is unchanged.
-- Rewritten AC become `[ ]` again; the QA pass re-verifies them.
+- Rewritten AC become `[ ]` again.
 - Story points may change; record the old value in Context when it
   drops by more than half so the sprint review can see why.

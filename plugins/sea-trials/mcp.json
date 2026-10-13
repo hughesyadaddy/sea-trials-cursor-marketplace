@@ -4,10 +4,6 @@
       "type": "http",
       "url": "https://mcp.atlassian.com/v1/mcp"
     },
-    "atlassian-allinpmprep": {
-      "type": "http",
-      "url": "https://mcp.atlassian.com/v1/mcp/authv2"
-    },
     "chrome-devtools": {
       "command": "npx",
       "args": [

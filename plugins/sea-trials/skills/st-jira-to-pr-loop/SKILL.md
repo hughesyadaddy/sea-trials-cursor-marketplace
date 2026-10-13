@@ -37,7 +37,8 @@ Compose Atlassian MCP + existing PR review skills.
 
 ## Phase 1 — Jira context
 
-Use **atlassian-seatrials** (or **allinpmprep**) MCP:
+Use only the **atlassian-seatrials** / `--seatrials` Atlassian connector
+(site `https://seatrials.atlassian.net`); never a bare `allinpmprep` connector:
 
 - Fetch issue summary, description, acceptance criteria
 - Note fix version / component labels for commit scope

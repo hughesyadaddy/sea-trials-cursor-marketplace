@@ -14,6 +14,7 @@ import {
   extractCommand,
   fallbackFlagDeny,
   findPushInvocations,
+  pushTouchesOnlySprintDocs,
   render,
   repoHasGate,
   splitSegments,
@@ -520,5 +521,46 @@ describe('CLI end to end', () => {
     });
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
+  });
+});
+
+describe('sprint docs exemption', () => {
+  function withRemote(root) {
+    const remote = fs.mkdtempSync(path.join(os.tmpdir(), 'st-guard-remote-'));
+    tmpDirs.push(remote);
+    git(remote, ['init', '-q', '--bare', '-b', 'main']);
+    git(root, ['remote', 'add', 'origin', remote]);
+    git(root, ['push', '-q', '-u', 'origin', 'main']);
+  }
+
+  test('allows a bare push when every new commit touches only sprint_planning/**', async () => {
+    const root = makeRepo({ gate: 'husky' });
+    withRemote(root);
+    fs.mkdirSync(path.join(root, 'sprint_planning', 's1'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'sprint_planning', 's1', '00-epic.md'), '# Epic: x\n');
+    git(root, ['add', '-A']);
+    git(root, ['commit', '-q', '-m', 'sprint docs']);
+    assert.equal(pushTouchesOnlySprintDocs(root), true);
+    const d = await decide(cursor('git push', root), { env: CLEAN_ENV });
+    assert.equal(d.permission, 'allow');
+    assert.match(d.note ?? '', /sprint_planning/);
+  });
+
+  test('still denies when any commit touches other files, and never allows force', async () => {
+    const root = makeRepo({ gate: 'husky' });
+    withRemote(root);
+    fs.mkdirSync(path.join(root, 'sprint_planning'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'sprint_planning', 'a.md'), 'a\n');
+    fs.writeFileSync(path.join(root, 'README.md'), 'changed\n');
+    git(root, ['add', '-A']);
+    git(root, ['commit', '-q', '-m', 'mixed']);
+    assert.equal(pushTouchesOnlySprintDocs(root), false);
+    assert.equal((await decide(cursor('git push', root), { env: CLEAN_ENV })).permission, 'deny');
+    assert.equal((await decide(cursor('git push --force', root), { env: CLEAN_ENV })).permission, 'deny');
+  });
+
+  test('no upstream to compare: gate applies', async () => {
+    const root = makeRepo({ gate: 'husky' });
+    assert.equal(pushTouchesOnlySprintDocs(root), false);
   });
 });

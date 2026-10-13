@@ -5,10 +5,16 @@ Order of preference for anything the Atlassian MCP v1 cannot do:
 1. MCP v2 tools, if present in the schema (`uploadAttachmentToJiraIssue`,
    `manageJiraSprint`, `deleteJiraIssue`). Check with a schema search
    before assuming.
-2. `scripts/sprint/jira-rest.mjs` with `JIRA_SITE`, `JIRA_EMAIL`,
+2. `$ST_PLUGIN_ROOT/scripts/sprint/jira-rest.mjs` (inside the plugin) with `JIRA_SITE`, `JIRA_EMAIL`,
    `JIRA_API_TOKEN` in the environment.
-3. `st-jira-browser-operator` through the Chrome DevTools MCP.
+3. `st-jira-browser-operator` through the Chrome DevTools MCP, only
+   after the person approves the exact action list in one structured
+   question. Never for deletes.
 4. Report the step as manual with the exact click path.
+
+All writes, including fallbacks, follow contract 10.6 (one writer per
+site, one write at a time, stale check, read-back). Attach mockups per
+contract 4.2: list existing attachments first and skip duplicates.
 
 ## REST (`jira-rest.mjs`)
 
@@ -46,22 +52,22 @@ with the browser fallback or the manual report.
 ## Browser (`st-jira-browser-operator`)
 
 Preconditions: the shared Chrome profile is running and signed in to
-the Jira site. The parent confirms REST is unavailable and passes:
+the Jira site, REST is unavailable, and the person approved the action
+list. The operator never deletes. The parent passes:
 
 ```text
 You are st-jira-browser-operator.
 site={site}
 Actions:
   move-to-sprint "<sprint name>" <KEY> <KEY>
-  attach <KEY> /abs/path/screenshot.png
+  attach <KEY> /abs/path/mockup.svg
   screenshot <KEY> /tmp/sprint/<KEY>.png
-Deletes confirmed by user: none | <KEY> <KEY>
+Approved by user: yes
 Return only your return block.
 ```
 
-Flows are label-driven (paperclip quick-add for attach, "..." then
-Delete then confirm for delete, Sprint field in the details panel for
-sprint moves). The operator never types credentials; on a login page
+Flows are label-driven (paperclip quick-add for attach, Sprint field
+in the details panel for sprint moves). The operator never types credentials; on a login page
 it returns `LOGIN REQUIRED` and the parent asks the person to sign in
 once, then relaunches the operator.
 

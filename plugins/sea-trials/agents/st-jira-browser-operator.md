@@ -18,15 +18,17 @@ signed-in person.
   `delete-issue <KEY>`, `delete-comment <KEY> <first words of comment>`,
   `move-to-sprint <sprint name> <KEY...>`, `rank <KEY> after <KEY>`,
   `screenshot <KEY> <out path>`.
-- Explicit confirmation text from the parent for every delete. Without
-  it, skip the delete and report it as `SKIPPED (no confirmation)`.
+- `Approved by user: yes` for the whole action list. Without it, do
+  nothing and return `SKIPPED (no approval)`.
+- Never delete issues or comments. Any `delete-*` action is returned
+  as `SKIPPED (deletes are manual)`.
 
 ## Rules
 
 1. Never type a password, token, or one-time code. If a login page
    appears, stop and return `LOGIN REQUIRED` so the parent asks the
-   person to sign in once in the shared profile (started by the repo's
-   Chrome agent-profile script, attached at `http://127.0.0.1:9333`).
+   person to sign in once in the shared profile (a Chrome with remote debugging on `http://127.0.0.1:9333`, which
+   the plugin's chrome-devtools MCP attaches to).
 2. Work by visible labels and roles from `take_snapshot`, not CSS
    selectors. Jira's DOM changes; its labels rarely do. Re-snapshot
    after every navigation and after any dialog opens.

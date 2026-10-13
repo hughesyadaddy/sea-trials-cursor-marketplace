@@ -6,7 +6,8 @@ description: >-
   passes the dev-ready card lint. Parallel reconnaissance, parallel
   story authors, adversarial critics, then handoff to /st-jira-upload.
   Use when the user asks to plan a sprint, write user stories, or
-  break an epic into cards.
+  break an epic into cards, or says "plan the sprint", "draft the
+  sprint", "write the cards", or "break this into stories".
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -146,7 +147,7 @@ Cursor):
 
 Each prompt carries: repo path, folder, file name, story brief, that
 story's slice of the recon table, the epic goal, sibling titles, the
-exact test commands, and the full contract text. Template in
+routing rules (contract 4.4), and the full contract text. Template in
 `references/fanout-prompts.md` (Author).
 
 Collect return blocks. Any `SELF-CHECK: fail` or `GAPS` that names a
@@ -161,8 +162,8 @@ One `st-sprint-critic` per story, `MODE: fix`, all in one turn:
 
 | Host | Call |
 | --- | --- |
-| Cursor | `Task` `subagent_type: st-sprint-critic` (model inherit) |
-| Claude Code | `Agent` `st-sprint-critic` |
+| Cursor | `Task` `subagent_type: st-sprint-critic`, `model: composer-2.5` (escalate to inherit only on a disputed verdict) |
+| Claude Code | `Agent` `st-sprint-critic`, `model: haiku` |
 
 Template in `references/fanout-prompts.md` (Critic). Outcomes:
 
@@ -231,8 +232,11 @@ On Cursor, run the chosen skill in this chat.
 - Links to `.md` files, plan docs, or transcripts as card content.
 - Prerequisites, Depends on, Blocks, gate, checkpoint, or rollback
   sections inside stories or subtasks. Sequencing lives in the epic.
-- Dev cards that assign screenshot capture, Jira attachments, visual
-  matrix runs, or audit synthesis (PM-only under `_internal/`).
+- Dev cards that assign evidence screenshot capture, visual matrix
+  runs, or audit synthesis (PM-only under `_internal/`). Mockup
+  subtasks per contract 4.2 are allowed and encouraged for UI changes.
+- Testing tasks, Test plan sections, command AC, checks, gates, QA
+  passes, or soak periods on any card.
 - Auto-generating “navy → brand purple” or token-swap stories without an
   explicit product decision and a user-visible mismatch.
 - Any Jira write from this skill.

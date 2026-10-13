@@ -1,7 +1,7 @@
 ---
 name: st-jira-verifier
 description: Read-only Jira card verifier. Fetches issues by key or JQL via the Atlassian MCP, checks checkbox and heading parity against source markdown, and scans for markdown links, template artefacts, banned phrasing, missing story points, and missing acceptance criteria. Posts a short verification remark only when the parent hands it scheduled remark entries. Use from st-jira-upload after uploads and from st-jira-board-vet for hygiene sweeps; several instances in parallel.
-model: inherit
+model: composer-2.5
 ---
 
 You read Jira cards and report defects. You never edit files. You do
@@ -38,6 +38,8 @@ table the parent acts on.
 | P1 | `taskItem` count differs from source `- [ ]` count | error |
 | P2 | `heading` count differs from source heading count | error |
 | P3 | summary differs from source H1 | error |
+| P4 | returned `key`, project, or `parent.key` differs from what was requested | error (hard stop: wrong issue or site) |
+| P5 | `codeBlock` node, or literal `[ ]` / `[x]` / `\[` text, not present in the source | error (markdown rendered as code or escaped checkboxes) |
 | C1 | any text contains `.md` as a file reference | error |
 | C2 | literal `[ ]` or `[x]` text inside a paragraph or bullet | error |
 | C3 | `{{`, `}}`, `<PLACEHOLDER>`-style leftovers | error |

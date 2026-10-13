@@ -47,7 +47,8 @@ Story brief:
 Reconnaissance for this story (verified paths; re-check before citing):
 {recon_rows_for_this_story}
 
-Exact commands this repo uses (cite verbatim in Test plan):
+Repo commands (for your own path checks only; never put commands,
+test plans, or "exits 0" AC on the card):
 {test_commands}
 
 ST_PLUGIN_ROOT: {plugin_root}
@@ -56,7 +57,7 @@ Read the contract and developer voice files above before writing.
 Return only the return block defined in your agent brief.
 ```
 
-## Story critic (Phase 5, model inherit)
+## Story critic (Phase 5, cheap model: composer-2.5 / haiku)
 
 ```text
 You are st-sprint-critic. MODE: fix
@@ -85,6 +86,6 @@ Return only the return block defined in your agent brief.
 | --- | --- | --- | --- |
 | Recon explorer | `Task` `subagent_type: explore` | `Agent` `Explore` | `composer-2.5` / `haiku` |
 | Story author | `Task` `subagent_type: st-sprint-author` | `Agent` `st-sprint-author` | inherit |
-| Story critic | `Task` `subagent_type: st-sprint-critic` | `Agent` `st-sprint-critic` | inherit |
+| Story critic | `Task` `subagent_type: st-sprint-critic` | `Agent` `st-sprint-critic` | `composer-2.5` / `haiku`; escalate on dispute |
 
 Cursor allows about 16 concurrent subagents; batch larger waves.

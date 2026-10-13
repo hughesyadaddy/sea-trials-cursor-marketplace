@@ -7,6 +7,10 @@ loop's preflight and before every push. The loop steps themselves live
 in `shared/review-loop-body.md`; this file holds the rules that body
 relies on.
 
+**Out of scope:** commits that touch only `sprint_planning/**` (sprint
+docs). Never start a review loop, adversarial vet, or push gate run for
+them; the push guard allows their plain `git push`.
+
 ## Maximum parallel fan-out (`st-*` default)
 
 Sea Trials **`st-*`** skills default to **as many parallel workers as

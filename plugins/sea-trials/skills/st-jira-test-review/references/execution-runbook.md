@@ -15,7 +15,9 @@ commands from the repo's conventions file.
 
 ## Run order
 
-1. Test plan commands from the card, verbatim, in the worktree.
+1. The repo's standard checks for the touched packages (from the
+   conventions file), in the worktree. Legacy cards with a Test plan:
+   run it as written.
 2. Command-type AC.
 3. Code-read and data AC.
 4. UI-step AC on the platform the card names. If the card names no

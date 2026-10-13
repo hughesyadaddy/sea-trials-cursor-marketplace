@@ -1,6 +1,6 @@
 # Human cadence for Jira writes
 
-`scripts/sprint/human-cadence.mjs` plans **when** each Jira write
+`$ST_PLUGIN_ROOT/scripts/sprint/human-cadence.mjs` plans **when** each Jira write
 happens and supplies the small pieces of text a person types over and
 over. The MCP calls are still made by the skill and its workers; the
 script only produces the schedule, waits for it, and varies phrasing.
@@ -23,7 +23,6 @@ A person uploading the same sprint looks like this:
 - 5-20 seconds between cards, a few outliers either way
 - a two-minute gap every handful of cards (reading the next file,
   getting coffee)
-- once or twice, a card edited a minute after it was created
 - everything between breakfast and dinner on a weekday
 - comments that vary in wording and start differently
 
@@ -41,7 +40,7 @@ batch, deferField }` entries, sorted by offset. Rules, in order:
 | Order | one epic at a time; epic card first; stories in folder order; each story's subtasks right after it |
 | Inter-card gap | log-normal, median 12 s (`--median-gap`), sigma 0.55, clamped to 3-45 s |
 | Think pause | 60-180 s added after every 6-10 cards; `batch` increments |
-| Typo edit | for ~10% of creates that offer one (`item.edit`), one `editJiraIssue` on a single field 20-90 s after the create; the create leaves that field out (`deferField`) |
+| Typo edit | **disabled for Sea Trials.** Do not pass `--edit-field`; without it the plan contains no `deferField` and no `#edit` entries, so every field rides on the create |
 | Same second | never two writes in one second; a collision pushes the later write to the next second |
 | Seed | `--seed N` makes the plan reproducible; the CLI prints the seed it used |
 | Fast | `--fast` collapses every gap to 0 (dry runs, tests, sandbox projects) |
@@ -52,13 +51,12 @@ uniform. The clamp stops the tail from producing a 4-minute gap that
 is not a think pause, and stops the head from producing sub-3-second
 bursts.
 
-The typo edit needs a field the create can safely omit. `labels` is
-the default suggestion: the create goes out without labels and the
-edit adds them. Content never changes; only the moment a field is set.
+Extra writes widen the window in which another writer can interleave,
+so the deferred-field "typo edit" is not used (contract 5.1, 10.6).
 
 ```bash
 node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json" \
-  --edit-field labels --json > "$SCRATCH/schedule.json"
+  --json > "$SCRATCH/schedule.json"
 node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json"   # table
 ```
 

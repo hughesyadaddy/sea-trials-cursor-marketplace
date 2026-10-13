@@ -8,13 +8,19 @@ changed.
 
 | Need | Tool | Input |
 | --- | --- | --- |
-| Cloud id | `getAccessibleAtlassianResources` | none; pick the site from `sprint.json` |
+| Cloud id | `getAccessibleAtlassianResources` on the `--seatrials` connector | none; pick the entry whose `url` equals `sprint.json.site` (default `https://seatrials.atlassian.net`); stop if none |
 | Epic | `getJiraIssue` | `issueIdOrKey: <epicKey>`, `responseContentFormat: "markdown"` |
 | Stories | `searchJiraIssuesUsingJql` | `parent = <epicKey> ORDER BY rank ASC`, fields `summary,description,status,labels,assignee,<storyPointsFieldId>,issuelinks` |
 | Subtasks | `searchJiraIssuesUsingJql` | `parent = <STORY-KEY> ORDER BY rank ASC` |
 | Legacy epic link | `searchJiraIssuesUsingJql` | `"Epic Link" = <epicKey>` when `parent =` returns nothing on a company-managed project |
 
 Page with `nextPageToken` until exhausted. Do not request totals.
+Request `updated` with every issue and confirm each returned `key` and
+`parent` match the query; a mismatch is a hard stop.
+
+The markdown read here is for the folder copy only. Nothing read as
+markdown is ever written back to Jira as-is; the upload converts the
+folder markdown with `md-to-adf.mjs` (contract 10.6).
 
 ## Mapping Jira to the folder
 
@@ -54,7 +60,7 @@ node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --out /tmp/sprint/payload.json
 ```
 
 Then fill `epic.key`, `stories.<id>.key`, and
-`stories.<id>.subtasks.<subId>.key` from the pull and the matching
-`hash` values from the payload. A correct state file makes the first
+`stories.<id>.subtasks.<subId>.key` from the pull, the matching
+`hash` values from the payload, and each issue's `updated` value. A correct state file makes the first
 `--diff` show everything as `unchanged`; only critic edits should move
 cards to `update`.

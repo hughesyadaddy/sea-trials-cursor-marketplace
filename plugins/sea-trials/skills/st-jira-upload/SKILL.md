@@ -7,7 +7,8 @@ description: >-
   cadence (one epic at a time, spaced writes, working hours). One
   uploader per story in sequence, parallel verifiers, jira_state.json
   written at the end. Use when a sprint folder is ready or has changed
-  cards.
+  cards, or when the user says "upload the sprint", "push the cards to
+  Jira", or "sync the sprint to Jira".
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -39,6 +40,11 @@ afternoon, not a burst.
 - [`references/human-cadence.md`](references/human-cadence.md)
 - [`references/mcp-call-shapes.md`](references/mcp-call-shapes.md)
 - [`references/rest-and-browser-fallbacks.md`](references/rest-and-browser-fallbacks.md)
+
+**Connector:** only the `--seatrials` Atlassian connector on
+`https://seatrials.atlassian.net` (contract header). **Writes:** one
+writer per site, one write at a time, stale check before and read-back
+after every write (contract 10.6).
 
 ## Autonomy
 
@@ -78,11 +84,11 @@ Resolve config (write anything discovered back to `sprint.json`):
 
 | Value | Source, in order |
 | --- | --- |
-| `cloudId` | `sprint.json`, else `getAccessibleAtlassianResources` (match `site`) |
+| `cloudId` | `sprint.json`, else `getAccessibleAtlassianResources` on the `--seatrials` connector (must match `site`; stop if no match) |
 | `projectKey` | `sprint.json` (required) |
 | `storyIssueType`, `subtaskIssueType` | `sprint.json`, else `getJiraProjectIssueTypesMetadata` |
 | `storyPointsFieldId` | `sprint.json`, else `node "$SPRINT/jira-rest.mjs" fields --name "Story point"`, else create one story and read `*all` fields back to find the numeric SP field |
-| `assigneeAccountId` | `sprint.json`, else `lookupJiraAccountId` by the name the user gave, else unassigned |
+| Assignee per story | contract 4.4 routing with ids from `assignees.json`; missing ids via `lookupJiraAccountId`, preferring the account with recent activity, else stop and ask; fallback `sprint.json.assigneeAccountId` |
 | `sprintId` | `sprint.json`, else `jira-rest.mjs sprints <boardId> --state active,future` |
 
 Print the manifest from `--diff` (create / update / unchanged counts).
@@ -97,9 +103,11 @@ Jira but no longer have a markdown card are **orphans**.
 1. List orphans in the summary (key + old summary from `getJiraIssue`).
 2. Ask once via the structured question tool: delete these issues now?
    (Recommended when `_internal/pm/REMOVED-CARDS.md` lists them.)
-3. On yes: delete with REST `jira-rest.mjs delete-issue <KEY> --yes`,
-   MCP v2 `deleteJiraIssue`, or Chrome CDP `DELETE /rest/api/3/issue/KEY`
-   (logged-in browser). Never rename to `[Cancelled]` and leave on the board.
+3. On yes: delete with MCP v2 `deleteJiraIssue` or REST
+   `jira-rest.mjs delete-issue <KEY> --yes`, one at a time with the
+   10.6 protocol. Never delete through a browser; without MCP v2 or REST,
+   list the deletes as manual steps. Never rename to `[Cancelled]` and
+   leave on the board.
 4. Remove orphan keys from `jira_state.json` after successful delete.
 
 ---
@@ -111,8 +119,8 @@ the payload, before the first write:
 
 ```bash
 node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json" \
-  --edit-field labels --json > "$SCRATCH/schedule.json"
-node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json" --edit-field labels
+  --json > "$SCRATCH/schedule.json"
+node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json"
 node "$SPRINT/human-cadence.mjs" window        # exit 3 = closed, prints wait
 ```
 
@@ -125,8 +133,8 @@ What the schedule means for you:
 - Entries are executed **in schedule order**, each no earlier than
   `T0 + startOffsetMs`. `T0` is the wall-clock ISO time of the first
   write; record it in `SCRATCH/T0` and pass it to every worker.
-- A create with `deferField: "labels"` goes out **without** labels; its
-  `<id>#edit` entry sets them later with `editJiraIssue`.
+- Do not pass `--edit-field`: labels and story points always ride on
+  the create or edit with the body, so there are no follow-up edits.
 - Sleeping between calls is done with the script, not by guessing:
   `node "$SPRINT/human-cadence.mjs" wait --start "$T0" --offset <ms>`
   before each write (a plain `sleep N` is acceptable when the script
@@ -169,23 +177,24 @@ different projects or sites, each with its own payload, schedule, and
 
 Slice `schedule.json` **by time, not by story**: the uploader for story
 N gets every entry from N's story card up to the entry before story
-N+1's story card. That slice can include an `<id>#edit` entry from an
-earlier story whose 20-90 s delay lands here; pass it the key from the
-earlier return block. Entries after the last story card go to the
-last uploader.
+N+1's story card. Entries after the last story card go to the last
+uploader. Wait for each uploader to return before starting the next.
 
 Each prompt carries: `SPRINT`, `SCRATCH/<id>/`, payload path, `T0`,
-the schedule slice (id, action, offset, deferField, field), the
+the schedule slice (id, action, offset), the
 resolved config, `epicKey`, the story's buckets from `--diff`, the
-current key map for `Blocked by` resolution, and, for `update` cards,
-one line from `human-cadence.mjs vary comment-opener` per card. Prompt
+current key map for `Blocked by` resolution, the routed assignee and
+labels, each `update` card's recorded `updated` value, and, for
+`update` cards, one line from `human-cadence.mjs vary comment-opener`
+per card. Prompt
 template in `references/mcp-call-shapes.md`.
 
 Worker order inside a story follows the slice: story card, subtasks in
-document order, any `#edit` that lands in the slice, then `Blocks`
+document order, then `Blocks`
 links 3-10 s apart after the last entry. Story points and labels ride
-on the create unless the entry defers labels. Workers call `wait`
-before every write and honour `Retry-After`.
+on the create or edit. Workers call `wait` before every write, run
+the stale check before every edit, read back after every write, and
+honour `Retry-After` (contract 10.6).
 
 Collect return blocks. Any `PARITY: FAIL` or `ERRORS` line: fix the
 markdown or ADF, re-run that one worker with only the failed cards,
@@ -199,11 +208,13 @@ offset at least 20 s after the previous write).
 One `st-jira-verifier` per 10 keys, all in one turn, cheap model.
 Input: keys, `storyPointsFieldId`, and the source markdown per key
 from the payload. Verifiers only read, so they run in parallel with
-no cadence. Verifier checks parity (P1-P3), content (C1-C6), and
+no cadence. Verifier checks parity and identity (P1-P5), content (C1-C6), and
 fields (F1-F5). Any error: fix and re-edit via the uploader on the
 schedule, then re-verify those keys. Do not finish with a known error.
 
-Verifiers are read-only by default. If the person asked for a
+Verifiers are read-only by default. Remark entries (below) go to a
+single verifier run after the parallel reads finish, never to several
+at once (contract 10.6). If the person asked for a
 verification remark on the cards, give each verifier its remark
 entries: key, `T0`, an offset (extend the schedule: 20-45 s apart,
 after the last uploader write), and one verbatim line per card from
@@ -212,7 +223,16 @@ writes a verifier makes and they follow the schedule like any other.
 
 ---
 
-## Phase 5 — Sprint, rank, attachments
+## Phase 5 — Sprint, rank, mockup attachments
+
+Mockups (contract 4.2): for each subtask with files under
+`_internal/mockups/<story>.<subtask>/`, list the issue's attachments
+first and skip any file whose name or sha256 is already there; attach
+the rest to that subtask only, one write at a time, then record the
+attachment ids in `jira_state.json`. Use MCP v2
+`uploadAttachmentToJiraIssue` if present, else `jira-rest.mjs attach`,
+else ask before using the browser operator, else report as manual.
+
 
 Not in MCP v1. Use REST when `JIRA_SITE`, `JIRA_EMAIL`, and
 `JIRA_API_TOKEN` are set:
@@ -228,9 +248,10 @@ person also makes in one go (drag-select in the backlog), so one
 `move-to-sprint` and one rank pass are fine; leave 20-45 s between the
 last card write and the sprint move. If your MCP is v2
 (`manageJiraSprint` present), use it instead of REST. Without either,
-dispatch `st-jira-browser-operator` per
-`references/rest-and-browser-fallbacks.md`, or report the step as
-manual. A card leaving the sprint gets one `vary moved-to-backlog`
+ask once with the structured question tool before dispatching
+`st-jira-browser-operator` per
+`references/rest-and-browser-fallbacks.md`; otherwise report the step
+as manual. A card leaving the sprint gets one `vary moved-to-backlog`
 comment.
 
 ---
@@ -277,8 +298,14 @@ left manual. Offer via the structured question tool:
 - Uploading a folder that fails lint.
 - Adding, dropping, or rewording card content during upload. Fix the
   markdown, re-lint, re-run.
-- Two uploaders into the same project or board at once; any write
-  ahead of its schedule offset; two writes in the same second.
+- More than one Jira writer per site, two writes in flight, any write
+  ahead of its schedule offset, two writes in the same second, an edit
+  without the stale check, or a write without read-back.
+- Any connector other than the `--seatrials` Atlassian connector.
+- Deferred-label edits (`--edit-field`), or writing a body built from a
+  markdown export of the live card.
+- Deleting through a browser.
+- Attaching a mockup to more than one issue or more than once.
 - `--fast` outside `--dry-run` or a `testProjectKeys` project.
 - Writing outside the activity window without `--ignore-hours` from
   the person.

@@ -6,7 +6,9 @@ description: >-
   needed, run parallel critics in fix mode, verify paths against the
   repo, pass lint, then hand off to /st-jira-upload for the changed
   cards only. Use when cards exist but are vague, stale, or fail
-  review.
+  review, or when the user says "refine the sprint", "refine the
+  epic", "clean up the cards", "tighten the stories", or "make the
+  sprint dev-ready".
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -77,8 +79,10 @@ Phase 1.
 
 Follow `references/jira-pull.md`:
 
-1. `getAccessibleAtlassianResources` for `cloudId`; write it to
-   `sprint.json`.
+1. Use only the `--seatrials` Atlassian connector (contract header).
+   `getAccessibleAtlassianResources` for `cloudId`; stop unless an entry
+   has `url == sprint.json.site` (default `https://seatrials.atlassian.net`);
+   write it to `sprint.json`.
 2. `searchJiraIssuesUsingJql` with
    `parent = <epicKey> ORDER BY rank` for stories, then
    `parent = <STORY-KEY>` per story for subtasks. Request
@@ -86,8 +90,10 @@ Follow `references/jira-pull.md`:
    safe.
 3. Write each story to `NN-usN-<slug>.md` in the contract shape.
    Put the Jira key on the metadata line (`**Jira:** <KEY>`) and record
-   keys and hashes in `jira_state.json` so the upload later edits
-   rather than creates.
+   keys, hashes, and each issue's `updated` in `jira_state.json` so the
+   upload later edits rather than creates and can run the stale check
+   (contract 10.6). Check every returned issue's `key` and `parent`
+   match what you asked for; a mismatch is a hard stop.
 4. Anything in a Jira card that the template has no section for goes
    under `## Context`; nothing is dropped.
 
@@ -106,8 +112,7 @@ rg -o '`[^`]+\.[a-z]{1,5}`' "<folder>" | sort -u
 
 Launch one read-only explorer per 20 paths (cheap model; dispatch
 table in the contract, section 12) to confirm each exists or is
-marked `new`, and to read the repo's conventions file for exact test
-commands. Merge into a `Path | Exists | Note` table for the critics.
+marked `new`. Merge into a `Path | Exists | Note` table for the critics.
 
 ---
 
@@ -115,9 +120,14 @@ commands. Merge into a `Path | Exists | Note` table for the critics.
 
 Walk every story with `sprint-dev-voice.md`:
 
-- Remove subtasks or whole stories that are not user-visible defects,
-  product-declined behaviour, audit/capture homework, or token-only
-  polish without product sign-off.
+- Remove subtasks or whole stories that are not real work: product-
+  declined behaviour, audit/capture homework, token-only polish without
+  product sign-off, and testing tasks (test plans, checks, gates, QA
+  passes, soak periods).
+- **Keep** mockup and attach-image subtasks (contract 4.2); never cull
+  them.
+- Apply assignment routing and labels (contract 4.4) and config
+  delivery rules (contract 4.3).
 - Record removals in `<folder>/_internal/pm/REMOVED-CARDS.md` (create
   `pm/` if needed). Do not replace removed cards with softer wording.
 - Renumber subtasks contiguously in markdown. Update epic Stories SP
@@ -131,8 +141,10 @@ renamed `[Cancelled]`.
 ## Phase 3 — Critics in fix mode, in parallel
 
 One `st-sprint-critic` per story, `MODE: fix`, one turn, batch by 16
-on Cursor. Prompt: repo path, folder, file, the path table, the exact
-test commands, the epic goal, sibling titles, and the full contract
+on Cursor, on the cheap model (`composer-2.5` on Cursor, `haiku` on
+Claude Code); re-run one story on the parent's model only when its
+verdict is disputed. Prompt: repo path, folder, file, the path table, the
+routing rules (contract 4.4), the epic goal, sibling titles, and the full contract
 text. Use `references/refine-checklist.md` as the extra lens list
 (strip-list for legacy sections, kind-specific expectations).
 
@@ -171,6 +183,12 @@ before/after lint counts. Then offer via the structured question tool:
 ## Forbidden
 
 - Any Jira write from this skill. Reads only (deletes happen in upload).
+- Any connector other than the `--seatrials` Atlassian connector.
+- Writing a Jira body from a markdown export of the live card; the
+  upload builds bodies from the folder markdown only.
+- Culling mockup or attach-image subtasks.
+- Adding testing tasks, Test plan sections, or command AC.
+- PR review loops for sprint-doc commits (contract 11).
 - Rewording a non-defect into a weaker AC instead of deleting the card.
 - Deleting content from a card because it lacks a template slot;
   move it to Context instead.

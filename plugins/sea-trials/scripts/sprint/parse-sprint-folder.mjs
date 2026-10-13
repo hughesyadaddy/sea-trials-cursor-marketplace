@@ -41,6 +41,9 @@ import {
   PROCESS_META_RE,
   REL_LINK_RE,
   VAGUE_RULES,
+  TESTING_PHRASE_RULES,
+  TEST_PLAN_HEADING_RE,
+  COMMAND_AC_RE,
 } from './sprint-lint-rules.mjs';
 
 // ===========================================================================
@@ -553,7 +556,34 @@ function lintText(text, where, findings) {
         });
       }
     }
+    if (TEST_PLAN_HEADING_RE.test(line.trim())) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: "Test plan" section ` +
+          `(no testing work on cards): ${snippet(line)}`,
+      });
+    }
+    for (const [re, label] of TESTING_PHRASE_RULES) {
+      if (re.test(scan) && !TEST_PLAN_HEADING_RE.test(line.trim())) {
+        findings.push({
+          level: 'error',
+          where,
+          message: `line ${i + 1}: testing work "${label}" (not on cards): ${snippet(line)}`,
+        });
+      }
+    }
     const task = TASK_ITEM_RE.exec(line);
+    if (task && COMMAND_AC_RE.some((re) => re.test(line))) {
+      findings.push({
+        level: 'error',
+        where,
+        message:
+          `line ${i + 1}: command-style AC ` +
+          `(write Given/When/Then product behaviour): ${snippet(line)}`,
+      });
+    }
     if (task && task[2].length > MAX_TASK_ITEM_CHARS) {
       findings.push({
         level: 'warn',

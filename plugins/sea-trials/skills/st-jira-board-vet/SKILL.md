@@ -6,7 +6,9 @@ description: >-
   markdown links, template leftovers, banned phrasing, unassigned or
   stale status, status that disagrees with the branch), then fix in
   place or report. Parallel verifiers and critics. Use mid-sprint or
-  before planning.
+  before planning. Also when the user says
+  "vet the board", "check the sprint board", or "audit the Jira
+  cards".
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -115,10 +117,14 @@ when done.
 For each card with C-class errors, dispatch one `st-sprint-critic` in
 `MODE: fix` on a temp markdown copy of the card:
 
-1. `getJiraIssue` with `responseContentFormat: "markdown"` and write
-   the body to `/tmp/vet/<KEY>.md` with the summary as H1.
-2. Critic fixes in place against the contract (paths verified in the
-   repo when one is available).
+1. Source markdown: when a sprint folder exists for this epic, copy the
+   card from the folder file (never from Jira). With no folder, read
+   the card with `responseContentFormat: "markdown"` for the critic
+   **in report mode only**, and list the fix as a manual step: a body
+   is never written back from a markdown export of the live card
+   (contract 10.6).
+2. Critic fixes the folder copy in place against the contract (paths
+   verified in the repo when one is available).
 3. `node "$SPRINT/md-to-adf.mjs" /tmp/vet/<KEY>.md --strip-h1 --out
    /tmp/vet/<KEY>.adf.json`, then `editJiraIssue` with
    `contentFormat: "adf"` and `fields.description` set to the object.
@@ -126,7 +132,9 @@ For each card with C-class errors, dispatch one `st-sprint-critic` in
    sized the card.
 4. Read back; parity per contract 10.3 against `/tmp/vet/<KEY>.md`.
 
-Space edits 2-8 s apart; cap 4 concurrent writers. When a sprint
+One writer per site, one edit at a time, stale check before and
+read-back after every edit (contract 10.6), 2-8 s apart. Labels and
+story points go in the same edit as the body. When a sprint
 folder exists for this epic, also apply the same edit to the story
 file and update `jira_state.json` hash so the next upload does not
 revert it.

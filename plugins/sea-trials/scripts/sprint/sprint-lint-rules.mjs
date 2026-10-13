@@ -76,5 +76,27 @@ export const CONTRACT_PHRASE_RULES = [
   [/\[Cancelled\]/i, 'Cancelled prefix'],
 ];
 
+/**
+ * No testing work on cards (contract §4): testing words anywhere in prose,
+ * plus command-style task items. `## Test plan` headings are checked
+ * separately in parse-sprint-folder.mjs.
+ */
+export const TESTING_PHRASE_RULES = [
+  [/\bsoak(?:ing)?(?: period| test)?\b/i, 'soak period'],
+  [/\bsmoke[- ]test/i, 'smoke test'],
+  [/\bQA pass\b/i, 'QA pass'],
+  [/\btest plan\b/i, 'test plan'],
+];
+
+/** `## Test plan` (any level 2-4 heading) or bold `**Test plan**` label. */
+export const TEST_PLAN_HEADING_RE = /^(?:#{2,4}\s+|\*\*)test plan\b/i;
+
+/** Command-style AC: "exits 0", "tests pass", or a task item that is only a backticked command. */
+export const COMMAND_AC_RE = [
+  /\bexits?(?: with)?(?: code| status)? 0\b/i,
+  /\b(?:all )?tests? (?:pass|passes|are green)\b/i,
+  /^\s*[-*+]\s+\[[ xX]\]\s+`[^`]+`\s*(?:runs?|succeeds?|passes|is green)?\.?\s*$/i,
+];
+
 export const MAX_TASK_ITEM_CHARS = 200;
 export const MAX_STORY_DESCRIPTION_CHARS = 6000;

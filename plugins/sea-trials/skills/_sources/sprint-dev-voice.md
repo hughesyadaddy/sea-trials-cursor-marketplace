@@ -18,7 +18,7 @@ we will change, how we know we are done.
 | `[text](./other-file.md)` or any relative link | Copy the one sentence the reader needs inline |
 | Links to `_internal/`, `docs/reviews/`, `docs/plan/`, `sprint_planning/` | Keep that material out of Jira; PM keeps it locally |
 | “See subtask 1.2”, “after US3”, “open SUBTASK-INDEX” | Put sequencing in the epic **Recommended merge order** only |
-| Screenshots, PNGs, attachments, “upload to Jira” | Not dev work; PM attaches separately if needed |
+| Screenshot proof, PNG evidence, “upload to Jira” in card text | Not dev work. Mockups are attached by the uploader per contract 4.2 |
 | “PM sign-off after recapture”, audit pipeline, matrix | Either the story is **ready** with clear AC, or it stays out of the sprint |
 
 Allowed URLs: the live product (`https://…`), Figma, or an external API
@@ -89,13 +89,16 @@ Use computed RGB / hex in AC **only** when:
 - Contrast failure (text literally hard to read), or
 - Product explicitly signed off on an exact brand color mismatch.
 
-One `npm run lint && npm run typecheck` (or repo equivalent) AC per
-story is enough. Do not paste `rg` verification tables on every subtask.
+No command AC (no `npm run lint`, no "exits 0"). Do not paste `rg`
+verification tables on any card.
 
 ## What never belongs on a dev card
 
-- Capture screenshots, run Chrome matrix, upload attachments, annotate
-  PNGs, “verify on Jira”, adversarial review, or audit synthesis.
+- Capture evidence screenshots, run Chrome matrix, annotate PNGs,
+  “verify on Jira”, adversarial review, or audit synthesis. (Mockup
+  attachment subtasks under contract 4.2 are kept.)
+- Testing tasks, test plans, “command exits 0” AC, checks, gates, QA
+  passes, or soak periods.
 - Research spikes, spikes dressed as subtasks, or “confirm with design”.
 - Links to `_internal/`, `docs/reviews/raw/`, plan docs, or transcripts.
 - `[Cancelled]` summary prefixes instead of deleting the Jira issue.
@@ -125,8 +128,9 @@ Dev-facing root stays short. Evidence stays under `_internal/`.
 1. Delete the story or subtask markdown (or move story to
    `_internal/deferred-stories/` with a one-line reason).
 2. Append a row to `_internal/pm/REMOVED-CARDS.md` (key, was, why).
-3. On Jira sync: **delete the issue** (REST `delete-issue --yes`, MCP
-   v2 `deleteJiraIssue`, or Chrome CDP DELETE on `/rest/api/3/issue/KEY`).
+3. On Jira sync, after one structured confirmation: **delete the issue**
+   (MCP v2 `deleteJiraIssue` or REST `delete-issue --yes`). Never delete
+   through a browser; report it as a manual step instead.
    Never leave `[Cancelled]` ghosts for “we decided this isn’t work.”
 4. Renumber remaining subtasks in markdown; fix `jira_state.json` /
    upload state marker map so export keys stay aligned.

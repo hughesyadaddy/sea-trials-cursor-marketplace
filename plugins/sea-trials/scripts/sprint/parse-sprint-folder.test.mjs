@@ -600,3 +600,30 @@ test('warn: zero subtasks and missing subtask SP', () => {
   });
   assert.deepEqual(messages(storyNoSp, 'warn'), []);
 });
+
+test('error: testing work on cards (Test plan, command AC, soak, QA pass)', () => {
+  const findings = lintOf({
+    '01-us1-a.md':
+      `# T\n\n${AC}- [ ] \`pnpm test\` exits 0\n- [ ] All tests pass\n\n` +
+      '## Test plan\n\n- Run it after a 48h soak period and a QA pass.\n\n' +
+      '## Subtask 1.1: S\n- [ ] `flutter test`\n',
+  });
+  const errs = messages(findings, 'error');
+  assert.ok(errs.some((m) => m.includes('"Test plan" section')), errs.join('\n'));
+  assert.ok(errs.filter((m) => m.includes('command-style AC')).length >= 3, errs.join('\n'));
+  assert.ok(errs.some((m) => m.includes('soak period')));
+  assert.ok(errs.some((m) => m.includes('QA pass')));
+});
+
+test('clean: Given/When/Then AC raises no testing errors', () => {
+  const findings = lintOf({
+    '01-us1-a.md':
+      '# T\n\n## Acceptance criteria\n\n' +
+      '- [ ] Given an unpaid invoice, when I tap Download PDF, then the PDF opens.\n\n' +
+      '## Subtask 1.1: S\n- [ ] Given the list, when I scroll, then rows load.\n',
+  });
+  assert.deepEqual(
+    messages(findings, 'error').filter((m) => /testing|command-style|Test plan/.test(m)),
+    [],
+  );
+});

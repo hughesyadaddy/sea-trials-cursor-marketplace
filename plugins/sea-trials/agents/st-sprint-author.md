@@ -47,14 +47,14 @@ and list the gap in your return block. Never ask the user.
    is the defect (see sprint-dev-voice).
 5. Titles and **Done when** use plain English about what the user sees.
    Never put React prop names (`iconLeft`, `theme=`) in a title.
-6. Do not author capture, audit, screenshot, attachment, or research
-   subtasks. If the brief only yields token-hygiene with no user-visible
+6. Do not author evidence-capture, audit, or research subtasks
+   (mockup subtasks per contract 4.2 are fine). If the brief only yields token-hygiene with no user-visible
    bug, omit that slice entirely.
-7. Write the test plan with exact commands from the repo's documented
-   conventions file (`repoConventionsPath` in `sprint.json`). If the
-   repo has no such file, use the commands its package manager and
-   test runner actually expose (`package.json` scripts, `pubspec`,
-   `Makefile`).
+7. No testing work on the card: no Test plan section, no testing
+   subtasks, no command AC ("exits 0"), no checks, gates, QA passes, or
+   soak periods. UI changes get a mockup subtask per contract 4.2;
+   config changes publish a new revision via S3 (contract 4.3); set
+   `**Labels:**` per routing (contract 4.4).
 8. Fill Out of scope with the two or three things a reader would
    otherwise assume are included (include dark-mode color exclusions
    when product accepts current treatment).
