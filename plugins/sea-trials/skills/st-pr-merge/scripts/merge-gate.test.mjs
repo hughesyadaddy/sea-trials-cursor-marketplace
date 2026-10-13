@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  EXIT, buildMergeArgs, checkMigrations, classifyChecks, classifyThreads,
-  evaluate, parseArgs, runGate,
+  EXIT, buildMergeArgs, checkMigrations, checkRenames, classifyChecks, classifyThreads,
+  evaluate, parseArgs, runGate, targetEnvFor,
 } from './merge-gate.mjs';
 
 const pr = (o = {}) => ({ number: 7, state: 'OPEN', isDraft: false, headRefOid: 'abc123', headRefName: 'f', baseRefName: 'dev', mergeable: 'MERGEABLE', mergeStateStatus: 'CLEAN', ...o });
@@ -105,5 +105,94 @@ test('late-registering check during settle prevents merge', () => {
 test('dry-run never merges', () => {
   const { gh, calls } = fakeGh({ pr: () => pr(), checks: () => [run('a')] });
   assert.equal(runGate({ ...baseOpts, dryRun: true }, gh, () => {}).verdict.exit, EXIT.OK);
+  assert.ok(!calls.some((c) => c[1] === 'merge'));
+});
+
+// ------------------------------------------------ renames vs applied migrations
+const D = 'supabase/migrations';
+const ren = (o, n) => ({ status: 'renamed', oldFile: `${D}/${o}`, newFile: `${D}/${n}` });
+const dev = targetEnvFor('feat/rich-content');
+
+test('base → migration DB mapping (unknown base unmapped)', () => {
+  assert.equal(targetEnvFor('feat/rich-content').ref, 'jchyjnxcnukbsmlsolha');
+  assert.equal(targetEnvFor('dev').ref, 'jchyjnxcnukbsmlsolha');
+  assert.equal(targetEnvFor('stg').ref, 'lbypalsqrvpwfxofqciz');
+  assert.equal(targetEnvFor('main').ref, 'oulpgrsifasfsvkrjnrn');
+  assert.equal(targetEnvFor('cursor/some-branch'), null);
+  assert.equal(targetEnvFor('constructor'), null);
+});
+test('rename of a never-applied migration is allowed and logged', () => {
+  const r = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013220500_a.sql')], env: dev, baseRef: 'feat/rich-content', applied: () => ({ applied: new Set(), maxApplied: '20261013220000' }) });
+  assert.equal(r.ok, true);
+  assert.equal(r.allowed.length, 1);
+  assert.match(r.allowed[0], /20261013140000 never applied on Dev/);
+});
+test('rename or delete of an applied migration is blocked', () => {
+  const r = checkRenames({ changes: [ren('20261013220000_b.sql', '20261013221000_b.sql'), { status: 'removed', oldFile: `${D}/20261012000000_c.sql` }], env: dev, baseRef: 'dev', applied: () => ({ applied: new Set(['20261013220000', '20261012000000']), maxApplied: '20261013220000' }) });
+  assert.equal(r.ok, false);
+  assert.equal(r.problems.length, 2);
+  assert.match(r.problems[0], /is applied on Dev/);
+  assert.match(r.problems[1], /deleted .* is applied on Dev/);
+});
+test('unreachable DB fails closed', () => {
+  const r = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013220500_a.sql')], env: dev, baseRef: 'dev', applied: () => { throw new Error('HTTP 401'); } });
+  assert.equal(r.ok, false);
+  assert.match(r.problems[0], /cannot read Dev .*fail closed/);
+});
+test('unmapped base fails closed without querying', () => {
+  let called = false;
+  const r = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013220500_a.sql')], env: null, baseRef: 'cursor/x', applied: () => { called = true; return { applied: new Set(), maxApplied: '0' }; } });
+  assert.equal(r.ok, false); assert.equal(called, false);
+  assert.match(r.problems[0], /no mapped migration DB/);
+});
+test('rename target colliding with base or another open PR is blocked', () => {
+  const base = ['20261013140000_a.sql', '20261013220500_other.sql'];
+  const r1 = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013220500_a.sql')], env: dev, baseRef: 'dev', applied: () => ({ applied: new Set(), maxApplied: '0' }), baseNames: base });
+  assert.match(r1.problems[0], /already used on base/);
+  const r2 = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013220500_a.sql')], env: dev, baseRef: 'dev', applied: () => ({ applied: new Set(), maxApplied: '0' }), others: [{ number: 9, files: [`${D}/20261013220500_z.sql`] }] });
+  assert.match(r2.problems[0], /open PR #9/);
+});
+
+function migGh(state, files) {
+  const inner = fakeGh(state);
+  const gh = (args) => {
+    if (args[0] === 'api' && args.some((a) => /pulls\/7\/files/.test(a))) return { status: 0, stdout: JSON.stringify([files]), stderr: '' };
+    if (args[0] === 'api' && args.some((a) => /contents\//.test(a))) return { status: 0, stdout: JSON.stringify([{ name: '20261013140000_a.sql' }]), stderr: '' };
+    if (args[0] === 'pr' && args[1] === 'list') return { status: 0, stdout: '[]', stderr: '' };
+    return inner.gh(args);
+  };
+  return { gh, calls: inner.calls };
+}
+const renamedFiles = [{ status: 'renamed', previous_filename: `${D}/20261013140000_a.sql`, filename: `${D}/20261013220500_a.sql` }];
+test('gate end-to-end: never-applied rename passes (dry-run), applied rename blocks', () => {
+  const st = { pr: () => pr({ baseRefName: 'feat/rich-content' }), checks: () => [run('a')] };
+  const o = { ...baseOpts, migrations: true, migrationsDir: D, dryRun: true };
+  let seen;
+  const ok = runGate(o, migGh(st, renamedFiles).gh, () => {}, (env, v) => { seen = [env.ref, v]; return { applied: new Set(), maxApplied: '20261013220000' }; });
+  assert.equal(ok.verdict.exit, EXIT.OK);
+  assert.deepEqual(seen, ['jchyjnxcnukbsmlsolha', ['20261013140000']]);
+  assert.equal(ok.migrations.renames.length, 1);
+  const bad = runGate(o, migGh(st, renamedFiles).gh, () => {}, () => ({ applied: new Set(['20261013140000']), maxApplied: '20261013220000' }));
+  assert.equal(bad.verdict.exit, EXIT.MIGRATIONS);
+  const down = runGate(o, migGh(st, renamedFiles).gh, () => {}, () => { throw new Error('ECONNREFUSED'); });
+  assert.equal(down.verdict.exit, EXIT.MIGRATIONS);
+});
+
+test('rename destination must be newer than latest applied on the target DB', () => {
+  const r = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013150000_a.sql')], env: dev, baseRef: 'dev', applied: () => ({ applied: new Set(), maxApplied: '20261013220000' }) });
+  assert.match(r.problems[0], /not newer than the latest migration applied on Dev/);
+});
+test('rename destination colliding with another claim in the same PR is blocked', () => {
+  const r = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013230000_a.sql'), ren('20261013141000_b.sql', '20261013230000_b.sql')], env: dev, baseRef: 'dev', applied: () => ({ applied: new Set(), maxApplied: '0' }) });
+  assert.equal(r.ok, false); assert.match(r.problems[0], /more than once/);
+  const r2 = checkRenames({ changes: [ren('20261013140000_a.sql', '20261013230000_a.sql')], addedFiles: [`${D}/20261013230000_new.sql`], env: dev, baseRef: 'dev', applied: () => ({ applied: new Set(), maxApplied: '0' }) });
+  assert.match(r2.problems[0], /more than once/);
+});
+test('applied history is re-read right before merging', () => {
+  let n = 0;
+  const st = { pr: () => pr({ baseRefName: 'feat/rich-content' }), checks: () => [run('a')] };
+  const { gh, calls } = migGh(st, renamedFiles);
+  const r = runGate({ ...baseOpts, migrations: true, migrationsDir: D }, gh, () => {}, () => (n++ === 0 ? { applied: new Set(), maxApplied: '20261013220000' } : { applied: new Set(['20261013140000']), maxApplied: '20261013220000' }));
+  assert.equal(r.verdict.exit, EXIT.MIGRATIONS);
   assert.ok(!calls.some((c) => c[1] === 'merge'));
 });
