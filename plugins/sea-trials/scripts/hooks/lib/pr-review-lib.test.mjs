@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  parseCiChecksGhSpawnResult,
   GraphqlRateLimitedError,
   commentDatabaseId,
   countBotThreads,
@@ -322,4 +323,15 @@ test('filterPrGateChecks keeps only PR Checks workflow', () => {
   const gated = filterPrGateChecks(checks);
   assert.equal(gated.length, 1);
   assert.equal(gated[0].name, 'dart-static');
+});
+
+test('parseCiChecksGhSpawnResult gates on all checks when PR Checks is absent (stacked PR)', () => {
+  const stdout = JSON.stringify([
+    { name: 'test', workflow: 'spell_checker', bucket: 'pass' },
+    { name: 'guard', workflow: 'Main Guardrails', bucket: 'pass' },
+  ]);
+  const ci = parseCiChecksGhSpawnResult({ status: 0, stdout, stderr: '' });
+  assert.equal(ci.total, 2);
+  assert.equal(ci.ok, true);
+  assert.equal(ci.awaiting, false);
 });

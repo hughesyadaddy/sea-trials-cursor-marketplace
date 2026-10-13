@@ -496,7 +496,11 @@ export function parseCiChecksGhSpawnResult(result) {
     }
   }
 
-  const checks = filterPrGateChecks(allChecks);
+  // Stacked PRs (base = another feature branch) never run the PR Checks
+  // workflow; waiting for it would report "CI pending" forever. When no
+  // PR Checks job exists, gate on every reported check instead.
+  const prGate = filterPrGateChecks(allChecks);
+  const checks = prGate.length > 0 ? prGate : allChecks;
   const excludedCount = allChecks.length - checks.length;
 
   const failed = checks.filter((c) => c.bucket === 'fail' || c.bucket === 'cancel');
