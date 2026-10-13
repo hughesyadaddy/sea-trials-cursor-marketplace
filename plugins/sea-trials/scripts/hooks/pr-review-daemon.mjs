@@ -3,9 +3,9 @@
  * 24h PR review daemon — never exits on handoff; wakes the parent agent
  * via deduped sentinels and signal files.
  *
- *   pnpm pr-review-daemon -- --pr <n>
- *   pnpm pr-review-daemon -- --pr <n> --no-webhook
- *   pnpm pr-review-daemon -- --pr <n> --duration 24h
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemon.mjs --pr <n>
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemon.mjs --pr <n> --no-webhook
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemon.mjs --pr <n> --duration 24h
  *
  * Sentinels (grep / Await-friendly):
  *   >>> ACTION: ci-fail|threads …
@@ -22,8 +22,6 @@ import {
   createGhAdapter,
   createSettledPoller,
   createWakeableSleep,
-  spawnWebhookForwarder,
-  startWebhookReceiver,
 } from './lib/bot-review-settled.mjs';
 import {
   acquirePidLock,
@@ -37,16 +35,21 @@ import {
   releasePidLock,
 } from './lib/pr-review-daemon-lib.mjs';
 import {
-  GraphqlRateLimitedError,
   buildReviewSnapshot,
   getRepoRoot,
   parsePrArgs,
+  pruneClosedReviewArtifacts,
   resolveGithubOwnerRepo,
   reviewPaths,
   silenceWindowStartIso,
-  writeJson,
-  writeReviewState,
 } from './lib/pr-review-lib.mjs';
+import {
+  createFullSnapshot,
+  createRefreshThreads,
+  createWriteQueue,
+  settledConfigFromArgs,
+  startReviewWebhook,
+} from './lib/review-loop-watch.mjs';
 
 const repoRoot = getRepoRoot();
 const argv = process.argv.slice(2).filter((a) => a !== '--');
@@ -99,78 +102,6 @@ function logLine(line) {
   process.stdout.write(`${row}\n`);
 }
 
-function settledConfig() {
-  /** @type {Record<string, number>} */
-  const cfg = {};
-  if (args.silenceExplicit && Number.isFinite(args.silenceMin)) {
-    cfg.maxSilenceMs = args.silenceMin * 60_000;
-    cfg.reviewCapMs = Math.min(25 * 60_000, cfg.maxSilenceMs);
-  } else {
-    cfg.maxSilenceMs = 30 * 60_000;
-  }
-  if (args.intervalExplicit && Number.isFinite(args.intervalSec)) {
-    cfg.reviewPollMs = args.intervalSec * 1000;
-    cfg.ackPollMs = Math.min(15_000, cfg.reviewPollMs);
-  }
-  return cfg;
-}
-
-function writeQueue(snapshot, kind, extra) {
-  writeJson(paths.queue, {
-    pr: prNumber,
-    at: snapshot.at,
-    head: snapshot.pr.headRefOid,
-    kind,
-    ...extra,
-  });
-  logLine(`queue: ${paths.queue}`);
-}
-
-/**
- * @param {ReturnType<typeof createSettledPoller> | null} poller
- */
-function fullSnapshot(poller) {
-  const snapshot = buildReviewSnapshot(repoRoot, prNumber);
-  if (poller) snapshot.settled = poller.snapshot();
-  writeReviewState(paths.state, snapshot);
-  return snapshot;
-}
-
-async function startWebhook(repo, wake) {
-  if (!webhookEnabled) return null;
-  try {
-    const receiver = await startWebhookReceiver({
-      port: args.webhookPort ?? 0,
-      onEvent: (event) => {
-        logLine(`webhook: ${event} → poll now`);
-        wake();
-      },
-    });
-    const forwarder = await spawnWebhookForwarder({
-      repo,
-      url: receiver.url,
-      log: logLine,
-    });
-    if (!forwarder.ok) {
-      logLine(`webhook unavailable (${forwarder.reason}); polling only`);
-      await receiver.close();
-      return null;
-    }
-    logLine(
-      `webhook: forwarding ${repo.owner}/${repo.name} → ${receiver.url}`,
-    );
-    return {
-      stop: async () => {
-        forwarder.stop();
-        await receiver.close();
-      },
-    };
-  } catch (err) {
-    logLine(`webhook setup failed (${err.message}); polling only`);
-    return null;
-  }
-}
-
 async function main() {
   initPaths();
   const lock = acquirePidLock(paths.pid);
@@ -179,12 +110,31 @@ async function main() {
     process.exit(1);
   }
 
-  const onExit = () => {
+  const releaseLock = () => {
     releasePidLock(paths.pid);
   };
-  process.on('SIGINT', onExit);
-  process.on('SIGTERM', onExit);
-  process.on('exit', onExit);
+  process.on('exit', releaseLock);
+  process.once('SIGINT', () => {
+    releaseLock();
+    process.exit(130);
+  });
+  process.once('SIGTERM', () => {
+    releaseLock();
+    process.exit(143);
+  });
+
+  const writeQueue = createWriteQueue({
+    prNumber,
+    queuePath: paths.queue,
+    logLine,
+  });
+
+  const fullSnapshot = createFullSnapshot({
+    buildReviewSnapshot,
+    repoRoot,
+    prNumber,
+    statePath: paths.state,
+  });
 
   const emitter = createDedupEmitter({
     signalFile: paths.signal,
@@ -193,7 +143,30 @@ async function main() {
   });
 
   const repo = resolveGithubOwnerRepo(repoRoot);
-  const initial = fullSnapshot(null);
+  const pruned = pruneClosedReviewArtifacts(repoRoot, {
+    activePrNumbers: [prNumber],
+  });
+  if (pruned.pruned.length > 0) {
+    logLine(`pruned stale review artifacts for PR(s): ${pruned.pruned.join(', ')}`);
+  }
+  const cfg = settledConfigFromArgs(args);
+  const sleeper = createWakeableSleep();
+  const deadline = Date.now() + durationMs;
+
+  /** @type {ReturnType<typeof fullSnapshot>} */
+  let initial;
+  while (true) {
+    try {
+      initial = fullSnapshot(null);
+      break;
+    } catch (err) {
+      logLine(
+        `initial-snapshot-error: ${err.message} — retry in 60s`,
+      );
+      await sleeper.sleep(60_000);
+    }
+  }
+
   const pushIso = silenceWindowStartIso(
     repoRoot,
     prNumber,
@@ -201,9 +174,6 @@ async function main() {
     initial.pr.headRefName,
   );
   const t0 = new Date(pushIso).getTime();
-  const cfg = settledConfig();
-  const sleeper = createWakeableSleep();
-  const deadline = Date.now() + durationMs;
 
   let latest = initial;
   let rateLimitedUntil = 0;
@@ -211,32 +181,20 @@ async function main() {
   let pendingHandoff = null;
 
   /** @type {ReturnType<typeof createSettledPoller> | null} */
-  let poller = null;
+  const pollerRef = { current: null };
 
-  const refreshThreads = () => {
-    try {
-      latest = fullSnapshot(poller);
-      return {
-        head: latest.pr.headRefOid,
-        unresolvedThreads: latest.threads.unresolvedCount,
-        unresolvedBotThreads: latest.threads.unresolvedBotCount,
-        ciPending: latest.ci.hasPending,
-        ciFailed: latest.ci.hasFailure,
-        rateLimit: latest.rateLimit ?? null,
-      };
-    } catch (err) {
-      if (err instanceof GraphqlRateLimitedError) {
-        const resetAt = err.rateLimit?.resetAt;
-        rateLimitedUntil = resetAt
-          ? new Date(resetAt).getTime()
-          : Date.now() + 60_000;
-        return { rateLimited: true, rateLimit: err.rateLimit ?? null };
-      }
-      throw err;
-    }
-  };
+  const refreshThreads = createRefreshThreads({
+    fullSnapshot,
+    pollerRef,
+    onSnapshot: (snap) => {
+      latest = snap;
+    },
+    onRateLimited: (untilMs) => {
+      rateLimitedUntil = untilMs;
+    },
+  });
 
-  poller = createSettledPoller({
+  pollerRef.current = createSettledPoller({
     repo,
     prNumber,
     head: initial.pr.headRefOid,
@@ -248,7 +206,14 @@ async function main() {
     log: logLine,
   });
 
-  const webhook = await startWebhook(repo, () => sleeper.wake());
+  const webhook = await startReviewWebhook({
+    enabled: webhookEnabled,
+    webhookPort: args.webhookPort,
+    repo,
+    wake: () => sleeper.wake(),
+    logLine,
+    webhookLogLabel: 'poll now',
+  });
 
   logLine(
     `DAEMON pr=${prNumber} head=${initial.pr.headRefOid.slice(0, 7)} `
@@ -257,8 +222,6 @@ async function main() {
   );
   logLine(`log: ${paths.daemonLog}`);
   logLine(`signal: ${paths.signal}`);
-
-  let iterationStartedAt = Date.now();
 
   while (Date.now() < deadline) {
     if (pendingHandoff && hasHandoffAck(paths.handoffAck)) {
@@ -269,18 +232,19 @@ async function main() {
     }
 
     let result;
+    let machine;
     try {
-      result = poller.poll();
+      result = pollerRef.current.poll();
+      ({ machine } = result);
+      latest = fullSnapshot(pollerRef.current);
     } catch (err) {
       logLine(`poll-error: ${err.message} — retry in 60s`);
       await sleeper.sleep(60_000);
       continue;
     }
 
-    const { machine } = result;
-    latest = fullSnapshot(poller);
     if (json) {
-      process.stdout.write(`${JSON.stringify(poller.snapshot())}\n`);
+      process.stdout.write(`${JSON.stringify(pollerRef.current.snapshot())}\n`);
     }
 
     const classified = classifyMonitorState(latest, machine.state);
@@ -329,7 +293,6 @@ async function main() {
       waitMs = Math.max(waitMs, rateLimitedUntil - Date.now());
     }
 
-    iterationStartedAt = Date.now();
     await sleeper.sleep(waitMs);
   }
 

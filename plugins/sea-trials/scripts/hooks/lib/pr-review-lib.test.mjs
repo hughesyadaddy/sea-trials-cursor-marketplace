@@ -303,7 +303,7 @@ test('reviewArtifactPaths derives artifact dir from PR head branch', () => {
   );
   assert.equal(
     paths.artifactDir,
-    path.join('docs', 'code-review', 'fix-ai-assistant-online-path-and-loading-ux'),
+    path.join('docs', 'code-review', 'fix-ai-assistant-online-path-and-loading-ux-pr-1553'),
   );
   assert.equal(paths.loopLog, path.join(paths.artifactDir, 'pr-1553-loop-log.txt'));
 });

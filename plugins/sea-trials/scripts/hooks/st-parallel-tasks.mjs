@@ -5,9 +5,9 @@
  * Delegates push-gate tasks to pr-review-push --list-tasks (canonical).
  * Review adversarial tasks remain a separate phase.
  *
- *   pnpm st-parallel-tasks -- --pr 1657
- *   pnpm st-parallel-tasks -- --pr 1657 --phases review
- *   pnpm st-parallel-tasks -- --pr 1657 --granularity fine
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs --pr 1657
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs --pr 1657 --phases review
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs --pr 1657 --granularity fine
  *
  * Every field the upstream emitters put on a task line — including
  * `subagent_type`, `model`, `claudeModel` — is forwarded untouched; this

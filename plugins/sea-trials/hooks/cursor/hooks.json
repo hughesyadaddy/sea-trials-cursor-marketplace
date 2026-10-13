@@ -13,6 +13,12 @@
         "matcher": "git[\\s\\S]*push",
         "timeout": 10,
         "failClosed": true
+      },
+      {
+        "command": "node ./hooks/scripts/guard-gh-merge.mjs",
+        "matcher": "gh[\\s\\S]*merge",
+        "timeout": 10,
+        "failClosed": true
       }
     ]
   }

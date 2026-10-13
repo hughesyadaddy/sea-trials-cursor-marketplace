@@ -41,6 +41,28 @@ checkout clean and fully pushed when done.
    — the loop itself. **Follow it exactly.** This file only adds the
    in-place mode rules below; it never overrides the body.
 
+## Run modes (pick one, state it in the report)
+
+| Mode | When | Monitor |
+| --- | --- | --- |
+| **Interactive** | Local Cursor chat, user present | In-chat daemon + `Await` (below) |
+| **Event round** | Cloud agent started by an Automation / API on a review, CI or push event | **No daemon.** Steps 0→6 once for the current HEAD, then exit `0` with state written. The next GitHub event starts the next round. |
+
+Event-round rules: finish within the cloud-agent budget (target ≤45
+min/round); never sleep waiting for Codex — the "PR review submitted" /
+"CI completed" trigger wakes the next round; write
+`docs/code-review/<scope>/pr-review-state.json` before exiting; a failed
+or timed-out round is simply retried by the next trigger (idempotent,
+Step 0).
+
+## Tool paths
+
+Resolve `$ST_*` with the block in
+`references/shared/review-loop-contract.md` → "Sea Trials plugin CLI".
+Use only plugin paths. Do not use `pnpm pr-review-*`, `.husky/st-plugin-run.sh`,
+`scripts/overlay-st-plugin-review-hooks.mjs` or `scripts/hooks/codex-*`
+from the app repo even if present.
+
 ## Mode: in-place
 
 | Setting | Value |
@@ -84,7 +106,9 @@ files touched for review threads.
 
 1. Inspect `git status --porcelain` from `$REPO_ROOT`.
 2. Stage **all** repo changes with `git add -A` — never path-by-path
-   for review fixes alone.
+   for review fixes alone. Stage **after** the gate's dirty-tree lane
+   has run on the same tree; if `git status` changed between gate and
+   commit (another agent wrote), re-run the gate before committing.
 3. **Never** stage secrets or local-only env: `.secrets/**`, untracked
    `.env`, `*.pem`, credential JSON. If status is *only* forbidden
    paths, skip `git add -A` and leave them untracked.
@@ -116,19 +140,27 @@ within the 60-minute post-push window.
 
 ## Run the body
 
-Execute `references/shared/review-loop-body.md` Steps 1–6 from
+Execute `references/shared/review-loop-body.md` Steps 0–6 (+4b) from
 `$REPO_ROOT` until a hard stop condition holds. Every Shell
 `working_directory`, Read/Edit path, and `pnpm`/`melos`/`dart`/`flutter`
 call uses absolute paths under `$REPO_ROOT`.
 
 ## Final verification
 
-1. `node "$ST_REVIEW_STATUS" -- --pr <n>` → exit `0` (threads clear,
+1. `node "$ST_REVIEW_STATUS" --pr <n>` → exit `0` (threads clear,
    CI green, `settled.state` = `DONE`).
 2. `git status --porcelain` → empty.
+   `node "$ST_MERGE" --pr <n> --dry-run` → exit `0` or a reported
+   blocker (all checks on head, Codex threads, migration order).
 3. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0 and
    `git rev-list origin/$PR_BRANCH..HEAD --count` → 0.
 4. `git branch --show-current` → `$PR_BRANCH`; toplevel → `$REPO_ROOT`.
+
+## Merge
+
+Only when the user asked to merge (or the merge automation runs this):
+`node "$ST_MERGE" --pr <n> --wait 30` — see `st-pr-merge`. Never
+`gh pr merge` by hand, never `--admin`.
 
 ## Final report
 

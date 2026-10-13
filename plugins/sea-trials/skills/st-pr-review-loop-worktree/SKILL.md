@@ -41,6 +41,28 @@ files, and IDE state stay untouched.
    — the loop itself. **Follow it exactly.** This file only adds the
    worktree mode rules below; it never overrides the body.
 
+## Run modes (pick one, state it in the report)
+
+| Mode | When | Monitor |
+| --- | --- | --- |
+| **Interactive** | Local Cursor chat, user present | In-chat daemon + `Await` (below) |
+| **Event round** | Cloud agent started by an Automation / API on a review, CI or push event | **No daemon.** Steps 0→6 once for the current HEAD, then exit `0` with state written. The next GitHub event starts the next round. |
+
+Event-round rules: finish within the cloud-agent budget (target ≤45
+min/round); never sleep waiting for Codex — the "PR review submitted" /
+"CI completed" trigger wakes the next round; write
+`docs/code-review/<scope>/pr-review-state.json` before exiting; a failed
+or timed-out round is simply retried by the next trigger (idempotent,
+Step 0).
+
+## Tool paths
+
+Resolve `$ST_*` with the block in
+`references/shared/review-loop-contract.md` → "Sea Trials plugin CLI".
+Use only plugin paths. Do not use `pnpm pr-review-*`, `.husky/st-plugin-run.sh`,
+`scripts/overlay-st-plugin-review-hooks.mjs` or `scripts/hooks/codex-*`
+from the app repo even if present.
+
 ## Mode: worktree
 
 | Setting | Value |
@@ -74,24 +96,33 @@ git fetch origin "$PR_BRANCH"
 # Project-local worktree — monorepo tools need the tree layout here.
 WORKTREE_PARENT="$REPO_ROOT/.review-worktrees"
 mkdir -p "$WORKTREE_PARENT"
-WORKTREE_DIR="$WORKTREE_PARENT/${PR_BRANCH//\//-}-$(date -u +%Y%m%dT%H%M%SZ)"
+WORKTREE_DIR="$WORKTREE_PARENT/pr-${PR_NUMBER}-${PR_BRANCH//\//-}"   # stable per PR → resumable
 
 # Git allows a branch in one worktree only; pushes use HEAD:$PR_BRANCH.
 WORKTREE_BRANCH="review-loop/${PR_BRANCH}"
-git worktree add -B "$WORKTREE_BRANCH" "$WORKTREE_DIR" "origin/$PR_BRANCH"
+if [ -d "$WORKTREE_DIR/.git" ] || [ -f "$WORKTREE_DIR/.git" ]; then
+  # Resume an interrupted run: keep unpushed work, then sync.
+  git -C "$WORKTREE_DIR" merge --ff-only "origin/$PR_BRANCH" 2>/dev/null || true
+else
+  git worktree add -B "$WORKTREE_BRANCH" "$WORKTREE_DIR" "origin/$PR_BRANCH"
+fi
 cd "$WORKTREE_DIR"
-CI=true pnpm bootstrap   # l10n, node_modules, linter — gate needs them
+# Project bootstrap (project build logic, not PR tooling):
+if [ -f package.json ] && node -e 'process.exit(require("./package.json").scripts?.bootstrap?0:1)'; then
+  CI=true pnpm bootstrap   # l10n, node_modules, linter — gate needs them
+fi
 ```
 
 Confirm before the first edit:
 
 1. `pwd` is `$WORKTREE_DIR`, under `$REPO_ROOT/.review-worktrees/`.
 2. `git branch --show-current` equals `$WORKTREE_BRANCH`.
-3. `git status --porcelain` empty; `git config core.hooksPath` →
-   `.husky`.
+3. `git status --porcelain` empty. (Git hooks are optional: the
+   plugin push guard + `pr-review-push` enforce the gate either way.)
 4. User `$REPO_ROOT` status unchanged vs `$USER_STATUS`.
 
-Creation failure → stop and report. Never fall back to in-place
+Creation failure → stop and report. Never `-B` over an existing
+worktree that holds unpushed commits (resume it instead). Never fall back to in-place
 silently. When `origin/$PR_BRANCH` moves ahead during the loop → Sync
 recovery **inside `$WORKTREE_DIR`**.
 
@@ -115,7 +146,7 @@ Shell + `Await` loop; stop any detached daemon first.
 
 ## Run the body
 
-Execute `references/shared/review-loop-body.md` Steps 1–6 from
+Execute `references/shared/review-loop-body.md` Steps 0–6 (+4b) from
 `$WORKTREE_DIR` until a hard stop condition holds. All file ops use
 absolute paths under `$WORKTREE_DIR`; `pnpm`/`melos` run from that
 worktree root. Never edit, commit, or push from `$REPO_ROOT`; never
@@ -138,6 +169,12 @@ merge into the user's local branch.
 2. Verify the user checkout is undisturbed: still on `$USER_BRANCH`;
    `git status --porcelain` matches `$USER_STATUS`; no
    stash/reset/clean/switch happened in `$REPO_ROOT`.
+
+## Merge
+
+Only when the user asked to merge (or the merge automation runs this):
+`node "$ST_MERGE" --pr <n> --wait 30` — see `st-pr-merge`. Never
+`gh pr merge` by hand, never `--admin`.
 
 ## Final report
 

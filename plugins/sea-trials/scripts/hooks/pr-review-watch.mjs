@@ -6,8 +6,8 @@
  * thread (or count increase), writes pr-review-queue.json and pings the
  * operator (stdout sentinel + optional macOS notification).
  *
- *   pnpm pr-review-watch -- --pr 1606
- *   pnpm pr-review-watch -- --pr 1606 --interval 30 --notify
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-watch.mjs --pr 1606
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-watch.mjs --pr 1606 --interval 30 --notify
  *
  * Sentinel line (grep-friendly):
  *   [CODEX-ALERT] pr=1606 threads=N head=abcdef1

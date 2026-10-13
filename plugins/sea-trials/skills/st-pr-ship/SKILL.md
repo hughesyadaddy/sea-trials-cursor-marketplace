@@ -42,7 +42,8 @@ irreversible cleanup (force-remove dirty worktree).
 | PR open; clear review threads | Review loop (below) |
 | Promotion PR (dev→stg, etc.) | `/st-pr-promote` |
 | Long watch / 24h unattended | `/st-pr-review-monitor` first |
-| Push only | `pnpm pr-review-push` |
+| Merge / land the PR | `/st-pr-merge` (only path; never `gh pr merge`, never `--admin`) |
+| Push only | `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs` |
 
 ## Phase 1 — Resolve PR
 
@@ -74,12 +75,13 @@ When the user only needs gates before first push:
 
 1. Invoke `/st-pre-push-harden` through READY (single gate,
    `--check-only`)
-2. `pnpm pr-review-push -- --pr <n>` (or `$ST_REVIEW_PUSH` from the
+2. `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>` (or `$ST_REVIEW_PUSH` from the
    contract) — the gate-pass token keeps this from re-running lanes
    already proven on the unchanged tree
 
 ## Forbidden
 
+- `gh pr merge` by hand, any `--admin`
 - Bare `git push` / `--no-verify`
 - `/create-pr skip-checks`
 - Re-implementing `agent-prepush` or `pr-local-ci` tables here

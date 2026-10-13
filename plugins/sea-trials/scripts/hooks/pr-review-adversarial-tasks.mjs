@@ -6,8 +6,8 @@
  * Parent agent: launch one Task per line in a single turn, then synthesize
  * verdicts before `pr-review-threads close`.
  *
- *   pnpm pr-review-adversarial-tasks -- --pr 1657
- *   pnpm pr-review-adversarial-tasks -- --pr 1657 --repo owner/name
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-adversarial-tasks.mjs --pr 1657
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-adversarial-tasks.mjs --pr 1657 --repo owner/name
  *
  * Each line:
  *   { "taskId", "threadId", "path", "line", "author", "subagent_type", "focus" }

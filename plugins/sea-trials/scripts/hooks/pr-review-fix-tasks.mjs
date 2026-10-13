@@ -4,7 +4,7 @@
  *
  * Run AFTER parent Phase 2 triage for (a) valid-fix threads only.
  *
- *   pnpm pr-review-fix-tasks -- --pr 1657 --threads PRRT_kw...,PRRT_kw...
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-fix-tasks.mjs --pr 1657 --threads PRRT_kw...,PRRT_kw...
  *
  * `--repo owner/name` is optional: falls back to GH_REPO, then to the
  * checkout's GitHub remote.
@@ -73,7 +73,7 @@ async function main() {
         `Findings:\n${findings}\n\n` +
         `Rules: edit ONLY ${filePath} and tests that cover these hunks; ` +
         `one worker owns this file; no git push; no thread reply; run ` +
-        `pnpm agent-validate on touched files; return summary of changes.`,
+        `node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs on touched files; return summary of changes.`,
     };
     process.stdout.write(`${JSON.stringify(task)}\n`);
   }

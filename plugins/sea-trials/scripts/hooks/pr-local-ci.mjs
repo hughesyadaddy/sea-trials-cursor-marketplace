@@ -2,13 +2,13 @@
 /**
  * Local PR CI parity gate — path-filtered PR Checks lanes before push.
  *
- * Contract: NEVER `git push` until this passes (via `pnpm pr-review-push`).
+ * Contract: NEVER `git push` until this passes (via `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs`).
  *
  * Usage:
- *   pnpm pr-local-ci -- --pr 1640
- *   pnpm pr-local-ci -- --base origin/dev
- *   pnpm pr-local-ci -- --pr 1640 --list-tasks
- *   pnpm pr-local-ci -- --pr 1640 --lane dart-static
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --pr 1640
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --base origin/dev
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --pr 1640 --list-tasks
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --pr 1640 --lane dart-static
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -545,11 +545,11 @@ function printHelp() {
   process.stdout.write(`\
 Local PR CI parity (path-filtered PR Checks lanes).
 
-  pnpm pr-local-ci -- --pr <n>
-  pnpm pr-local-ci -- --base origin/dev
-  pnpm pr-local-ci -- --pr <n> --list-tasks
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --pr <n>
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --base origin/dev
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-local-ci.mjs --pr <n> --list-tasks
 
-Push only via pnpm pr-review-push.
+Push only via node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs.
 `);
 }
 

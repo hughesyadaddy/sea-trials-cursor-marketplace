@@ -6,10 +6,10 @@
  * prepush (format, analyze, custom lint) and CI (tests).
  *
  * Usage:
- *   pnpm agent-validate
- *   pnpm agent-validate -- flutter/packages/foo/lib/a.dart
- *   pnpm agent-validate --analyze-only
- *   pnpm agent-validate --tests-only
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs flutter/packages/foo/lib/a.dart
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs --analyze-only
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs --tests-only
  *
  * Explicit paths may be repo-relative (flutter/...) or absolute — including
  * git worktrees outside the current checkout.
@@ -239,10 +239,10 @@ function printHelp() {
   process.stdout.write(`\
 Fast agent validation (changed Dart files only).
 
-  pnpm agent-validate
-  pnpm agent-validate -- flutter/packages/foo/lib/a.dart
-  pnpm agent-validate --analyze-only
-  pnpm agent-validate --tests-only
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs flutter/packages/foo/lib/a.dart
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs --analyze-only
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs --tests-only
 
 Absolute paths from git worktrees are supported.
 

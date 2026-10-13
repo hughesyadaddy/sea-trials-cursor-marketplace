@@ -106,7 +106,7 @@ acquirePrepushLock();
 async function main() {
   const listTasks = parseArgs(process.argv.slice(2));
 
-  // `pnpm pr-review-push` already ran this exact gate on this exact
+  // `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs` already ran this exact gate on this exact
   // tree seconds ago and then invoked `git push`, which fired this hook.
   // Re-running `dart analyze` here doubled every push's wall clock.
   if (!listTasks) {

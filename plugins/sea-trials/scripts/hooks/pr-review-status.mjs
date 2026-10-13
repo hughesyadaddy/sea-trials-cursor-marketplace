@@ -2,9 +2,9 @@
 /**
  * Instant PR gate: review threads + CI checks (+ optional local agent-prepush).
  *
- *   pnpm pr-review-status
- *   pnpm pr-review-status -- --json
- *   pnpm pr-review-status -- --local   # also run agent-prepush
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs --json
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-status.mjs --local   # also run agent-prepush
  */
 import path from 'node:path';
 import {

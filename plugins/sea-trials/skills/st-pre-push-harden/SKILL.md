@@ -107,7 +107,7 @@ Classify touched surfaces: Flutter/Dart packages, `functions/`, `web/`,
 
 Run from `$ACTIVE_ROOT`. **`agent-validate` is iteration-only** — it is
 NOT sufficient before push. The gate runs **once**, fanned out; do not
-stack `st-parallel-tasks` + `pnpm prepush` + `pr-review-push` — they
+stack `st-parallel-tasks` + `node $ST_PLUGIN_ROOT/scripts/hooks/prepush.mjs` + `pr-review-push` — they
 replay the same lanes.
 
 ### Always before push (non-docs changes)
@@ -148,7 +148,7 @@ replay the same lanes.
    not pay for the gate twice. Any edit after this step invalidates the
    token — re-run step 4.
 
-5. During iteration (before commit): `pnpm agent-validate` on changed
+5. During iteration (before commit): `node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs` on changed
    paths is fine for fast feedback — never a substitute for steps 1–4.
 
 6. Never suggest `--no-verify`. Never skip hooks. Never bare `git push`.
@@ -175,7 +175,7 @@ After mechanical gates pass:
 2. For each such package, ensure corresponding tests under `test/` were
    updated when behavior changed. If not, add or extend tests (defer
    style to the `testing` skill).
-3. Re-run `pnpm agent-validate` on the **union** of all touched lib +
+3. Re-run `node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs` on the **union** of all touched lib +
    test paths after those edits.
 4. Scan the pending diff for common Sea Trials footguns:
    - Architecture imports (client/repo/BLoC isolation)

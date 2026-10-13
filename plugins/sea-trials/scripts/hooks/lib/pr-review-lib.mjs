@@ -5,7 +5,14 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isBotLogin } from './bot-review-settled.mjs';
+import { isBotLogin } from './bot-review-login.mjs';
+import {
+  blockingSleepMs,
+  computeGhRetryDelayMs,
+  isGhRateLimitMessage,
+  parseRateLimitResetMs,
+} from './gh-api-retry.mjs';
+import { pruneStaleReviewArtifacts } from './review-state-prune.mjs';
 
 const isWindows = process.platform === 'win32';
 const hooksDir = path.dirname(fileURLToPath(import.meta.url));
@@ -140,12 +147,33 @@ export function resolvePrNumberFromBranch(repoRoot) {
   return pr.number;
 }
 
-function ghSpawn(repoRoot, cmdArgs) {
+const GH_SPAWN_RETRY_MAX = 6;
+
+function ghSpawnOnce(repoRoot, cmdArgs) {
   return spawnSync('gh', cmdArgs, {
     encoding: 'utf8',
     cwd: repoRoot,
     shell: isWindows,
   });
+}
+
+function ghSpawn(repoRoot, cmdArgs, { maxAttempts = GH_SPAWN_RETRY_MAX } = {}) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const result = ghSpawnOnce(repoRoot, cmdArgs);
+    if (result.status === 0) {
+      return result;
+    }
+    const msg = `${result.stderr ?? ''}\n${result.stdout ?? ''}`;
+    if (!isGhRateLimitMessage(msg) || attempt >= maxAttempts) {
+      return result;
+    }
+    const delayMs = computeGhRetryDelayMs({
+      attempt,
+      resetAtMs: parseRateLimitResetMs(msg),
+    });
+    blockingSleepMs(delayMs);
+  }
+  return ghSpawnOnce(repoRoot, cmdArgs);
 }
 
 function parseGhStdout(stdout) {
@@ -305,6 +333,52 @@ export function fetchPrMeta(repoRoot, prNumber) {
   ]);
 }
 
+/**
+ * Wait until GitHub reports the PR head matches the local push OID.
+ *
+ * @param {string} repoRoot
+ * @param {number} prNumber
+ * @param {string} expectedHeadOid
+ * @param {{ maxMs?: number, pollMs?: number }} [opts]
+ */
+export function waitForPrHeadPropagation(
+  repoRoot,
+  prNumber,
+  expectedHeadOid,
+  opts = {},
+) {
+  const maxMs = opts.maxMs ?? 180_000;
+  const pollMs = opts.pollMs ?? 3_000;
+  const deadline = Date.now() + maxMs;
+  while (Date.now() < deadline) {
+    const meta = fetchPrMeta(repoRoot, prNumber);
+    if (meta?.headRefOid === expectedHeadOid) {
+      return meta;
+    }
+    blockingSleepMs(pollMs);
+  }
+  return fetchPrMeta(repoRoot, prNumber);
+}
+
+/**
+ * Remove loop artifacts for merged/closed PRs under docs/code-review/.
+ *
+ * @param {string} repoRoot
+ * @param {{ activePrNumbers?: number[] }} [opts]
+ */
+export function pruneClosedReviewArtifacts(repoRoot, opts = {}) {
+  return pruneStaleReviewArtifacts(repoRoot, {
+    activePrNumbers: opts.activePrNumbers ?? [],
+    resolveState: (prNumber) => {
+      try {
+        return fetchPrMeta(repoRoot, prNumber)?.state ?? null;
+      } catch {
+        return null;
+      }
+    },
+  });
+}
+
 /** @type {Map<string, { owner: string, name: string }>} */
 const ownerRepoCache = new Map();
 
@@ -390,15 +464,12 @@ export function filterPrGateChecks(checks) {
   return checks.filter((c) => c.workflow === PR_CI_WORKFLOW);
 }
 
-export function fetchCiChecks(repoRoot, prNumber) {
-  const result = ghSpawn(repoRoot, [
-    'pr',
-    'checks',
-    String(prNumber),
-    '--json',
-    'name,bucket,state,link,workflow',
-  ]);
-
+/**
+ * Pure parse of `gh pr checks --json` spawn result (unit-testable).
+ *
+ * @param {{ status?: number | null, stdout?: string, stderr?: string }} result
+ */
+export function parseCiChecksGhSpawnResult(result) {
   let allChecks = [];
   if (result.status === 0 || result.status === 8) {
     allChecks = parseGhStdout(result.stdout) ?? [];
@@ -453,13 +524,28 @@ export function fetchCiChecks(repoRoot, prNumber) {
   };
 }
 
+export function fetchCiChecks(repoRoot, prNumber) {
+  const result = ghSpawn(repoRoot, [
+    'pr',
+    'checks',
+    String(prNumber),
+    '--json',
+    'name,bucket,state,link,workflow',
+  ]);
+  return parseCiChecksGhSpawnResult(result);
+}
+
 /**
  * Repo-relative review-loop artifact paths from a PR head branch name.
  *
  * Pure helper — safe to unit-test without `gh` / GH_TOKEN (CI has neither).
  */
 export function reviewArtifactPaths(headRefName, prNumber) {
-  const scope = (headRefName ?? `pr-${prNumber}`).replace(/\//g, '-');
+  // Scope includes the PR number so two PRs that reuse a branch name
+  // (stacked / re-opened) never share queue/state files.
+  const scope = headRefName
+    ? `${headRefName.replace(/\//g, '-')}-pr-${prNumber}`
+    : `pr-${prNumber}`;
   const artifactDir = path.join('docs', 'code-review', scope);
   return {
     artifactDir,
@@ -509,20 +595,6 @@ export function silenceWindowStartIso(repoRoot, prNumber, headRefOid, branch) {
   // Committer time can predate the actual push; default to now so the
   // silence window is never already expired when we lack a push record.
   return new Date().toISOString();
-}
-
-/** @deprecated Use silenceWindowStartIso */
-export function remoteHeadPushIso(repoRoot, branch, headRefOid) {
-  if (headRefOid) {
-    return silenceWindowStartIso(repoRoot, null, headRefOid, branch);
-  }
-  return (
-    spawnSync('git', ['log', '-1', '--format=%cI', `origin/${branch}`], {
-      encoding: 'utf8',
-      shell: isWindows,
-      cwd: repoRoot,
-    }).stdout ?? ''
-  ).trim();
 }
 
 /**
@@ -686,21 +758,6 @@ export function evaluateSnapshot(snapshot) {
   return { ok: true, reason: 'clean', exitCode: 0 };
 }
 
-function runPnpmScript(repoRoot, scriptArgs) {
-  const result = spawnSync('pnpm', scriptArgs, {
-    encoding: 'utf8',
-    cwd: repoRoot,
-    shell: isWindows,
-    stdio: 'pipe',
-  });
-  return {
-    ok: result.status === 0,
-    status: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  };
-}
-
 /**
  * Dirty-tree fast gate (parallel-friendly via agent-prepush --list-tasks).
  *
@@ -715,7 +772,7 @@ export async function runLocalPrepush(repoRoot) {
  *
  * Single planner (`push-gate-tasks.mjs`) runs dirty, prepush, and CI
  * groups with maximum in-process parallelism. Subagent fan-out:
- * `pnpm pr-review-push -- --pr <n> --list-tasks`.
+ * `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks`.
  *
  * @param {string} repoRoot
  * @param {{
@@ -812,4 +869,3 @@ export function runGitPush(repoRoot, branch) {
     stderr: result.stderr ?? '',
   };
 }
-

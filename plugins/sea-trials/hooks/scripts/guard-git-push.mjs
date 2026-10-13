@@ -36,7 +36,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const isWindows = process.platform === 'win32';
 
-export const PUSH_GATE_COMMAND = 'pnpm pr-review-push -- --pr <n>';
+export const PUSH_GATE_COMMAND =
+  'node "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs" --pr <n>';
 
 export const MESSAGES = {
   noVerify:
@@ -356,8 +357,38 @@ function git(cwd, args) {
  * @param {string} repoRoot
  * @returns {boolean}
  */
+/**
+ * Repos gated by the plugin itself, independent of project wiring, so
+ * removing project scripts (`.husky/st-plugin-run.sh`, package.json
+ * `pr-review-push`) can never silently turn the push gate off.
+ * Override/extend with ST_GATED_REPOS="owner/name,owner2/name2".
+ */
+export const PLUGIN_GATED_REPOS = ['hughesyadaddy/sea_trials_universal'];
+
+/** @param {string} url */
+export function originSlug(url) {
+  const m = /github\.com[:/]+([^/]+\/[^/]+?)(?:\.git)?\/?$/i.exec(url ?? '');
+  return m ? m[1].toLowerCase() : null;
+}
+
+function originIsGated(repoRoot, env = process.env) {
+  const r = spawnSync('git', ['-C', repoRoot, 'remote', 'get-url', 'origin'], {
+    encoding: 'utf8',
+    shell: isWindows,
+  });
+  const slug = r.status === 0 ? originSlug((r.stdout ?? '').trim()) : null;
+  if (!slug) return false;
+  const list = [
+    ...PLUGIN_GATED_REPOS,
+    ...String(env.ST_GATED_REPOS ?? '').split(',').map((x) => x.trim()),
+  ].filter(Boolean).map((x) => x.toLowerCase());
+  return list.includes(slug);
+}
+
 export function repoHasGate(repoRoot) {
   if (fs.existsSync(path.join(repoRoot, GATE_MARKER))) return true;
+  if (fs.existsSync(path.join(repoRoot, '.sea-trials-gate'))) return true;
+  if (originIsGated(repoRoot)) return true;
   try {
     const pkg = JSON.parse(
       fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'),

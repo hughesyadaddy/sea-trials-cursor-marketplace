@@ -40,8 +40,8 @@ Collect changed Dart paths from git diff (staged + unstaged).
 tools/st-sea-trials-lint/bin/st-sea-trials-lint check <files...>
 
 # Or via hook parity
-pnpm prepush   # when committed diff is the target
-pnpm agent-prepush  # when dirty tree
+node $ST_PLUGIN_ROOT/scripts/hooks/prepush.mjs   # when committed diff is the target
+node $ST_PLUGIN_ROOT/scripts/hooks/agent-prepush.mjs  # when dirty tree
 ```
 
 See `docs/runbooks/LINT_STAGES.md` for tier definitions.
@@ -59,7 +59,7 @@ See `docs/runbooks/LINT_STAGES.md` for tier definitions.
 ## Phase 4 — Re-validate
 
 ```bash
-pnpm agent-validate
+node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
 ```
 
 Do not push until prepush-tier lint is clean.

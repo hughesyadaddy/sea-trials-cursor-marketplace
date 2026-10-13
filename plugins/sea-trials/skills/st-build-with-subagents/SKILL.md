@@ -162,7 +162,7 @@ Parent (or one `st-shard-integrator` subagent on `inherit`):
 4. Validate the whole changed set — fix at the boundary only:
 
    ```bash
-   pnpm agent-validate
+   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
    # or: node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs"
    ```
 

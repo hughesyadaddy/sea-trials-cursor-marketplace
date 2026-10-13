@@ -2,13 +2,13 @@
 /**
  * PR review loop — adaptive "bot review settled" watch after each push.
  *
- *   pnpm pr-review-loop -- --pr <n>
- *   pnpm pr-review-loop -- --pr <n> --once
- *   pnpm pr-review-loop -- --pr <n> --json          # snapshot per poll
- *   pnpm pr-review-loop -- --pr <n> --webhook       # gh webhook fast path
- *   pnpm pr-review-loop -- --pr <n> --bots codex,bugbot
- *   pnpm pr-review-loop -- --pr <n> --silence 30    # hard cap (minutes)
- *   pnpm pr-review-loop -- --pr <n> --interval 30   # REVIEWING poll (s)
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n>
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --once
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --json          # snapshot per poll
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --webhook       # gh webhook fast path
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --bots codex,bugbot
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --silence 30    # hard cap (minutes)
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --interval 30   # REVIEWING poll (s)
  *
  * Replaces the flat 30-minute silence window with the settled machine
  * in lib/bot-review-settled.mjs: 20s grace → wait for a bot ack (≤3 min,
@@ -30,22 +30,25 @@ import {
   createGhAdapter,
   createSettledPoller,
   createWakeableSleep,
-  spawnWebhookForwarder,
-  startWebhookReceiver,
 } from './lib/bot-review-settled.mjs';
 import { recordRun } from './lib/gate-telemetry.mjs';
 import {
-  GraphqlRateLimitedError,
   buildReviewSnapshot,
   evaluateSnapshot,
   getRepoRoot,
   parsePrArgs,
+  pruneClosedReviewArtifacts,
   resolveGithubOwnerRepo,
   reviewPaths,
   silenceWindowStartIso,
-  writeJson,
-  writeReviewState,
 } from './lib/pr-review-lib.mjs';
+import {
+  createFullSnapshot,
+  createRefreshThreads,
+  createWriteQueue,
+  settledConfigFromArgs,
+  startReviewWebhook,
+} from './lib/review-loop-watch.mjs';
 
 const repoRoot = getRepoRoot();
 const args = parsePrArgs(process.argv.slice(2));
@@ -87,44 +90,14 @@ function logLine(line) {
   process.stdout.write(`${row}\n`);
 }
 
-/** Machine overrides derived from legacy flags. */
-function settledConfig() {
-  /** @type {Record<string, number>} */
-  const cfg = {};
-  if (args.silenceExplicit && Number.isFinite(args.silenceMin)) {
-    cfg.maxSilenceMs = args.silenceMin * 60_000;
-    cfg.reviewCapMs = Math.min(25 * 60_000, cfg.maxSilenceMs);
-  }
-  if (args.intervalExplicit && Number.isFinite(args.intervalSec)) {
-    cfg.reviewPollMs = args.intervalSec * 1000;
-    cfg.ackPollMs = Math.min(15_000, cfg.reviewPollMs);
-  }
-  return cfg;
-}
+const writeQueue = createWriteQueue({ prNumber, queuePath, logLine });
 
-function writeQueue(snapshot, kind, extra) {
-  writeJson(queuePath, {
-    pr: prNumber,
-    at: snapshot.at,
-    head: snapshot.pr.headRefOid,
-    kind,
-    ...extra,
-  });
-  logLine(`queue: ${queuePath}`);
-}
-
-/**
- * Full GraphQL + CI read. Persisted to the state file with the settled
- * snapshot so `pr-review-status --json` can show where the loop is.
- *
- * @param {ReturnType<typeof createSettledPoller> | null} poller
- */
-function fullSnapshot(poller) {
-  const snapshot = buildReviewSnapshot(repoRoot, prNumber);
-  if (poller) snapshot.settled = poller.snapshot();
-  writeReviewState(statePath, snapshot);
-  return snapshot;
-}
+const fullSnapshot = createFullSnapshot({
+  buildReviewSnapshot,
+  repoRoot,
+  prNumber,
+  statePath,
+});
 
 function pollOnce() {
   const snapshot = fullSnapshot(null);
@@ -187,41 +160,6 @@ function exitForSnapshot(snapshot, reason) {
   process.exit(verdict.exitCode);
 }
 
-async function startWebhook(repo, wake) {
-  if (!args.webhook) return null;
-  try {
-    const receiver = await startWebhookReceiver({
-      port: args.webhookPort ?? 0,
-      onEvent: (event) => {
-        logLine(`webhook: ${event} → polling now`);
-        wake();
-      },
-    });
-    const forwarder = await spawnWebhookForwarder({
-      repo,
-      url: receiver.url,
-      log: logLine,
-    });
-    if (!forwarder.ok) {
-      logLine(`webhook unavailable (${forwarder.reason}); polling only`);
-      await receiver.close();
-      return null;
-    }
-    logLine(
-      `webhook: forwarding ${repo.owner}/${repo.name} → ${receiver.url}`,
-    );
-    return {
-      stop: async () => {
-        forwarder.stop();
-        await receiver.close();
-      },
-    };
-  } catch (err) {
-    logLine(`webhook setup failed (${err.message}); polling only`);
-    return null;
-  }
-}
-
 async function main() {
   if (once) {
     const { verdict } = pollOnce();
@@ -229,7 +167,29 @@ async function main() {
   }
 
   const repo = resolveGithubOwnerRepo(repoRoot);
-  const initial = fullSnapshot(null);
+  const pruned = pruneClosedReviewArtifacts(repoRoot, {
+    activePrNumbers: [prNumber],
+  });
+  if (pruned.pruned.length > 0) {
+    logLine(`pruned stale review artifacts for PR(s): ${pruned.pruned.join(', ')}`);
+  }
+  const cfg = settledConfigFromArgs(args);
+  const sleeper = createWakeableSleep();
+
+  /** @type {ReturnType<typeof fullSnapshot>} */
+  let initial;
+  while (true) {
+    try {
+      initial = fullSnapshot(null);
+      break;
+    } catch (err) {
+      logLine(
+        `initial-snapshot-error: ${err.message} — retry in 60s`,
+      );
+      await sleeper.sleep(60_000);
+    }
+  }
+
   const pushIso = silenceWindowStartIso(
     repoRoot,
     prNumber,
@@ -238,40 +198,25 @@ async function main() {
   );
   const t0 = new Date(pushIso).getTime();
   watchStartedAt = Date.now();
-  const cfg = settledConfig();
-  const sleeper = createWakeableSleep();
 
   let latest = initial;
   let rateLimitedUntil = 0;
   /** @type {ReturnType<typeof createSettledPoller> | null} */
-  let poller = null;
+  const pollerRef = { current: null };
 
-  const refreshThreads = () => {
-    try {
-      latest = fullSnapshot(poller);
-      return {
-        head: latest.pr.headRefOid,
-        unresolvedThreads: latest.threads.unresolvedCount,
-        unresolvedBotThreads: latest.threads.unresolvedBotCount,
-        ciPending: latest.ci.hasPending,
-        ciFailed: latest.ci.hasFailure,
-        rateLimit: latest.rateLimit ?? null,
-      };
-    } catch (err) {
-      if (err instanceof GraphqlRateLimitedError) {
-        const resetAt = err.rateLimit?.resetAt;
-        rateLimitedUntil = resetAt
-          ? new Date(resetAt).getTime()
-          : Date.now() + 60_000;
-        const untilIso = new Date(rateLimitedUntil).toISOString();
-        logLine(`graphql rate limited; backing off until ${untilIso}`);
-        return { rateLimited: true, rateLimit: err.rateLimit ?? null };
-      }
-      throw err;
-    }
-  };
+  const refreshThreads = createRefreshThreads({
+    fullSnapshot,
+    pollerRef,
+    onSnapshot: (snap) => {
+      latest = snap;
+    },
+    onRateLimited: (untilMs) => {
+      rateLimitedUntil = untilMs;
+    },
+    logLine,
+  });
 
-  poller = createSettledPoller({
+  pollerRef.current = createSettledPoller({
     repo,
     prNumber,
     head: initial.pr.headRefOid,
@@ -283,11 +228,18 @@ async function main() {
     log: logLine,
   });
 
-  const webhook = await startWebhook(repo, () => sleeper.wake());
+  const webhook = await startReviewWebhook({
+    enabled: args.webhook,
+    webhookPort: args.webhookPort,
+    repo,
+    wake: () => sleeper.wake(),
+    logLine,
+    webhookLogLabel: 'polling now',
+  });
 
   logLine(
     `WATCH pr=${prNumber} head=${initial.pr.headRefOid.slice(0, 7)} `
-      + `t0=${pushIso} cap=${(cfg.maxSilenceMs ?? 30 * 60_000) / 60_000}m `
+      + `t0=${pushIso} cap=${cfg.maxSilenceMs / 60_000}m `
       + `bots=${args.bots?.join(',') ?? 'auto'} webhook=${Boolean(webhook)}`,
   );
 
@@ -299,7 +251,7 @@ async function main() {
   while (true) {
     let result;
     try {
-      result = poller.poll();
+      result = pollerRef.current.poll();
     } catch (err) {
       logLine(`poll-error: ${err.message} — retrying in 60s`);
       await sleeper.sleep(60_000);
@@ -307,10 +259,8 @@ async function main() {
     }
     const { machine } = result;
     if (json) {
-      process.stdout.write(`${JSON.stringify(poller.snapshot())}\n`);
+      process.stdout.write(`${JSON.stringify(pollerRef.current.snapshot())}\n`);
     }
-    // One row per poll cycle: `ms` is the full iteration period
-    // (poll + sleep), `phase` the settled-machine state reached.
     tellIteration(latest, {
       task: 'iteration',
       phase: String(machine.state).toLowerCase(),
@@ -325,16 +275,21 @@ async function main() {
 
     if (machine.state === STATES.ACTING || machine.state === STATES.DONE) {
       await webhook?.stop();
-      // Final authoritative read before handing off.
-      latest = fullSnapshot(poller);
+      try {
+        latest = fullSnapshot(pollerRef.current);
+      } catch (err) {
+        logLine(
+          `terminal-snapshot-error: ${err.message} — retry in 60s`,
+        );
+        await sleeper.sleep(60_000);
+        continue;
+      }
       exitForSnapshot(latest, machine.state.toLowerCase());
     }
 
     const remainingCapMin = Math.max(
       0,
-      Math.ceil(
-        (machine.t0 + (cfg.maxSilenceMs ?? 30 * 60_000) - Date.now()) / 60_000,
-      ),
+      Math.ceil((machine.t0 + cfg.maxSilenceMs - Date.now()) / 60_000),
     );
     const nextSec = Math.round(result.nextPollMs / 1000);
     logLine(

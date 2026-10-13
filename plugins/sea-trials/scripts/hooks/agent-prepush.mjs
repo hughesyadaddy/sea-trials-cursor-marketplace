@@ -2,7 +2,7 @@
 /**
  * Dirty-tree validation — repo planners, plugin-orchestrated at runtime.
  *
- * Prefer: pnpm pr-review-push -- --pr <n> --list-tasks
+ * Prefer: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks
  */
 import { runParallelLimited } from './lib/parallel.mjs';
 import * as dirtyTree from './lib/dirty-tree-tasks.mjs';
@@ -31,10 +31,10 @@ function printHelp() {
   process.stdout.write(`\
 Dirty-tree validation (subset of pr-review-push).
 
-  pnpm agent-prepush
-  pnpm agent-prepush --list-tasks
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-prepush.mjs
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-prepush.mjs --list-tasks
 
-Canonical gate: pnpm pr-review-push -- --pr <n>
+Canonical gate: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
 `);
 }
 
@@ -104,14 +104,14 @@ async function main() {
   if (failures.length > 0) {
     process.stderr.write(
       '\n❌ Agent pre-push failed. Fix issues above.\n' +
-        'Use: pnpm pr-review-push -- --pr <n>\n',
+        'Use: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>\n',
     );
     process.exit(1);
   }
 
   process.stdout.write(
     '✅ Agent pre-push passed (dirty tree).\n' +
-      'Use: pnpm pr-review-push -- --pr <n>\n',
+      'Use: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>\n',
   );
 }
 
