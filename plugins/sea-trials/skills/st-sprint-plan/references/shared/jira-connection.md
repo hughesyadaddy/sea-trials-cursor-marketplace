@@ -3,7 +3,7 @@
 
 Two ways to reach Jira. Neither needs a config file.
 
-1. **Atlassian MCP (default).** The plugin declares the official Atlassian remote MCP server as `atlassian` at `https://mcp.atlassian.com/v2/mcp` (Streamable HTTP) in both the Claude Code and the Cursor manifest. The first call opens a browser sign-in (OAuth 2.1). The agent reads and writes through its tools.
+1. **Atlassian MCP (default).** The plugin declares the official Atlassian remote MCP server as `atlassian` at `https://mcp.atlassian.com/v2/mcp` (Streamable HTTP) in both the Claude Code and the Cursor manifest. The first call opens a browser sign-in (OAuth 2.1). The agent reads and writes through its tools. Claude Code lists a plugin server as `plugin:<plugin>:atlassian` (`claude mcp list`; sign in with `/mcp`), and its tools as `mcp__plugin_<plugin>_atlassian__<tool>`; Cursor lists it under Settings, MCP. The tool names below (`createJiraIssue` and so on) are the last part of those names.
 2. **User key (override).** An Atlassian API token for the signed-in person. When it is present, the CLI talks to the Jira REST API directly and has every feature. It is never printed, logged or written into the sprint folder.
 
 ## Find the site, project, board and sprint (run time)
@@ -52,7 +52,7 @@ Why the CLI does not run its own OAuth sign-in: Atlassian's 3LO flow needs an ap
 1. `create`: run its `precheck` search first. When an issue with exactly the same summary exists, do not create; record that key. Else call the tool with `arguments`, then run `node <CLI> record <sprint-folder> <local_id> --key <KEY> --id <ID>` at once, before the next step.
 2. `update`: run the `before` check (`getJiraIssue`): skip when its status category is Done, stop when its `updated` time is newer than the plan says.
 3. Steps with `needs: user-key` are not run. Tell the user what to do by hand (`instead`).
-4. When the plan says `deferred_creates`, run `push --mcp-plan` again after recording: the children of the new parents come next.
+4. When the plan says `deferred_creates`, run `push --mcp-plan` again after recording: the children of the new parents come next. A new epic with stories and subtasks takes three rounds.
 5. Finish with a resync (`import-jira`) and `node <CLI> push <sprint-folder>` (dry run). It shows 0 operations when Jira matches the plan.
 
 Known limits of the MCP path: each create is a separate call, so a session that stops mid-plan leaves some cards created; the `record` step after each create and the precheck search on the next run keep this from making duplicates. The MCP server checks the user's own Jira permissions on each call.

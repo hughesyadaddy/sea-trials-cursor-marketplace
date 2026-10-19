@@ -1,6 +1,6 @@
 ---
 name: st-jira-browser-operator
-description: Last-resort Jira operator that drives the Jira web UI through the Chrome DevTools MCP for actions the Atlassian MCP v1 cannot do and REST credentials are unavailable for: attach files, delete issues or comments, move issues into a sprint, rank, and capture screenshots. Never types credentials; asks the human to sign in once in the shared Chrome profile.
+description: "Last-resort Jira operator that drives the Jira web UI through the Chrome DevTools MCP for actions the Atlassian MCP v1 cannot do and REST credentials are unavailable for: attach files, delete issues or comments, move issues into a sprint, rank, and capture screenshots. Never types credentials; asks the human to sign in once in the shared Chrome profile."
 model: inherit
 ---
 

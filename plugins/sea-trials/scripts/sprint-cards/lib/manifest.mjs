@@ -235,7 +235,7 @@ export function buildManifest(dir, o = {}) {
   }));
   return {
     format: 'sprint-cards-v1',
-    title: jira.sprint_name ? `Sprint ${jira.sprint_name}` : path.basename(path.dirname(root)),
+    title: jira.sprint_name || path.basename(path.dirname(root)),
     generated_at: (o.now ?? (() => new Date().toISOString()))(),
     pulled_at: index.pulled_at ?? null,
     sprint_id: jira.sprint_id ?? null,

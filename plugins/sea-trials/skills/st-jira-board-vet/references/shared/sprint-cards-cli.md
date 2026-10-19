@@ -6,16 +6,23 @@ One Node script, no dependencies (Node 20 or newer): `scripts/sprint-cards/cli.m
 ## Find it
 
 ```bash
-CLI=""
-for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
-  if [[ -n "$root" && -f "$root/scripts/sprint-cards/cli.mjs" ]]; then CLI="$root/scripts/sprint-cards/cli.mjs"; break; fi
+# 1. Claude Code writes the plugin path into the next line when it loads this skill.
+CLI="${CLAUDE_PLUGIN_ROOT}/scripts/sprint-cards/cli.mjs"
+# 2. Cursor and other hosts: plugin root env vars.
+for root in "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  [[ -f "$CLI" ]] || CLI="$root/scripts/sprint-cards/cli.mjs"
 done
-# Else: two folders up from the folder this SKILL.md was read from.
-[[ -n "$CLI" ]] || CLI="<skill folder>/../../scripts/sprint-cards/cli.mjs"
+# 3. Else the newest installed copy.
+if [[ ! -f "$CLI" ]]; then
+  CLI=""
+  while IFS= read -r f; do [[ -z "$CLI" || "$f" -nt "$CLI" ]] && CLI="$f"; done \
+    < <(find "$HOME/.claude/plugins" "$HOME/.cursor/plugins" -path '*/scripts/sprint-cards/cli.mjs' 2>/dev/null)
+fi
+[[ -f "$CLI" ]] || { echo "sprint-cards CLI not found: it is scripts/sprint-cards/cli.mjs two folders above this SKILL.md's folder" >&2; }
 node "$CLI" --help >/dev/null && echo "CLI: $CLI"
 ```
 
-Replace `<skill folder>` with the absolute folder of the SKILL.md you are reading. Use the same `$CLI` for the whole run and pass it to every subagent.
+When all three fail, set `CLI` by hand: the skill you are reading is at `<plugin>/skills/<skill>/SKILL.md`, so the CLI is `<plugin>/scripts/sprint-cards/cli.mjs`, for example `/Users/me/.cursor/plugins/cache/<marketplace>/<plugin>/<version>/scripts/sprint-cards/cli.mjs`. Use the same `$CLI` for the whole run and pass it to every subagent.
 
 ## Commands
 

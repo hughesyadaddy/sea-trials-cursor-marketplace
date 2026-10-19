@@ -46,11 +46,19 @@ once before changing the second.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
-CLI=""
-for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
-  if [[ -n "$root" && -f "$root/scripts/sprint-cards/cli.mjs" ]]; then CLI="$root/scripts/sprint-cards/cli.mjs"; break; fi
+# 1. Claude Code writes the plugin path into the next line when it loads this skill.
+CLI="${CLAUDE_PLUGIN_ROOT}/scripts/sprint-cards/cli.mjs"
+# 2. Cursor and other hosts: plugin root env vars.
+for root in "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  [[ -f "$CLI" ]] || CLI="$root/scripts/sprint-cards/cli.mjs"
 done
-[[ -n "$CLI" ]] || CLI="<skill folder>/../../scripts/sprint-cards/cli.mjs"   # folder of this SKILL.md
+# 3. Else the newest installed copy.
+if [[ ! -f "$CLI" ]]; then
+  CLI=""
+  while IFS= read -r f; do [[ -z "$CLI" || "$f" -nt "$CLI" ]] && CLI="$f"; done \
+    < <(find "$HOME/.claude/plugins" "$HOME/.cursor/plugins" -path '*/scripts/sprint-cards/cli.mjs' 2>/dev/null)
+fi
+[[ -f "$CLI" ]] || { echo "sprint-cards CLI not found: it is scripts/sprint-cards/cli.mjs two folders above this SKILL.md's folder" >&2; }
 node "$CLI" auth status
 ```
 

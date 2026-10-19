@@ -180,7 +180,12 @@ async function main(argv) {
     case 'auth': {
       const sub = a._[1] ?? 'status';
       if (sub === 'status') {
-        const dir = a._[2] ? sprintDirArg(a._[2]) : null;
+        let dir = null;
+        try {
+          dir = sprintDirArg(a._[2]);
+        } catch {
+          dir = null; // no sprint folder here: env, keychain and creds file only
+        }
         const k = resolveUserKey({ site: a.site, indexSite: dir ? readIndex(dir)?.jira?.site : null });
         const mode = k.ok ? 'user-key' : 'mcp';
         out(a, k.ok ? `Mode: user key (direct REST, full features)\nSource: ${k.source}\nEmail: ${maskEmail(k.email)}\nSite: ${k.site}` : `Mode: Atlassian MCP (OAuth).${k.source ? ` A user key was found (${k.source}) but there is no site, so it is not used: set JIRA_SITE, pass --site, or save the site with connect.` : ` ${k.reason}.`}\nAttachments, rank and sprint moves need the user key; see the skill.`, { mode, source: k.source ?? null, email: k.ok ? maskEmail(k.email) : null, site: k.site ?? null, reason: k.ok ? null : k.reason });
