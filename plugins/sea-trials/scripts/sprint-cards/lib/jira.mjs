@@ -5,8 +5,10 @@
  *   - Writes retry only on 429. A 5xx or network error on a write is
  *     never blindly retried: the caller GETs first to see if the write
  *     landed (see push.mjs).
- *   - `JIRA_READ_ONLY=1` (or `readOnly: true`) makes every non-GET throw
- *     before it leaves the machine. Pull and resync always run read-only.
+ *   - `JIRA_READ_ONLY=1` (or `readOnly: true`) makes every write throw
+ *     before it leaves the machine. The one POST that is allowed is the
+ *     fixed search endpoint (`POST /rest/api/3/search/jql`), which Jira
+ *     defines as a read. Pull and resync always run read-only.
  */
 import fs from 'node:fs';
 import path from 'node:path';

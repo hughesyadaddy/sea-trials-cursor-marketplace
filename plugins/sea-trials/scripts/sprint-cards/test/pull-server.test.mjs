@@ -65,6 +65,13 @@ test('viewer server: manifest, files, traversal refused, reorder renumbers', asy
     assert.equal(f.status, 200);
     const cross = await fetch(`${s.url}api/reorder`, { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(cross.status, 403);
+    const form = await fetch(`${s.url}api/state`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' });
+    assert.equal(form.status, 415, 'a form-style POST is refused');
+    const http = await import('node:http');
+    const badHost = await new Promise((resolve) => {
+      http.get({ host: '127.0.0.1', port: s.port, path: '/api/manifest', headers: { Host: 'evil.example' } }, (r) => { r.resume(); resolve(r.statusCode); });
+    });
+    assert.equal(badHost, 403, 'DNS rebinding Host refused');
     const r = await (await fetch(`${s.url}api/reorder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'story', ordered_ids: [stories[1].id, stories[0].id] }) })).json();
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(r.manifest.epics[0].stories.map((x) => x.title), ['User Story 1: Second', 'User Story 2: First']);
@@ -100,4 +107,23 @@ test('retro metrics reads stories from a card folder', async () => {
   assert.equal(r.config.projectKey, 'PROJ');
   assert.equal(r.stories.length, 1);
   assert.equal(r.stories[0].title, 'User Story 1: First');
+});
+
+test('rankIssues keeps the order across chunks of 50', async () => {
+  const { rankIssues } = await import('../../sprint/jira-rest.mjs');
+  const sent = [];
+  const prev = setFetch(async (url, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(null, { status: 204 });
+  });
+  try {
+    const keys = Array.from({ length: 120 }, (_, i) => `PROJ-${i + 1}`);
+    await rankIssues(keys, { after: 'PROJ-0', auth: AUTH });
+    assert.deepEqual(sent.map((b) => b.rankAfterIssue), ['PROJ-0', 'PROJ-50', 'PROJ-100']);
+    sent.length = 0;
+    await rankIssues(keys, { before: 'PROJ-999', auth: AUTH });
+    assert.deepEqual(sent.map((b) => [b.issues[0], b.rankBeforeIssue]), [['PROJ-1', 'PROJ-999'], ['PROJ-51', 'PROJ-999'], ['PROJ-101', 'PROJ-999']]);
+  } finally {
+    setFetch(prev);
+  }
 });

@@ -1573,7 +1573,7 @@
   $("btn-pull").addEventListener("click", async () => {
     const btn=$("btn-pull"); btn.disabled=true; btn.textContent="Pulling…";
     try {
-      const data = await (await fetch("/api/pull",{method:"POST"})).json();
+      const data = await (await fetch("/api/pull",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})).json();
       if (data.ok && data.manifest) { manifest=data.manifest; renderNav(); toast("Pull complete"); }
       else toast("Pull failed:\\n"+(data.log_tail||data.error||""), 8000);
     } catch(e) { toast(String(e)); }

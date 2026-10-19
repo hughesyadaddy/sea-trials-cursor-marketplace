@@ -269,14 +269,26 @@ export async function rankIssues(issueKeys, o = {}) {
   if (Boolean(o.after) === Boolean(o.before)) {
     throw new Error('rank needs exactly one of --after or --before');
   }
-  const anchor = o.after
-    ? { rankAfterIssue: o.after }
-    : { rankBeforeIssue: o.before };
-  for (const issues of chunk(issueKeys, AGILE_CHUNK)) {
-    await requestJson('PUT', '/rest/agile/1.0/issue/rank', {
-      body: { issues, ...anchor },
-      auth: o.auth,
-    });
+  // Chunks keep the overall order: after X, each chunk goes after the
+  // last key of the chunk before it; before X, each chunk in turn goes
+  // right before X, which also keeps the order.
+  const chunks = chunk(issueKeys, AGILE_CHUNK);
+  if (o.after) {
+    let anchor = o.after;
+    for (const issues of chunks) {
+      await requestJson('PUT', '/rest/agile/1.0/issue/rank', {
+        body: { issues, rankAfterIssue: anchor },
+        auth: o.auth,
+      });
+      anchor = issues[issues.length - 1];
+    }
+  } else {
+    for (const issues of chunks) {
+      await requestJson('PUT', '/rest/agile/1.0/issue/rank', {
+        body: { issues, rankBeforeIssue: o.before },
+        auth: o.auth,
+      });
+    }
   }
   return issueKeys.length;
 }

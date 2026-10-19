@@ -136,10 +136,17 @@ export async function serve(dir, o = {}) {
     const url = new URL(req.url, `http://${HOST}`);
     const p = url.pathname;
     try {
-      // Same-origin only for writes (no CSRF from other local pages).
+      // Only this machine, by name: blocks DNS rebinding (Host) and
+      // cross-site writes (Origin, and a JSON body that a plain HTML
+      // form cannot send without a CORS preflight we never answer).
+      const host = String(req.headers.host ?? '');
+      if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(host)) return send(res, 403, { error: 'unexpected Host header' });
       if (req.method === 'POST') {
         const origin = req.headers.origin;
-        if (origin && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return send(res, 403, { error: 'cross-origin request refused' });
+        if (origin && origin !== `http://${host}`) return send(res, 403, { error: 'cross-origin request refused' });
+        const fetchSite = req.headers['sec-fetch-site'];
+        if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return send(res, 403, { error: 'cross-site request refused' });
+        if (!/^application\/json\b/i.test(String(req.headers['content-type'] ?? ''))) return send(res, 415, { error: 'POST needs Content-Type: application/json' });
       }
       if (req.method === 'GET' && (p === '/' || p === '/index.html')) return send(res, 200, fs.readFileSync(path.join(VIEWER_DIR, 'index.html')), TYPES['.html']);
       if (req.method === 'GET' && p === '/api/manifest') {
