@@ -5,7 +5,7 @@ import path from 'node:path';
 import { setFetch } from '../../sprint/jira-rest.mjs';
 import { assignIds } from '../lib/ids.mjs';
 import { pull } from '../lib/pull.mjs';
-import { serve, safeJoin } from '../lib/server.mjs';
+import { findViewer } from '../lib/viewer.mjs';
 import { bodyToAdf } from '../lib/push.mjs';
 import { parseCard } from '../lib/frontmatter.mjs';
 import { init, newCard } from '../lib/scaffold.mjs';
@@ -40,44 +40,17 @@ test('pull is GET only and writes the Jira copy next to the local card', async (
   }
 });
 
-test('safeJoin keeps paths inside the folder', () => {
-  assert.equal(safeJoin('/a/b', '../etc/passwd'), null);
-  assert.equal(safeJoin('/a/b', '%2e%2e/x'), null);
-  assert.equal(safeJoin('/a/b', 'c/d.md'), '/a/b/c/d.md');
-});
-
-test('viewer server: manifest, files, traversal refused, reorder renumbers', async () => {
-  const dir = tmpSprint();
-  init(dir, { projectKey: 'PROJ', sprintName: 'Sprint 1' });
-  const e = newCard(dir, 'epic', { title: 'Epic one' });
-  newCard(dir, 'story', { title: 'First', parent: e.local_id });
-  newCard(dir, 'story', { title: 'Second', parent: e.local_id });
-  const s = await serve(dir, { port: 18766, log: () => {} });
-  try {
-    const mf = await (await fetch(`${s.url}api/manifest`)).json();
-    assert.equal(mf.epics.length, 1);
-    const stories = mf.epics[0].stories;
-    assert.deepEqual(stories.map((x) => x.title), ['User Story 1: First', 'User Story 2: Second']);
-    const html = await (await fetch(s.url)).text();
-    assert.match(html, /sprint-title/);
-    assert.equal((await fetch(`${s.url}api/file/..%2F..%2Fetc%2Fpasswd`)).status, 403);
-    const f = await fetch(`${s.url}api/file/${stories[0].local_md}`);
-    assert.equal(f.status, 200);
-    const cross = await fetch(`${s.url}api/reorder`, { method: 'POST', headers: { Origin: 'http://evil.example', 'Content-Type': 'application/json' }, body: '{}' });
-    assert.equal(cross.status, 403);
-    const form = await fetch(`${s.url}api/state`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' });
-    assert.equal(form.status, 415, 'a form-style POST is refused');
-    const http = await import('node:http');
-    const badHost = await new Promise((resolve) => {
-      http.get({ host: '127.0.0.1', port: s.port, path: '/api/manifest', headers: { Host: 'evil.example' } }, (r) => { r.resume(); resolve(r.statusCode); });
-    });
-    assert.equal(badHost, 403, 'DNS rebinding Host refused');
-    const r = await (await fetch(`${s.url}api/reorder`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'story', ordered_ids: [stories[1].id, stories[0].id] }) })).json();
-    assert.equal(r.ok, true, JSON.stringify(r));
-    assert.deepEqual(r.manifest.epics[0].stories.map((x) => x.title), ['User Story 1: Second', 'User Story 2: First']);
-  } finally {
-    await new Promise((res) => s.server.close(res));
-  }
+test('serve finds the sprint-plan-viewer submodule above the sprint folder', () => {
+  const root = tmpSprint();
+  fs.mkdirSync(path.join(root, '.git'));
+  const sprint = path.join(root, 'sprint_planning', 'sprint-1');
+  init(sprint, {});
+  assert.equal(findViewer(sprint, { env: {} }), null);
+  fs.mkdirSync(path.join(root, 'sprint_planning', 'sprint-plan-viewer'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'sprint_planning', 'sprint-plan-viewer', 'server.mjs'), '');
+  const v = findViewer(sprint, { env: {} });
+  assert.equal(v.dir, path.join(root, 'sprint_planning', 'sprint-plan-viewer'));
+  assert.equal(v.args[0].endsWith('server.mjs'), true);
 });
 
 test('import-jira (MCP path) adopts an epic with its stories, parents first, and stamps jira_updated', async () => {

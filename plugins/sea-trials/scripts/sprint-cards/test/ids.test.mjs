@@ -60,3 +60,13 @@ test('index keeps the jira block', () => {
   const idx = JSON.parse(fs.readFileSync(path.join(dir, 'compare/index.json'), 'utf8'));
   assert.deepEqual(idx.jira, { project_key: 'PROJ', board_id: 7 });
 });
+
+test('ids reports index rows whose folder is gone', () => {
+  const dir = tmpSprint();
+  writeCard(dir, '01-epic-a/epic.local.md', meta({ type: 'Epic', summary: 'E', local_id: 'loc-e' }), EPIC_BODY);
+  writeCard(dir, '01-epic-a/01-story-b/story.local.md', meta({ summary: 'S', local_id: 'loc-s', jira_key: 'PROJ-9' }), STORY_BODY);
+  assignIds(dir);
+  fs.rmSync(path.join(dir, 'compare/01-epic-a/01-story-b'), { recursive: true });
+  const r = assignIds(dir);
+  assert.deepEqual(r.dropped.map((d) => d.jira_key), ['PROJ-9']);
+});

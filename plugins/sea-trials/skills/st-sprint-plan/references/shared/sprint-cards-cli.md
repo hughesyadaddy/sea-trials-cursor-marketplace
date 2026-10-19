@@ -28,7 +28,7 @@ Replace `<skill folder>` with the absolute folder of the SKILL.md you are readin
 | `number <dir>` | `order`, `plan_number`, `User Story N:` from the sibling order. | no |
 | `lint <dir> [--json]` | Card format check. Exit 1 on errors. | no |
 | `manifest <dir>` | Rebuild `compare/manifest.json`. | no |
-| `serve <dir> [--port N]` | The viewer on `http://127.0.0.1:8766/`. | no |
+| `serve <dir> [--viewer DIR] [--port N]` | Start the `sprint-plan-viewer/` submodule on this folder (see the folder format). Exit 3 when the submodule is missing. | no |
 | `auth status\|login --email E\|logout` | The user key (never printed). | no |
 | `discover [--project-key K] [--board N]` | User key: list projects, boards, sprints. | no (GET) |
 | `pull <dir> [--epic KEY]... [--adopt] [--no-images]` | User key: refresh every Jira copy and image. `--adopt` makes local cards for issues in the sprint or epics that have none. | no (GET) |

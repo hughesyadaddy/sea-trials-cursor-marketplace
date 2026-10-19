@@ -126,7 +126,7 @@ Fixes always go through the folder, never straight into Jira:
 ```
 
 Counts before and after, what is left for a person, and the folder
-path (offer `node "$CLI" serve "$DIR"` to look at the diff). Offer:
+path (offer `node "$CLI" serve "$DIR"`, the sprint-plan-viewer, to look at the diff). Offer:
 `/st-jira-test-review` on the review column cards, or stop.
 
 ---

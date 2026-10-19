@@ -135,11 +135,11 @@ One `st-sprint-critic` per story, `MODE: fix`, all in one message.
 node "$CLI" number "$DIR"
 node "$CLI" lint "$DIR"        # must exit 0
 node "$CLI" push "$DIR"        # dry run: the changes Jira would get
-node "$CLI" serve "$DIR"       # background; give the user the URL
+node "$CLI" serve "$DIR"       # sprint-plan-viewer submodule; background; give the user the URL
 ```
 
-The user can drag cards in the viewer to change the order; that
-renumbers the stories. Add one line per change to `SPRINT-CHANGES.md`.
+In the viewer the user can drag cards to change the order; run
+`number` again afterwards so the stories stay numbered 1..n. Add one line per change to `SPRINT-CHANGES.md`.
 
 ---
 

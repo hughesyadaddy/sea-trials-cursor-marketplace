@@ -162,10 +162,13 @@ edit the other to point at it.
 node "$CLI" number "$DIR"
 node "$CLI" lint "$DIR"          # must exit 0
 node "$CLI" push "$DIR"          # dry run: every card is a create
-node "$CLI" serve "$DIR"         # prints http://127.0.0.1:8766/
+node "$CLI" serve "$DIR"         # starts the sprint-plan-viewer submodule
 ```
 
-Run `serve` in the background and give the user the URL. Fix lint
+Run `serve` in the background and give the user the URL it prints.
+`serve` starts the `sprint-plan-viewer/` submodule of the sprint
+planning repo; exit 3 means it is missing: tell the user how to add it
+(see the folder format) and go on without the viewer. Fix lint
 errors before the handoff. Add one line to `SPRINT-CHANGES.md`.
 
 ---

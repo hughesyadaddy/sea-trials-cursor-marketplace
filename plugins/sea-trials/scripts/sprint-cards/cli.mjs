@@ -10,7 +10,7 @@
  *   node cli.mjs number <sprint-dir> [--dry-run]     order, User Story N, N.M
  *   node cli.mjs lint <sprint-dir> [--json]          card-format check (exit 1 on errors)
  *   node cli.mjs manifest <sprint-dir>               rebuild compare/manifest.json
- *   node cli.mjs serve <sprint-dir> [--port N]       local viewer on 127.0.0.1
+ *   node cli.mjs serve <sprint-dir> [--viewer DIR] [--port N]   start sprint-plan-viewer (git submodule) on this folder
  *   node cli.mjs auth status|login --email E|logout  the optional user key
  *   node cli.mjs discover [--project-key KEY] [--board N]   (user key) list projects, boards, sprints
  *   node cli.mjs pull <sprint-dir> [--epic KEY]... [--adopt] [--no-images]   GET-only resync
@@ -38,7 +38,7 @@ import { createClient } from './lib/jira.mjs';
 import { importIssues, pull } from './lib/pull.mjs';
 import { applyPush, describeOp, mcpPlan, planPush, recordKey } from './lib/push.mjs';
 import { connectFields, init, newCard } from './lib/scaffold.mjs';
-import { serve } from './lib/server.mjs';
+import { findViewer, runViewer } from './lib/viewer.mjs';
 
 const BOOL = new Set(['apply', 'dry-run', 'json', 'adopt', 'no-images', 'backlog', 'skip-lint', 'help', 'open', 'yes']);
 
@@ -129,7 +129,8 @@ async function main(argv) {
     case 'ids': {
       const dir = sprintDirArg(a._[1]);
       const r = assignIds(dir, { dryRun: a['dry-run'] });
-      out(a, `${a['dry-run'] ? 'Would change' : 'Changed'} ${r.changed.length} card(s). ${JSON.stringify(r.index.counts)}`, { changed: r.changed, counts: r.index.counts });
+      const drop = r.dropped.length ? `\nNo longer in the folder (dropped from index.json; the Jira issues are not touched): ${r.dropped.map((d) => d.jira_key ?? d.local_id).join(', ')}` : '';
+      out(a, `${a['dry-run'] ? 'Would change' : 'Changed'} ${r.changed.length} card(s). ${JSON.stringify(r.index.counts)}${drop}`, { changed: r.changed, counts: r.index.counts, dropped: r.dropped });
       return 0;
     }
     case 'number': {
@@ -167,9 +168,14 @@ async function main(argv) {
     case 'serve': {
       const dir = sprintDirArg(a._[1]);
       assignIds(dir);
-      const s = await serve(dir, { port: a.port ? Number(a.port) : undefined });
-      process.stdout.write(`Sprint viewer: ${s.url}\nCards: ${cardsRoot(dir)}\nStop with Ctrl+C.\n`);
-      return new Promise(() => {});
+      const v = findViewer(dir, { viewer: a.viewer });
+      if (!v) {
+        const e = new Error('sprint-plan-viewer not found. Add it to the sprint planning repo as a git submodule (git submodule add <sprint-plan-viewer repo URL> sprint-plan-viewer, then git submodule update --init), or pass --viewer DIR / set SPRINT_PLAN_VIEWER.');
+        e.code = 3;
+        throw e;
+      }
+      process.stdout.write(`Viewer: ${v.dir}\nRunning: ${v.display}\n`);
+      return runViewer(v, dir, { port: a.port });
     }
     case 'auth': {
       const sub = a._[1] ?? 'status';
@@ -177,7 +183,7 @@ async function main(argv) {
         const dir = a._[2] ? sprintDirArg(a._[2]) : null;
         const k = resolveUserKey({ site: a.site, indexSite: dir ? readIndex(dir)?.jira?.site : null });
         const mode = k.ok ? 'user-key' : 'mcp';
-        out(a, k.ok ? `Mode: user key (direct REST, full features)\nSource: ${k.source}\nEmail: ${maskEmail(k.email)}\nSite: ${k.site}` : `Mode: Atlassian MCP (OAuth). ${k.reason}.${k.source ? ` Key source: ${k.source}.` : ''}\nAttachments, rank and sprint moves need the user key; see the skill.`, { mode, source: k.source ?? null, email: k.ok ? maskEmail(k.email) : null, site: k.site ?? null, reason: k.ok ? null : k.reason });
+        out(a, k.ok ? `Mode: user key (direct REST, full features)\nSource: ${k.source}\nEmail: ${maskEmail(k.email)}\nSite: ${k.site}` : `Mode: Atlassian MCP (OAuth).${k.source ? ` A user key was found (${k.source}) but there is no site, so it is not used: set JIRA_SITE, pass --site, or save the site with connect.` : ` ${k.reason}.`}\nAttachments, rank and sprint moves need the user key; see the skill.`, { mode, source: k.source ?? null, email: k.ok ? maskEmail(k.email) : null, site: k.site ?? null, reason: k.ok ? null : k.reason });
         return 0;
       }
       if (sub === 'login') {

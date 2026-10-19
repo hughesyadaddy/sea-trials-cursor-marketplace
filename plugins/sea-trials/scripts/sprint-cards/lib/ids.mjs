@@ -113,9 +113,12 @@ export function assignIds(dir, o = {}) {
     }
     c.meta = m;
   }
+  const prevItems = readIndex(dir)?.items ?? {};
   const index = buildIndex(dir, tree, o);
+  // Index rows whose card folder is gone (moved out, deleted by hand).
+  const dropped = Object.keys(prevItems).filter((k) => !index.items[k]).map((k) => ({ local_id: k, jira_key: prevItems[k]?.jira_key ?? null, folder: prevItems[k]?.folder ?? null }));
   if (!o.dryRun) writeJson(path.join(cardsRoot(dir), 'index.json'), index);
-  return { changed, index };
+  return { changed, index, dropped };
 }
 
 /** Build index.json from a loaded tree (cards must already carry ids). */

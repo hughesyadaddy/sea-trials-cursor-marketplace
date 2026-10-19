@@ -14,7 +14,7 @@ sprint_planning/<sprint-slug>/
   jira-snapshot-YYYYMMDD/   raw Jira JSON and Markdown from pull
   compare/
     index.json              jira block + one record per card
-    manifest.json           viewer data (rebuilt on every view)
+    manifest.json           viewer data (written by manifest, pull, import-jira)
     .state/ui.json          reviewed ticks and notes from the viewer
     NN-epic-<KEY>-<slug>/
       epic.local.md         the plan (edit this)
@@ -73,6 +73,21 @@ A JSON list. One record per file:
 
 `status` is `in_jira` (attached), `staged` (attach on the next push), or `removed_in_jira`. A file dropped into `images/staged/` without a record is also staged. Push never attaches the same sha256 twice, and checks the issue's attachments for the same file name and size before and after an upload.
 
-## The viewer
+## The viewer (sprint-plan-viewer)
 
-`node <CLI> serve <sprint-folder>` starts a local page at `http://127.0.0.1:8766/` (the next free port when 8766 is taken; `--port N` or `SPRINT_VIEWER_PORT` to pick one). It shows each card next to its Jira copy with a diff, field changes, numbering problems and images. Dragging a card saves `order` and renumbers. "Pull from Jira" runs the GET-only pull when the user key is set; without it, the viewer says to resync through the agent. The server listens on 127.0.0.1 only and refuses writes from other origins.
+The web viewer is its own project-agnostic repo, `sprint-plan-viewer/`. Each project adds it as a git submodule of its sprint planning repo, next to the sprint folders:
+
+```
+<sprint planning repo>/          (often sprint_planning/ in the app repo)
+  sprint-plan-viewer/            git submodule
+  <sprint-slug>/compare/...
+```
+
+Set it up once per project:
+
+```bash
+git submodule add <sprint-plan-viewer repo URL> sprint-plan-viewer
+git submodule update --init
+```
+
+After a fresh clone: `git submodule update --init`. Start it as its README says, or with `node <CLI> serve <sprint-folder>`, which finds `sprint-plan-viewer/` in the sprint folder or any folder above it (or `--viewer DIR`, or `SPRINT_PLAN_VIEWER`) and starts it on this folder. The viewer reads only the files described above. This plugin does not ship a viewer of its own.

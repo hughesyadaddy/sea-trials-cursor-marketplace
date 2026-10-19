@@ -56,12 +56,16 @@ Why the CLI does not run its own OAuth sign-in: Atlassian's 3LO flow needs an ap
 
 Known limits of the MCP path: each create is a separate call, so a session that stops mid-plan leaves some cards created; the `record` step after each create and the precheck search on the next run keep this from making duplicates. The MCP server checks the user's own Jira permissions on each call.
 
+## The viewer's own scripts
+
+The `sprint-plan-viewer/` submodule may ship its own push and resync commands. When it does, its README is the guide for them, and the same rules hold: dry run first, the user approves, Done cards are skipped, search before create, no secrets printed. This plugin's CLI stays the way to make MCP plans (`push --mcp-plan`, `record`, `import-jira`) and the fallback for folders without the viewer.
+
 ## Several Jira sites
 
 One `atlassian` server and one OAuth grant are used for every project. When the person works on more than one Atlassian site, `getAccessibleAtlassianResources` lists every site the grant covers; pick by the `site` in `compare/index.json`. When a site is missing from the list, sign in again and approve that site, or use the user key for that site.
 
 ## Safety
 
-- Never write to Jira from `pull`, `import-jira`, `discover`, `serve` or a dry run. `JIRA_READ_ONLY=1` makes every REST write fail before it leaves the machine.
+- Never write to Jira from `pull`, `import-jira`, `discover` or a dry run. `JIRA_READ_ONLY=1` makes every REST write fail before it leaves the machine.
 - `push` is a dry run unless `--apply` is given. Show the dry run to the user and get a yes before `--apply` or before running MCP write steps.
 - Never delete issues. Never edit a card that is Done in Jira.

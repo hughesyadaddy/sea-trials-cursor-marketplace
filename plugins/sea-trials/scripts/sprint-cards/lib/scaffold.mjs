@@ -111,7 +111,7 @@ export function init(dir, jira = {}) {
   put('SPRINT-CHANGES.md', '# Sprint changes\n\nOne line per change to the plan, newest first. Each line says what changed and why.\n');
   put('OPEN-QUESTIONS.md', '# Open questions\n\nAnything still open goes here, never into a card. Each item names the card and the decision that is needed.\n\nNo open items.\n');
   put('.gitignore', 'compare/.state/\ncompare/manifest.json\njira-snapshot-*/\nPUSH-LOG-*.jsonl\nPUSH-BACKUP-*.jsonl\n**/images/jira/\n**/.up-*/\n');
-  put('README.md', `# ${path.basename(sdir)}\n\nSprint cards in the card format (see CARD-FORMAT.md).\n\n- Cards: \`compare/NN-epic-<KEY>-<slug>/\` with stories and \`subtasks/\` inside.\n- View: \`node <plugin>/scripts/sprint-cards/cli.mjs serve ${path.basename(sdir)}\` then open the printed URL.\n- Check: \`... cli.mjs lint ${path.basename(sdir)}\`\n- Push: \`... cli.mjs push ${path.basename(sdir)}\` (dry run), then \`--apply\`.\n`);
+  put('README.md', `# ${path.basename(sdir)}\n\nSprint cards in the card format (see CARD-FORMAT.md).\n\n- Cards: \`compare/NN-epic-<KEY>-<slug>/\` with stories and \`subtasks/\` inside.\n- View: the sprint-plan-viewer submodule of the sprint planning repo (see its README), or \`node <plugin>/scripts/sprint-cards/cli.mjs serve ${path.basename(sdir)}\`, which starts it.\n- Check: \`... cli.mjs lint ${path.basename(sdir)}\`\n- Push: \`... cli.mjs push ${path.basename(sdir)}\` (dry run), then \`--apply\`.\n`);
   const idx = readIndex(sdir) ?? { version: 2, jira: {}, pulled_at: null, items: {} };
   idx.jira = { ...idx.jira, ...connectFields(jira) };
   writeJson(path.join(root, 'index.json'), idx);

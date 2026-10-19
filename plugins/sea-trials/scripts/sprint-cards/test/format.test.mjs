@@ -55,5 +55,4 @@ test('the template cards ship with text the lint refuses', async () => {
     const p = lintCard({ kind, meta: meta({ summary: 'A title' }), body: TEMPLATES[kind], folder: 'x', hasLocal: true });
     assert.ok(p.some((x) => x.rule === 'placeholder'), kind);
   }
-  assert.ok(fs.existsSync(path.resolve(path.dirname(new URL(import.meta.url).pathname), '../viewer/index.html')));
 });

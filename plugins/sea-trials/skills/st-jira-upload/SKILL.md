@@ -115,7 +115,8 @@ what to do by hand (attach in Jira, drag on the board).
 Start one `st-jira-verifier` with the folder, `$CLI` and the mode, or
 run its steps yourself. The dry run after the push lists 0 operations
 except the user-key steps the MCP path skipped. Add one line to
-`SPRINT-CHANGES.md`. Start the viewer for the user:
+`SPRINT-CHANGES.md`. Start the viewer (the `sprint-plan-viewer/`
+submodule) for the user:
 
 ```bash
 node "$CLI" serve "$DIR"
