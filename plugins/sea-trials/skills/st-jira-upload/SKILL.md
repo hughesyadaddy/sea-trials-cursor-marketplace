@@ -53,8 +53,9 @@ if [[ ! -f "$CLI" ]]; then
     < <(find "$HOME/.claude/plugins" "$HOME/.cursor/plugins" -path '*/scripts/sprint-cards/cli.mjs' 2>/dev/null)
 fi
 [[ -f "$CLI" ]] || { echo "sprint-cards CLI not found: it is scripts/sprint-cards/cli.mjs two folders above this SKILL.md's folder" >&2; }
-DIR="$REPO_ROOT/sprint_planning/<sprint-slug>"
-node "$CLI" doctor "$DIR"
+DIR="$REPO_ROOT/sprint_planning/<sprint-slug>"     # put the real folder the user named here
+# doctor exits 1 while something is missing; its FAIL lines are things to fix, not a stop.
+node "$CLI" doctor "$DIR" || true
 node "$CLI" auth status "$DIR"
 ```
 

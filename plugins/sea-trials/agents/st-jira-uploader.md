@@ -27,10 +27,14 @@ If the approval line is missing, stop and return `APPROVED: no`.
    is done. Stop the whole run when `updated` is newer than the step's
    `before` line says; report it. Else call `editJiraIssue` with the
    step's `arguments`.
-3. `transition`: `getTransitionsForJiraIssue`, pick the one whose
-   target status name matches, then `transitionJiraIssue`.
-4. `sprint` with `arguments`: `editJiraIssue`. Without `arguments`
-   (`needs: user-key`): skip.
+3. `transition`: call `getJiraIssue` first. Skip when the issue is
+   already in the target status, or when its status category is done
+   (never reopen or move a Done issue). Else
+   `getTransitionsForJiraIssue`, pick the one whose target status name
+   matches, then `transitionJiraIssue`.
+4. `sprint` with `arguments`: call `getJiraIssue` first and skip when
+   the status category is done; else `editJiraIssue`. Without
+   `arguments` (`needs: user-key`): skip.
 5. Any step with `needs: user-key`: skip and list its `instead` text.
 
 On an error: do not retry a create blindly. Search again with the

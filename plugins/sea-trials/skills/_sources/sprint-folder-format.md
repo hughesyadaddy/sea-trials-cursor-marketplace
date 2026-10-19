@@ -60,7 +60,7 @@ sprint_planning/<sprint-slug>/
 ```
 
 - The `jira` block is written by `init` and `connect`. The skill finds the values at run time (see the Jira connection reference) and saves them here so the next run does not ask again.
-- `field_ids` is written by `pull` with the user key. On the MCP path the skill can write it with `connect` once it knows the ids.
+- `field_ids` is written by `pull` with the user key. On the MCP path the skill writes it with `connect --story-points-field customfield_N --sprint-field customfield_N` once it knows the ids (from `getJiraIssueTypeMetaWithFields`).
 - `items` is rebuilt by `ids` on every run. `sync_status` is one of `in_sync`, `local_edited`, `jira_edited`, `conflict` or `local_only`.
 
 ## images/manifest.json

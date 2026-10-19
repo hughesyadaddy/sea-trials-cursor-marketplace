@@ -66,8 +66,10 @@ if [[ ! -f "$CLI" ]]; then
 fi
 [[ -f "$CLI" ]] || { echo "sprint-cards CLI not found: it is scripts/sprint-cards/cli.mjs two folders above this SKILL.md's folder" >&2; }
 node "$CLI" --help >/dev/null && echo "CLI: $CLI"
-DIR="$REPO_ROOT/sprint_planning/<sprint-slug>"     # the folder the user named
-node "$CLI" doctor "$DIR"; node "$CLI" auth status "$DIR"
+DIR="$REPO_ROOT/sprint_planning/<sprint-slug>"     # put the real folder the user named here
+# doctor exits 1 while something is missing; its FAIL lines are things to fix, not a stop.
+node "$CLI" doctor "$DIR" || true
+node "$CLI" auth status "$DIR"
 ```
 
 No folder yet: `node "$CLI" init "$DIR" --project-key ... --site ...`

@@ -54,7 +54,7 @@ export function findViewer(sprintDir, o = {}) {
   if (o.viewer) candidates.push(path.resolve(o.viewer));
   if (env.SPRINT_PLAN_VIEWER) candidates.push(path.resolve(env.SPRINT_PLAN_VIEWER));
   let cur = path.resolve(sprintDir);
-  for (let i = 0; i < 8; i += 1) {
+  for (;;) {
     candidates.push(path.join(cur, VIEWER_DIR_NAME));
     if (fs.existsSync(path.join(cur, '.git'))) break;
     const up = path.dirname(cur);

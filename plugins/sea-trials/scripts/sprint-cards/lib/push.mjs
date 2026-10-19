@@ -548,7 +548,7 @@ export function mcpPlan(plan, tree, index = {}) {
           additional_fields: additional,
         },
         then: `record ${op.local_id} --key <new key> --id <new id>`,
-        ...(op.story_points !== null && !fid.storyPoints ? { note: 'story points field id unknown; set it by hand or run pull with the user key once' } : {}),
+        ...(op.story_points !== null && !fid.storyPoints ? { note: 'story points field id unknown: save it with connect --story-points-field customfield_N, or run pull with the user key once' } : {}),
       });
     } else if (op.op === 'update') {
       const fields = {};

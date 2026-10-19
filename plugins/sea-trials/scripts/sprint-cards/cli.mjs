@@ -4,7 +4,8 @@
  *
  *   node cli.mjs init <sprint-dir> [--project-key KEY] [--site URL] [--cloud-id ID]
  *                                  [--board N] [--sprint-id N] [--sprint-name NAME]
- *   node cli.mjs connect <sprint-dir> [same flags]   remember site/project/board/sprint
+ *   node cli.mjs connect <sprint-dir> [same flags] [--story-points-field customfield_N] [--sprint-field customfield_N]
+ *                                                   remember site/project/board/sprint and field ids
  *   node cli.mjs new <sprint-dir> epic|story|subtask --title T [--parent ID] [--points N] [--labels a,b]
  *   node cli.mjs ids <sprint-dir> [--dry-run]        stable local ids + index.json
  *   node cli.mjs number <sprint-dir> [--dry-run]     order, User Story N, N.M
@@ -116,6 +117,9 @@ async function main(argv) {
       const dir = sprintDirArg(a._[1]);
       const idx = readIndex(dir) ?? { version: 2, items: {} };
       idx.jira = { ...(idx.jira ?? {}), ...connectFields(jiraFlags(a)) };
+      const fids = Object.fromEntries([['storyPoints', a['story-points-field']], ['sprint', a['sprint-field']]].filter(([, v]) => typeof v === 'string' && v));
+      for (const v of Object.values(fids)) if (!/^customfield_\d+$/.test(v)) throw Object.assign(new Error(`${v} is not a Jira custom field id (customfield_NNNNN)`), { code: 2 });
+      if (Object.keys(fids).length) idx.field_ids = { ...(idx.field_ids ?? {}), ...fids };
       writeJson(path.join(cardsRoot(dir), 'index.json'), idx);
       out(a, `Saved in compare/index.json: ${JSON.stringify(idx.jira)}`, idx.jira);
       return 0;
@@ -245,7 +249,9 @@ async function main(argv) {
     }
     case 'push': {
       const dir = sprintDirArg(a._[1]);
-      assignIds(dir);
+      if (a.apply && process.env.JIRA_READ_ONLY === '1') throw new Error('JIRA_READ_ONLY=1 is set, so push --apply is refused before any network call. Unset it to write.');
+      const ids = assignIds(dir);
+      const dropNote = ids.dropped.length ? [`  note: no longer in the folder (dropped from index.json; the Jira issues are not touched): ${ids.dropped.map((d) => d.jira_key ?? d.local_id).join(', ')}`] : [];
       const tree = loadTree(dir);
       const index = readIndex(dir) ?? {};
       const plan = planPush(tree, index, { keys: a.keys ? a.keys.split(',').map((s) => s.trim()) : null, only: a.only ? a.only.split(',').map((s) => s.trim()) : null, backlog: a.backlog });
@@ -260,6 +266,7 @@ async function main(argv) {
         `${a.apply ? 'APPLY' : 'DRY RUN'}: ${plan.ops.length} operation(s), ${plan.skipped.length} Done card(s) skipped.`,
         ...plan.ops.map((op, i) => `  ${String(i + 1).padStart(3)}. ${describeOp(op)}`),
         ...plan.problems.map((p) => `  note: ${p.folder ? `compare/${p.folder}: ` : ''}${p.message}`),
+        ...dropNote,
         ...(lint.length ? [`  lint: ${lint.length} error(s); run lint and fix them${a.apply && !a['skip-lint'] ? ' (push refused)' : ''}`] : []),
       ];
       if (!a.apply) {
@@ -283,11 +290,14 @@ async function main(argv) {
       const idx = readIndex(dir);
       const k = resolveUserKey({ indexSite: idx?.jira?.site });
       const major = Number(process.versions.node.split('.')[0]);
+      // Hint the project key from the keys the cards already carry.
+      const prefixes = new Set(Object.values(idx?.items ?? {}).map((it) => /^([A-Z][A-Z0-9_]+)-\d+$/.exec(it?.jira_key ?? '')?.[1]).filter(Boolean));
+      const keyHint = prefixes.size === 1 ? `not set; the cards use ${[...prefixes][0]}, so run connect --project-key ${[...prefixes][0]}` : 'not set (connect --project-key)';
       const checks = [
         [major >= 20, `Node ${process.versions.node} (needs 20 or newer)`],
         [fs.existsSync(cardsRoot(dir)), `cards folder ${cardsRoot(dir)}`],
         [Boolean(idx), 'compare/index.json'],
-        [Boolean(idx?.jira?.project_key), `project key: ${idx?.jira?.project_key ?? 'not set (connect --project-key)'}`],
+        [Boolean(idx?.jira?.project_key), `project key: ${idx?.jira?.project_key ?? keyHint}`],
         [Boolean(idx?.jira?.site || idx?.jira?.cloud_id), `site: ${idx?.jira?.site ?? idx?.jira?.cloud_id ?? 'not set (connect --site)'}`],
         [true, `sprint: ${idx?.jira?.sprint_name ?? 'not set'} (${idx?.jira?.sprint_id ?? 'no id'})`],
         [true, `Jira connection: ${k.ok ? `user key from ${k.source}` : 'Atlassian MCP (no user key)'}`],

@@ -47,4 +47,4 @@ When all three fail, set `CLI` by hand: the skill you are reading is at `<plugin
 
 Exit codes: 0 ok, 1 problems found (lint errors, failed operations), 2 bad input, 3 the user key is needed.
 
-`JIRA_READ_ONLY=1` makes every REST write fail before it leaves the machine. Use it for tests and reviews.
+`JIRA_READ_ONLY=1` makes every REST write fail before it leaves the machine, and makes `push --apply` stop before any network call. Use it for tests and reviews.

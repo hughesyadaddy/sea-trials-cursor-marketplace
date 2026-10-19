@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { init } from '../lib/scaffold.mjs';
 import { setFetch, setSleep } from '../../sprint/jira-rest.mjs';
 import { assignIds } from '../lib/ids.mjs';
 import { loadTree, readIndex } from '../lib/tree.mjs';
@@ -152,4 +156,14 @@ test('MCP plan: parents first, precheck before create, user-key-only ops marked'
   assert.match(creates[0].precheck.arguments.jql, /summary/);
   assert.equal(creates[0].arguments.contentFormat, 'adf');
   assert.ok(mp.steps.some((s) => s.needs === 'user-key'));
+});
+
+test('push --apply is refused before any network call when JIRA_READ_ONLY=1', () => {
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ro-')), 'sprint');
+  init(dir, { projectKey: 'PROJ', site: 'https://127.0.0.1:9' });
+  const cli = fileURLToPath(new URL('../cli.mjs', import.meta.url));
+  const r = spawnSync(process.execPath, [cli, 'push', dir, '--apply', '--skip-lint'], { encoding: 'utf8', env: { ...process.env, JIRA_READ_ONLY: '1', JIRA_EMAIL: 'dev@example.com', JIRA_API_TOKEN: 'ATATTfakeTOKEN', JIRA_SITE: 'https://127.0.0.1:9' } });
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /JIRA_READ_ONLY=1/);
+  assert.doesNotMatch(r.stdout + r.stderr, /ATATTfakeTOKEN|Writing to/);
 });

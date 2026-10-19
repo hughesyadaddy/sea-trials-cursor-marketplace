@@ -2,7 +2,7 @@
 
 Two ways to reach Jira. Neither needs a config file.
 
-1. **Atlassian MCP (default).** The plugin declares the official Atlassian remote MCP server as `atlassian` at `https://mcp.atlassian.com/v2/mcp` (Streamable HTTP) in both the Claude Code and the Cursor manifest. The first call opens a browser sign-in (OAuth 2.1). The agent reads and writes through its tools. Claude Code lists a plugin server as `plugin:<plugin>:atlassian` (`claude mcp list`; sign in with `/mcp`), and its tools as `mcp__plugin_<plugin>_atlassian__<tool>`; Cursor lists it under Settings, MCP. The tool names below (`createJiraIssue` and so on) are the last part of those names.
+1. **Atlassian MCP (default).** The plugin declares the official Atlassian remote MCP server as `atlassian` at `https://mcp.atlassian.com/v2/mcp` (Streamable HTTP) in both the Claude Code and the Cursor manifest. The first call opens a browser sign-in (OAuth 2.1). The agent reads and writes through its tools. Claude Code lists a plugin server as `plugin:<plugin>:atlassian` (`claude mcp list`; sign in with `/mcp`), and its tools as `mcp__plugin_<plugin>_atlassian__<tool>`; Cursor lists it under Settings, MCP, as a plugin server named `atlassian`, and gives the agent its tools in a namespace such as `plugin-<plugin>-atlassian`. The tool names below (`createJiraIssue` and so on) are the last part of those names.
 2. **User key (override).** An Atlassian API token for the signed-in person. When it is present, the CLI talks to the Jira REST API directly and has every feature. It is never printed, logged or written into the sprint folder.
 
 ## Find the site, project, board and sprint (run time)

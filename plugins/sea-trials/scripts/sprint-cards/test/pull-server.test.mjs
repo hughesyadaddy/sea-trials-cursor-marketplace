@@ -2,6 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { setFetch } from '../../sprint/jira-rest.mjs';
 import { assignIds } from '../lib/ids.mjs';
 import { pull } from '../lib/pull.mjs';
@@ -99,4 +102,27 @@ test('rankIssues keeps the order across chunks of 50', async () => {
   } finally {
     setFetch(prev);
   }
+});
+
+test('findViewer walks up past 8 levels to the git root', () => {
+  const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'viewer-deep-'));
+  fs.mkdirSync(path.join(root, '.git'));
+  fs.mkdirSync(path.join(root, 'sprint-plan-viewer'));
+  fs.writeFileSync(path.join(root, 'sprint-plan-viewer', 'server.mjs'), '');
+  const deep = path.join(root, ...Array.from({ length: 11 }, (_, i) => `d${i}`));
+  fs.mkdirSync(deep, { recursive: true });
+  const v = findViewer(deep, { env: {} });
+  assert.equal(v?.dir, path.join(root, 'sprint-plan-viewer'));
+});
+
+test('connect saves field ids for the MCP path and rejects bad ids', () => {
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'connect-')), 'sprint');
+  init(dir, {});
+  const cli = fileURLToPath(new URL('../cli.mjs', import.meta.url));
+  const r = spawnSync(process.execPath, [cli, 'connect', dir, '--story-points-field', 'customfield_10016', '--sprint-field', 'customfield_10020'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const idx = JSON.parse(fs.readFileSync(path.join(dir, 'compare/index.json'), 'utf8'));
+  assert.deepEqual(idx.field_ids, { storyPoints: 'customfield_10016', sprint: 'customfield_10020' });
+  const bad = spawnSync(process.execPath, [cli, 'connect', dir, '--sprint-field', 'x; rm -rf /'], { encoding: 'utf8' });
+  assert.equal(bad.status, 2);
 });

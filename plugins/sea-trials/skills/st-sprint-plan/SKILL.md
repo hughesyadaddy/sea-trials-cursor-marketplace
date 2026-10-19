@@ -172,7 +172,7 @@ edit the other to point at it.
 node "$CLI" number "$DIR"
 node "$CLI" lint "$DIR"          # must exit 0
 node "$CLI" push "$DIR"          # dry run: every card is a create
-node "$CLI" doctor "$DIR"        # saved Jira data and connection mode
+node "$CLI" doctor "$DIR" || true   # saved Jira data and connection mode; exit 1 = FAIL lines to fix
 node "$CLI" serve "$DIR"         # starts the sprint-plan-viewer submodule
 ```
 
