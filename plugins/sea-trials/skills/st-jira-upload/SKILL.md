@@ -1,14 +1,13 @@
 ---
 name: st-jira-upload
 description: >-
-  Upload a lint-clean sprint folder to Jira idempotently: epic, stories,
-  subtasks, story points, labels, Blocks links, sprint assignment and
-  rank, all as the signed-in user with ADF checkboxes, on a human
-  cadence (one epic at a time, spaced writes, working hours). One
-  uploader per story in sequence, parallel verifiers, jira_state.json
-  written at the end. Use when a sprint folder is ready or has changed
-  cards, or when the user says "upload the sprint", "push the cards to
-  Jira", or "sync the sprint to Jira".
+  Send a sprint card folder to Jira and keep the two in sync: dry run
+  first, then create (parents first), update, transition, attach
+  images, set parents, move to the sprint and rank, then read back and
+  resync. Uses the Atlassian MCP (OAuth sign-in) by default, and the
+  user's Atlassian API token for the full feature set when one is set.
+  Done cards are never changed. Use when the user asks to upload,
+  push, sync or update Jira from the sprint folder.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -23,299 +22,135 @@ user-invocable: true
 > Build now). Never output `/clear` or `/new-chat`.
 > On Claude Code: clear-context handoffs remain valid.
 
-
 # Jira upload
 
-Folder to Jira. Markdown is the source; Jira is the copy. Every card
-renders real checkboxes, nothing is duplicated, only changed cards are
-touched on re-runs, and the activity stream reads like one person's
-afternoon, not a burst.
+The folder is the plan; Jira gets a copy. Every write is shown in a
+dry run and approved by the user first.
 
 **Read first:**
 
-- [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
-  (sections 2, 5, 7, 10, 11, 12, and "Cadence and voice in Jira")
-- [`references/shared/sprint-dev-voice.md`](references/shared/sprint-dev-voice.md)
-  (delete orphans; no `[Cancelled]` summaries)
-- [`references/human-cadence.md`](references/human-cadence.md)
-- [`references/mcp-call-shapes.md`](references/mcp-call-shapes.md)
-- [`references/rest-and-browser-fallbacks.md`](references/rest-and-browser-fallbacks.md)
-
-**Connector:** only the `--seatrials` Atlassian connector on
-`https://seatrials.atlassian.net` (contract header). **Writes:** one
-writer per site, one write at a time, stale check before and read-back
-after every write (contract 10.6).
-
-## Autonomy
-
-No questions once the folder lints clean, except one structured
-confirmation before any delete. Missing config values are discovered
-and written back to `sprint.json`, not asked for.
-
-Flags: `--dry-run` runs Phases 0 and 1 and stops (manifest and
-schedule printed, nothing written). `--fast` collapses the schedule
-gaps and is allowed **only** with `--dry-run` or when `projectKey` is
-listed in `sprint.json.testProjectKeys`; anywhere else, ignore it and
-say so. `--ignore-hours` writes outside the activity window; use it
-only when the person says they are at the keyboard now.
+- [`references/shared/jira-connection.md`](references/shared/jira-connection.md) (both paths, the feature table, safety)
+- [`references/shared/sprint-cards-cli.md`](references/shared/sprint-cards-cli.md)
+- [`references/shared/sprint-folder-format.md`](references/shared/sprint-folder-format.md)
+- [`references/shared/sprint-card-format.md`](references/shared/sprint-card-format.md) (what lint checks)
 
 ---
 
-## Phase 0 — Preflight
+## Phase 0: Locate and pick the path
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
-if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_RUN="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)"
-  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
-  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
-fi
-SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
-FOLDER="<folder>"; SCRATCH=$(mktemp -d /tmp/sprint.XXXX)
-node "$SPRINT/parse-sprint-folder.mjs" "$FOLDER" --lint
-node "$SPRINT/parse-sprint-folder.mjs" "$FOLDER" --out "$SCRATCH/payload.json"
-node "$SPRINT/parse-sprint-folder.mjs" "$FOLDER" --diff
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CLI=""
+for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  if [[ -n "$root" && -f "$root/scripts/sprint-cards/cli.mjs" ]]; then CLI="$root/scripts/sprint-cards/cli.mjs"; break; fi
+done
+[[ -n "$CLI" ]] || CLI="<skill folder>/../../scripts/sprint-cards/cli.mjs"   # folder of this SKILL.md
+DIR="$REPO_ROOT/sprint_planning/<sprint-slug>"
+node "$CLI" doctor "$DIR"
+node "$CLI" auth status "$DIR"
 ```
 
-Lint must exit 0. If it fails, stop and run `/st-sprint-refine`.
+- `Mode: user key`: **key path** (REST, every feature).
+- `Mode: Atlassian MCP`: **MCP path**. Check that the Atlassian MCP
+  tools are there (`getAccessibleAtlassianResources`). When they are
+  not, tell the user to enable the `atlassian` MCP server of this
+  plugin and sign in, or to set the user key (`auth login --email`).
 
-Resolve config (write anything discovered back to `sprint.json`):
+Missing site, project or sprint in `doctor`: find them as in
+`jira-connection.md` and save them with `connect`.
 
-| Value | Source, in order |
+---
+
+## Phase 1: Resync and check (read only)
+
+Run the resync from `/st-sprint-refine` Phase 1 (`pull`, or MCP search
+plus `import-jira`), so the plan compares with live Jira. Then:
+
+```bash
+node "$CLI" lint "$DIR"                 # must exit 0; fix cards first
+node "$CLI" push "$DIR"                 # dry run
+```
+
+Show the user the dry run (each line is one write), the notes, and
+for the MCP path the steps that need the user key. Ask one structured
+question: send all, send only some keys (`--keys K1,K2` or local ids),
+only some kinds (`--only update,transition`), or stop. Nothing is
+written before the user says yes.
+
+---
+
+## Phase 2a: Key path
+
+```bash
+node "$CLI" push "$DIR" --apply [--keys ...] [--only ...] [--backlog]
+```
+
+It creates parents first and searches before each create, so a rerun
+never makes duplicates. Updates read the live issue first, skip Done,
+and back up the old fields to `PUSH-BACKUP-*.jsonl`. Images are
+attached once (sha256 and name and size checks). Then sprint moves,
+rank, a read-back and fresh Jira copies. Every write is in
+`PUSH-LOG-*.jsonl`, without secrets. Exit 1 lists the failed
+operations; fix the cause and run the same command again.
+
+## Phase 2b: MCP path
+
+```bash
+node "$CLI" push "$DIR" --mcp-plan /tmp/mcp-plan.json [--keys ...] [--only ...]
+```
+
+Start one `st-jira-uploader` (never in parallel) with the folder,
+`$CLI`, the plan path and the line `User approved this plan.`. Or run
+the steps yourself, exactly as in `jira-connection.md` ("Running an
+MCP plan safely"): precheck search, create, `record` at once, the
+Done and stale checks before each update. When the plan reports
+`deferred_creates`, make a new plan and run it: the children of the
+new parents are next. Tell the user which steps need the user key and
+what to do by hand (attach in Jira, drag on the board).
+
+---
+
+## Phase 3: Verify
+
+Start one `st-jira-verifier` with the folder, `$CLI` and the mode, or
+run its steps yourself. The dry run after the push lists 0 operations
+except the user-key steps the MCP path skipped. Add one line to
+`SPRINT-CHANGES.md`. Start the viewer for the user:
+
+```bash
+node "$CLI" serve "$DIR"
+```
+
+## Report
+
+| Local id | Key | Created / updated / skipped | Note |
+| --- | --- | --- | --- |
+
+Then the read-back result, the steps left for the user, and the log
+file path.
+
+---
+
+## Subagents
+
+| Host | Uploader or verifier |
 | --- | --- |
-| `cloudId` | `sprint.json`, else `getAccessibleAtlassianResources` on the `--seatrials` connector (must match `site`; stop if no match) |
-| `projectKey` | `sprint.json` (required) |
-| `storyIssueType`, `subtaskIssueType` | `sprint.json`, else `getJiraProjectIssueTypesMetadata` |
-| `storyPointsFieldId` | `sprint.json`, else `node "$SPRINT/jira-rest.mjs" fields --name "Story point"`, else create one story and read `*all` fields back to find the numeric SP field |
-| Assignee per story | contract 4.4 routing with ids from `assignees.json`; missing ids via `lookupJiraAccountId`, preferring the account with recent activity, else stop and ask; fallback `sprint.json.assigneeAccountId` |
-| `sprintId` | `sprint.json`, else `jira-rest.mjs sprints <boardId> --state active,future` |
+| Claude Code | `Agent` (or `Task`) with `subagent_type: st-jira-uploader` / `st-jira-verifier` (may show as `<plugin>:<name>`) |
+| Cursor | `Task` with `subagent_type: st-jira-uploader` / `st-jira-verifier` |
+| No subagent tool | Run the steps yourself |
 
-Print the manifest from `--diff` (create / update / unchanged counts).
-If everything is `unchanged`, report that and stop.
-
-### Orphan issues (removed from folder)
-
-Compare keys in `jira_state.json` (and any repo upload-state JSON the
-person uses) to keys still present in the payload. Keys that exist in
-Jira but no longer have a markdown card are **orphans**.
-
-1. List orphans in the summary (key + old summary from `getJiraIssue`).
-2. Ask once via the structured question tool: delete these issues now?
-   (Recommended when `_internal/pm/REMOVED-CARDS.md` lists them.)
-3. On yes: delete with MCP v2 `deleteJiraIssue` or REST
-   `jira-rest.mjs delete-issue <KEY> --yes`, one at a time with the
-   10.6 protocol. Never delete through a browser; without MCP v2 or REST,
-   list the deletes as manual steps. Never rename to `[Cancelled]` and
-   leave on the board.
-4. Remove orphan keys from `jira_state.json` after successful delete.
-
----
-
-## Phase 1 — Cadence schedule
-
-Every write in this run happens at a planned offset. Plan once, from
-the payload, before the first write:
-
-```bash
-node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json" \
-  --json > "$SCRATCH/schedule.json"
-node "$SPRINT/human-cadence.mjs" plan "$SCRATCH/payload.json"
-node "$SPRINT/human-cadence.mjs" window        # exit 3 = closed, prints wait
-```
-
-Print the table (id, offset, batch) and the `total:` line so the person
-knows how long the run takes. Add `--fast` only under the rule in
-Autonomy; add `--seed N` to reproduce a previous plan.
-
-What the schedule means for you:
-
-- Entries are executed **in schedule order**, each no earlier than
-  `T0 + startOffsetMs`. `T0` is the wall-clock ISO time of the first
-  write; record it in `SCRATCH/T0` and pass it to every worker.
-- Do not pass `--edit-field`: labels and story points always ride on
-  the create or edit with the body, so there are no follow-up edits.
-- Sleeping between calls is done with the script, not by guessing:
-  `node "$SPRINT/human-cadence.mjs" wait --start "$T0" --offset <ms>`
-  before each write (a plain `sleep N` is acceptable when the script
-  is unavailable; keep the same offsets). `wait` also blocks while the
-  activity window is closed; the run **waits** for 08:00 local, it does
-  not skip cards and it does not write at night.
-- Reads (`getJiraIssue`, JQL) carry no cadence and may happen any time.
-
-If the window is closed and the person has not said `--ignore-hours`,
-tell them when the run will start and keep waiting; do not ask.
-
-`--dry-run` stops here.
-
----
-
-## Phase 2 — Epic
-
-| State | Action |
-| --- | --- |
-| `epicKey` in `sprint.json` or state file | `getJiraIssue` to confirm it exists; edit description only if the epic is in `update` |
-| No epic key | at the epic's schedule entry (offset 0, this is `T0`): `createJiraIssue` `issueTypeName: "Epic"`, ADF body from `00-epic.md` via `md-to-adf.mjs --strip-h1`; write `epicKey` to `sprint.json` |
-
-Read back and run the parity check (contract 10.3). When the epic is
-reused, `T0` is the moment the first story write fires in Phase 3.
-
----
-
-## Phase 3 — Stories, one uploader at a time
-
-**One `st-jira-uploader` per story, run in sequence, never two into the
-same board at once.** Parallel uploaders into one project interleave
-stories and break the schedule. Parallelism is allowed only across
-different projects or sites, each with its own payload, schedule, and
-`T0`. Cheap model:
-
-| Host | Call |
-| --- | --- |
-| Cursor | `Task` `subagent_type: st-jira-uploader`, `model: composer-2.5` |
-| Claude Code | `Agent` `st-jira-uploader`, `model: haiku` |
-
-Slice `schedule.json` **by time, not by story**: the uploader for story
-N gets every entry from N's story card up to the entry before story
-N+1's story card. Entries after the last story card go to the last
-uploader. Wait for each uploader to return before starting the next.
-
-Each prompt carries: `SPRINT`, `SCRATCH/<id>/`, payload path, `T0`,
-the schedule slice (id, action, offset), the
-resolved config, `epicKey`, the story's buckets from `--diff`, the
-current key map for `Blocked by` resolution, the routed assignee and
-labels, each `update` card's recorded `updated` value, and, for
-`update` cards, one line from `human-cadence.mjs vary comment-opener`
-per card. Prompt
-template in `references/mcp-call-shapes.md`.
-
-Worker order inside a story follows the slice: story card, subtasks in
-document order, then `Blocks`
-links 3-10 s apart after the last entry. Story points and labels ride
-on the create or edit. Workers call `wait` before every write, run
-the stale check before every edit, read back after every write, and
-honour `Retry-After` (contract 10.6).
-
-Collect return blocks. Any `PARITY: FAIL` or `ERRORS` line: fix the
-markdown or ADF, re-run that one worker with only the failed cards,
-still on the schedule (a repair edit is a write; give it a fresh
-offset at least 20 s after the previous write).
-
----
-
-## Phase 4 — Verification fan-out
-
-One `st-jira-verifier` per 10 keys, all in one turn, cheap model.
-Input: keys, `storyPointsFieldId`, and the source markdown per key
-from the payload. Verifiers only read, so they run in parallel with
-no cadence. Verifier checks parity and identity (P1-P5), content (C1-C6), and
-fields (F1-F5). Any error: fix and re-edit via the uploader on the
-schedule, then re-verify those keys. Do not finish with a known error.
-
-Verifiers are read-only by default. Remark entries (below) go to a
-single verifier run after the parallel reads finish, never to several
-at once (contract 10.6). If the person asked for a
-verification remark on the cards, give each verifier its remark
-entries: key, `T0`, an offset (extend the schedule: 20-45 s apart,
-after the last uploader write), and one verbatim line per card from
-`human-cadence.mjs vary verifier-remark`. Those comments are the only
-writes a verifier makes and they follow the schedule like any other.
-
----
-
-## Phase 5 — Sprint, rank, mockup attachments
-
-Mockups (contract 4.2): for each subtask with files under
-`_internal/mockups/<story>.<subtask>/`, list the issue's attachments
-first and skip any file whose name or sha256 is already there; attach
-the rest to that subtask only, one write at a time, then record the
-attachment ids in `jira_state.json`. Use MCP v2
-`uploadAttachmentToJiraIssue` if present, else `jira-rest.mjs attach`,
-else ask before using the browser operator, else report as manual.
-
-
-Not in MCP v1. Use REST when `JIRA_SITE`, `JIRA_EMAIL`, and
-`JIRA_API_TOKEN` are set:
-
-```bash
-node "$SPRINT/jira-rest.mjs" move-to-sprint "<sprintId>" <STORY-KEYS...>
-node "$SPRINT/jira-rest.mjs" rank <KEY2> --after <KEY1>   # epic order
-```
-
-Rank stories in the epic's Recommended merge order. Subtasks follow
-their parent; do not move them separately. These are bulk calls a
-person also makes in one go (drag-select in the backlog), so one
-`move-to-sprint` and one rank pass are fine; leave 20-45 s between the
-last card write and the sprint move. If your MCP is v2
-(`manageJiraSprint` present), use it instead of REST. Without either,
-ask once with the structured question tool before dispatching
-`st-jira-browser-operator` per
-`references/rest-and-browser-fallbacks.md`; otherwise report the step
-as manual. A card leaving the sprint gets one `vary moved-to-backlog`
-comment.
-
----
-
-## Phase 6 — State file
-
-Write `<folder>/jira_state.json` in the contract 10.4 shape from the
-worker return blocks and the payload hashes. Then:
-
-```bash
-node "$SPRINT/parse-sprint-folder.mjs" "$FOLDER" --diff
-```
-
-Everything must now be `unchanged`. If not, a hash was recorded wrong;
-fix it from the payload before finishing. Never commit or push; the
-user decides whether the folder is versioned.
-
----
-
-## Phase 7 — Summary
-
-```text
-| Card | Key | Action | Tasks | Sprint |
-| --- | --- | --- | --- | --- |
-| Epic | <KEY> | reused | - | - |
-| US1 | <KEY> | created | 5/5 | <sprint name> |
-| US1.1 | <KEY> | created | 2/2 | (parent) |
-```
-
-Plus: `cloudId`, `storyPointsFieldId`, and `epicKey` values written to
-`sprint.json`; the seed and total duration from the schedule; any step
-left manual. Offer via the structured question tool:
-
-1. Run `/st-jira-board-vet` on the sprint (Recommended)
-2. Stop here
-
----
+The uploader runs alone. Several verifiers may run in parallel, one
+per epic.
 
 ## Forbidden
 
-- `contentFormat: "markdown"` for any description or comment body.
-- `customfield_10014` for the epic parent; use `parent.key`.
-- Creating a card that has a key in `jira_state.json`.
-- Uploading a folder that fails lint.
-- Adding, dropping, or rewording card content during upload. Fix the
-  markdown, re-lint, re-run.
-- More than one Jira writer per site, two writes in flight, any write
-  ahead of its schedule offset, two writes in the same second, an edit
-  without the stale check, or a write without read-back.
-- Any connector other than the `--seatrials` Atlassian connector.
-- Deferred-label edits (`--edit-field`), or writing a body built from a
-  markdown export of the live card.
-- Deleting through a browser.
-- Attaching a mockup to more than one issue or more than once.
-- `--fast` outside `--dry-run` or a `testProjectKeys` project.
-- Writing outside the activity window without `--ignore-hours` from
-  the person.
-- `historyMetadata`, emojis, exclamation marks, em dashes, or any word
-  from contract section 5 in summaries, bodies, comments, or link
-  comments. Free text comes from `human-cadence.mjs vary` or passes
-  `human-cadence.mjs check`.
-- Mentioning tooling, automation, or who or what wrote the card in
-  anything that goes to Jira.
-- Writing helper scripts into the target repo.
-- Deleting anything without the one structured confirmation (except
-  orphans the person already listed in REMOVED-CARDS and confirmed).
-- Marking withdrawn work `[Cancelled]` instead of deleting the issue.
+- Any write before the user approved the dry run.
+- `--apply` while lint has errors (`--skip-lint` only when the user
+  asks for it by name).
+- Changing a card that is Done in Jira, deleting issues, or posting
+  comments.
+- Creating a card through MCP without the precheck search, or going
+  to the next step before `record` saved the key.
+- Printing, echoing or asking for the API token in chat. The user
+  types it into the keychain prompt (`auth login`) or their shell.
+- Writing to any Jira site other than the one in `compare/index.json`.

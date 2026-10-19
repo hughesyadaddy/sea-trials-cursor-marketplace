@@ -409,6 +409,28 @@ export function resolveSprint(spec, o = {}) {
   );
   if (!dir) return { name: spec, dir: null, config: {}, stories: [] };
 
+  // Card-folder sprints (compare/index.json) list their stories in the index.
+  const cardIndex = readJson(path.join(dir, 'compare', 'index.json'));
+  if (cardIndex && cardIndex.items) {
+    const j = cardIndex.jira ?? {};
+    const cfg = {
+      ...(readJson(path.join(dir, 'sprint.json')) ?? {}),
+      ...(j.project_key ? { projectKey: j.project_key } : {}),
+      ...(j.site ? { site: j.site } : {}),
+      ...(j.cloud_id ? { cloudId: j.cloud_id } : {}),
+    };
+    const cardStories = Object.entries(cardIndex.items)
+      .map(([localId, it]) => ({ local_id: localId, ...it }))
+      .filter((it) => it.kind === 'story')
+      .sort((a, b) => String(a.folder).localeCompare(String(b.folder)))
+      .map((it) => ({
+        id: it.local_id,
+        key: it.jira_key ?? null,
+        title: it.summary ?? it.title ?? null,
+        file: path.join(dir, 'compare', it.folder, 'story.local.md'),
+      }));
+    return { name: path.basename(dir), dir, config: cfg, stories: cardStories };
+  }
   const config = readJson(path.join(dir, 'sprint.json')) ?? {};
   const state = readJson(path.join(dir, 'jira_state.json')) ?? {};
   const stories = [];

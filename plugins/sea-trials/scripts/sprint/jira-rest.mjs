@@ -141,7 +141,9 @@ function retryAfterMs(res, attempt) {
  * @param {{
  *   body?: unknown, form?: FormData, query?: object, headers?: object,
  *   auth?: { site: string, authorization: string },
- * }} [opts]
+ *   retry5xx?: boolean,
+ * }} [opts]  `retry5xx: false` turns off the 5xx retry (use it for
+ *   writes that are not idempotent and check with a GET instead).
  * @returns {Promise<unknown>} parsed JSON, or null for empty bodies
  */
 export async function requestJson(method, p, opts = {}) {
@@ -169,7 +171,7 @@ export async function requestJson(method, p, opts = {}) {
       attempts429 += 1;
       continue;
     }
-    if (res.status >= 500 && attempts5xx < MAX_5XX_ATTEMPTS - 1) {
+    if (res.status >= 500 && opts.retry5xx !== false && attempts5xx < MAX_5XX_ATTEMPTS - 1) {
       await sleepImpl(BACKOFF_BASE_MS * 2 ** attempts5xx);
       attempts5xx += 1;
       continue;

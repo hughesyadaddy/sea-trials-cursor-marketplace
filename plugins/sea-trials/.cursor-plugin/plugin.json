@@ -1,7 +1,7 @@
 {
   "name": "sea-trials",
   "displayName": "Sea Trials",
-  "version": "2026.10.13.3",
+  "version": "2026.10.19.1",
   "description": "Sea Trials team agents, MCP (Atlassian, chrome-devtools), st-* PR review skills, and push-gate hooks for Cursor.",
   "author": {
     "name": "Sea Trials",
@@ -14,5 +14,5 @@
   "agents": "./agents/",
   "skills": "./skills/",
   "hooks": "./hooks/cursor/hooks.json",
-  "mcp": "./mcp.json"
+  "mcpServers": "./mcp.json"
 }

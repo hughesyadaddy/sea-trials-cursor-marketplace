@@ -48,19 +48,22 @@ the first pass without that confirmation.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
-if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_RUN="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)"
-  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
-  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
-fi
-SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
+SPRINT=""
+for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  if [[ -n "$root" && -f "$root/scripts/sprint/retro-metrics.mjs" ]]; then SPRINT="$root/scripts/sprint"; break; fi
+done
+[[ -n "$SPRINT" ]] || SPRINT="<skill folder>/../../scripts/sprint"   # folder of this SKILL.md
 FOLDER=sprint_planning/<sprint>              # given, else newest
 ```
 
-Read `sprint.json` (`projectKey`, `cloudId`, `site`, `repo`,
-`startDate`, `endDate`, `confluenceSpaceKey`, `confluenceParentId`)
-and `jira_state.json` (story keys). PRs for the sprint:
+Card folders (`compare/index.json`): the project key, site and cloud
+id are in the `jira` block, and the story keys are the `jira_key` of
+each `kind: story` item. Older flat folders: read `sprint.json`
+(`projectKey`, `cloudId`, `site`, `repo`, `startDate`, `endDate`,
+`confluenceSpaceKey`, `confluenceParentId`) and `jira_state.json`.
+`retro-metrics.mjs --sprint` reads both kinds. Ask for the start date,
+the Confluence space and the parent page when the folder does not
+have them. PRs for the sprint:
 
 ```bash
 gh pr list --state merged --search "merged:>=<startDate> <KEY-1> OR <KEY-2> ..." \
@@ -104,7 +107,7 @@ the dispatch table shape):
 | Host | Call |
 | --- | --- |
 | Cursor | `Task` `subagent_type: st-retro-writer`, `model: inherit` |
-| Claude Code | `Agent` `sea-trials:st-retro-writer`, `model: inherit` |
+| Claude Code | `Agent` `st-retro-writer` (may show as `<plugin>:st-retro-writer`), `model: inherit` |
 
 Give it the facts paragraph, the debrief rows for that story, and the
 template. It returns the final comment (at most six lines, plain

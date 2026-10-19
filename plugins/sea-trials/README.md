@@ -22,9 +22,12 @@ Shared components (loaded by both hosts):
 - **Scripts:** push gate, PR review, parallel fan-out under `scripts/hooks/`
 - **Entry:** `scripts/st-run.mjs <hook> [-- args]` (or `pnpm` shortcuts in
   app repos that delegate via `.husky/st-plugin-run.sh`)
-- **MCP:** Atlassian (`atlassian-seatrials`, HTTP OAuth, site
-  seatrials.atlassian.net; the only Jira connector sprint skills use) and
-  `chrome-devtools` (stdio)
+- **MCP:** Atlassian (`atlassian`, the official remote server at
+  `https://mcp.atlassian.com/v2/mcp`, Streamable HTTP, browser OAuth; the
+  sprint skills find the site at run time and save it in the sprint folder)
+  and `chrome-devtools` (stdio)
+- **Sprint cards:** `scripts/sprint-cards/cli.mjs` (card folders, lint,
+  local viewer, Jira push and resync); see `skills/_sources/sprint-cards-cli.md`
 - **Hooks:** session-start model probe; block bare / `--no-verify` /
   `--force` `git push` unless a fresh gate-pass token exists (commits
   touching only `sprint_planning/**` are exempt)
@@ -41,7 +44,7 @@ declares `"type": "http"` because Claude hard-errors on a bare `url`.
    `https://github.com/hughesyadaddy/sea-trials-cursor-marketplace`
 2. Enable **sea-trials**, **vgv-wingspan**, **vgv-ai-flutter-plugin**
 3. Cmd+Q → reopen Cursor
-4. Settings → MCP → **Connect** on `atlassian-seatrials`
+4. Settings → MCP → **Connect** on `atlassian`
 
 Local smoke without the marketplace (temporary: delete
 `~/.cursor/plugins/local/sea-trials` afterwards, or Cursor loads a stale

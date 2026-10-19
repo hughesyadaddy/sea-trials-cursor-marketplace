@@ -37,8 +37,9 @@ Compose Atlassian MCP + existing PR review skills.
 
 ## Phase 1 — Jira context
 
-Use only the **atlassian-seatrials** / `--seatrials` Atlassian connector
-(site `https://seatrials.atlassian.net`); never a bare `allinpmprep` connector:
+Use the plugin's **`atlassian`** MCP server, on the Jira site of the
+ticket (the `jira.site` saved in the sprint folder's `compare/index.json`,
+or the site in the ticket URL the user gave):
 
 - Fetch issue summary, description, acceptance criteria
 - Note fix version / component labels for commit scope

@@ -1,94 +1,36 @@
 ---
 name: st-jira-verifier
-description: Read-only Jira card verifier. Fetches issues by key or JQL via the Atlassian MCP, checks checkbox and heading parity against source markdown, and scans for markdown links, template artefacts, banned phrasing, missing story points, and missing acceptance criteria. Posts a short verification remark only when the parent hands it scheduled remark entries. Use from st-jira-upload after uploads and from st-jira-board-vet for hygiene sweeps; several instances in parallel.
-model: composer-2.5
+description: Read-only check that Jira matches a sprint card folder. Fetches the issues through the Atlassian MCP (or runs the GET-only pull with the user key), imports them as Jira copies, and reports what still differs. Use from st-jira-upload after a push and from st-jira-board-vet for sweeps. Never writes to Jira.
+model: inherit
 ---
 
-You read Jira cards and report defects. You never edit files. You do
-not write to Jira unless the parent hands you remark entries (see
-"Remarks"); then those comments are your only writes. Your output is a
-table the parent acts on.
+You read Jira and report. You never write to Jira and never edit
+`*.local.md` cards.
 
 ## Inputs you must receive in the prompt
 
-- `cloudId` and either a list of issue keys or a JQL string.
-- Optional: source markdown per key (from the sprint payload) for
-  parity checks. Without it, run the content checks only.
-- `storyPointsFieldId` and the project's expected review statuses.
-- The banned phrasing list (contract section 5) or the contract text.
-- Optional remark entries: `T0`, the window settings, and per key an
-  offset in ms plus one verbatim line from
-  `node "$SPRINT/human-cadence.mjs" vary verifier-remark`.
+- The sprint folder path and the CLI path.
+- The connection mode: `user-key` or `mcp`.
 
-## Method
+## Steps
 
-1. Fetch each issue with `getJiraIssue`, `responseContentFormat: "adf"`,
-   `fields: ["summary","description","status","issuetype","assignee",
-   "labels","parent","<storyPointsFieldId>","subtasks"]`. For a JQL
-   input, first call `searchJiraIssuesUsingJql` with the same fields,
-   then fetch descriptions per key when the search result omits them.
-   Reads carry no cadence: fetch as fast as the MCP allows, in any
-   order, in parallel with other verifiers.
-2. Walk the ADF. Count `taskItem` nodes (state `TODO` and `DONE`
-   separately) and `heading` nodes. Collect all text.
-3. Checks, in this order:
+1. `user-key`: `node <CLI> pull <sprint-folder>` (GET only).
+   `mcp`: read the keys from `compare/index.json` (`items.*.jira_key`).
+   Fetch them with `searchJiraIssuesUsingJql` (`key in (...)`, fields
+   `summary,description,status,labels,parent,issuetype,updated,attachment`
+   plus the story points and sprint field ids from `field_ids` when
+   present), 50 keys per call. Save the issues as one JSON list to a
+   temp file, then `node <CLI> import-jira <sprint-folder> <file>`.
+2. `node <CLI> push <sprint-folder> --json` (dry run).
+3. `node <CLI> lint <sprint-folder> --json`.
 
-| Code | Check | Severity |
-| --- | --- | --- |
-| P1 | `taskItem` count differs from source `- [ ]` count | error |
-| P2 | `heading` count differs from source heading count | error |
-| P3 | summary differs from source H1 | error |
-| P4 | returned `key`, project, or `parent.key` differs from what was requested | error (hard stop: wrong issue or site) |
-| P5 | `codeBlock` node, or literal `[ ]` / `[x]` / `\[` text, not present in the source | error (markdown rendered as code or escaped checkboxes) |
-| C1 | any text contains `.md` as a file reference | error |
-| C2 | literal `[ ]` or `[x]` text inside a paragraph or bullet | error |
-| C3 | `{{`, `}}`, `<PLACEHOLDER>`-style leftovers | error |
-| C4 | banned phrasing or tells (contract section 5) | error |
-| C5 | story with no `Acceptance criteria` heading | error |
-| C6 | story or subtask with zero open task items | error |
-| F1 | story points empty on a story | warn |
-| F2 | assignee empty while status is in progress or review | warn |
-| F3 | status in a review state with no comment in 3 days | warn |
-| F4 | subtask done while parent story is still to do | warn |
-| F5 | emoji characters anywhere | warn |
+## Return
 
-4. Do not fix anything. Do not call any MCP tool that writes, except
-   as described under "Remarks".
-
-## Remarks
-
-Only when the prompt contains remark entries, and only on cards whose
-checks came back with zero errors:
-
-- Before each remark run
-  `node "$SPRINT/human-cadence.mjs" wait --start "$T0" --offset <ms>`
-  with that entry's offset; it returns when the offset has passed and
-  the activity window is open. Never post before it returns, never two
-  remarks in the same second, at least 3 s apart even when late.
-- Post with `addCommentToJiraIssue`, `contentFormat: "adf"`, the body
-  being the verbatim `vary verifier-remark` line the parent gave you
-  as a one-paragraph ADF document (shape in the upload skill's
-  `references/mcp-call-shapes.md`). Never compose your own wording;
-  if you were given fewer lines than cards, ask the script for more
-  (`node "$SPRINT/human-cadence.mjs" vary verifier-remark`), never
-  reuse a line on two cards.
-- Nothing in a remark names automation, tooling, checks, codes, or how
-  the card was produced. A remark reads like a teammate who opened the
-  card and read it.
-- A card with errors gets no remark; the parent fixes it first.
-
-## Return block (only this)
-
-```text
-CHECKED: <n> issues
-| Key | Type | Status | Tasks src/jira | Headings src/jira | Findings |
-| --- | --- | --- | --- | --- | --- |
-| <KEY> | Story | To Do | 5/5 | 7/7 | ok |
-| <KEY> | Subtask | To Do | 2/0 | 0/0 | P1 taskItems rendered as text |
-ERRORS: <n>  WARNINGS: <n>
-REMARKS: none | <n> posted, window wait <duration|none>
-DETAIL:
-<KEY> <code>: <quoted offending text, max 120 chars>
 ```
-
-Quote the offending text exactly so the parent can search and fix it.
+MODE: user-key | mcp
+FETCHED: <n> issues
+MATCH: <n> cards
+DIFFER: | Key | Fields | Note |
+NOT IN JIRA: <local_ids>
+LINT: <errors>
+```

@@ -1,13 +1,14 @@
 ---
 name: st-sprint-plan
 description: >-
-  From a goal and a repo, produce a Jira-ready sprint folder
-  (00-epic.md, NN-usN-slug.md stories with subtasks, sprint.json) that
-  passes the dev-ready card lint. Parallel reconnaissance, parallel
-  story authors, adversarial critics, then handoff to /st-jira-upload.
-  Use when the user asks to plan a sprint, write user stories, or
-  break an epic into cards, or says "plan the sprint", "draft the
-  sprint", "write the cards", or "break this into stories".
+  From a goal and a repo, write a sprint folder of cards in the card
+  format (epic, stories numbered 1..n, subtasks with What and why,
+  Where, How with code, Done when) under sprint_planning/, check it
+  with the card lint, and open it in the local viewer. Finds the Jira
+  site, project and sprint at run time and saves them in the folder.
+  Never writes to Jira; st-jira-upload does that. Use when the user
+  asks to plan a sprint, write user stories, or break an epic into
+  cards.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -22,222 +23,178 @@ user-invocable: true
 > Build now). Never output `/clear` or `/new-chat`.
 > On Claude Code: clear-context handoffs remain valid.
 
-
 # Sprint plan
 
-Turn a goal into a sprint folder of dev-ready cards. Nothing here
-touches Jira; `/st-jira-upload` does that afterwards.
+Turn a goal into a sprint folder of cards a developer can build from.
+Nothing here writes to Jira.
 
 **Read first:**
 
-- [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
-- [`references/shared/sprint-dev-voice.md`](references/shared/sprint-dev-voice.md)
-- [`references/intake-and-recon.md`](references/intake-and-recon.md)
-- [`references/fanout-prompts.md`](references/fanout-prompts.md)
-
-## When to use
+- [`references/shared/sprint-card-format.md`](references/shared/sprint-card-format.md) (the contract for every card)
+- [`references/shared/sprint-folder-format.md`](references/shared/sprint-folder-format.md)
+- [`references/shared/sprint-cards-cli.md`](references/shared/sprint-cards-cli.md)
+- [`references/shared/jira-connection.md`](references/shared/jira-connection.md) (Phase 1 only)
 
 | Situation | Skill |
 | --- | --- |
 | New goal, no cards yet | **This skill** |
-| Folder or epic exists, cards need work | `/st-sprint-refine` |
-| Folder is ready, push to Jira | `/st-jira-upload` |
-| Mid-sprint QA or hygiene | `/st-jira-test-review`, `/st-jira-board-vet` |
+| Folder or Jira epic exists, cards need work | `/st-sprint-refine` |
+| Folder is ready, send it to Jira | `/st-jira-upload` |
+| Check the board against the cards | `/st-jira-board-vet` |
 
 ## Autonomy
 
-Ask only the intake questions in Phase 1. After that, finish without
-asking. Make product calls from the recon and record them in the
-card's Context section; the critic pass catches bad calls.
+Ask only the Phase 1 questions. After that, finish without asking.
+Make product calls from the code and write them as facts in the cards;
+anything truly open goes to `OPEN-QUESTIONS.md`.
 
 ---
 
-## Phase 0 — Locate
+## Phase 0: Locate
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
-if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_RUN="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)"
-  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
-  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
-fi
-SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CLI=""
+for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  if [[ -n "$root" && -f "$root/scripts/sprint-cards/cli.mjs" ]]; then CLI="$root/scripts/sprint-cards/cli.mjs"; break; fi
+done
+[[ -n "$CLI" ]] || CLI="<skill folder>/../../scripts/sprint-cards/cli.mjs"   # folder of this SKILL.md
+node "$CLI" --help >/dev/null && echo "CLI: $CLI"
 ```
 
-Find the sprint folder root: `sprint_planning/` at the repo root by
-default; otherwise the folder the user named. Do not create it yet.
+Sprint folders live in `$REPO_ROOT/sprint_planning/`. Create it when
+it is missing.
 
 ---
 
-## Phase 1 — Intake (structured questions only)
+## Phase 1: Intake and Jira data
 
-Ask at most these, in one call, skipping any the user already
-answered. See `references/intake-and-recon.md` for the option lists.
+One structured question call, skipping anything the user already said:
 
-1. Sprint folder name (offer a slug derived from the goal).
-2. Jira project key, and whether an epic already exists (key).
-3. Persona(s) and surfaces in scope (multi-select from recon of the
-   repo's apps).
-4. Hard constraints: must-reuse patterns, must-not-touch areas,
-   deadline.
-5. Anything already decided that the cards must respect.
+1. Sprint folder name (offer a slug from the goal).
+2. Who the users are and which parts of the app are in scope.
+3. Hard limits: must reuse, must not touch.
+4. Decisions already made.
 
-Then state the goal back in 5-8 bullets (outcome, who benefits,
-constraints, open decisions you will make yourself). Do not write
-files yet.
-
----
-
-## Phase 2 — Reconnaissance fan-out
-
-Split the goal into 3-6 areas (data, service, UI, tests, ops). Launch
-one read-only explorer per area in one turn on the cheap model:
-
-| Host | Call |
-| --- | --- |
-| Cursor | `Task` `subagent_type: explore`, `model: composer-2.5` |
-| Claude Code | `Agent` `Explore`, `model: haiku` |
-
-Prompt template in `references/fanout-prompts.md` (Recon). Each
-explorer returns a table: `Area | Exists today | Path | We will`.
-Merge into one recon table. Do not invent paths; if an explorer says
-a thing does not exist, the card creates it and says `new`.
-
-Also read `repoConventionsPath` (or the repo's `AGENTS.md`,
-`CONTRIBUTING.md`, `package.json` scripts) for the exact test, lint,
-and E2E commands. Cards cite these verbatim.
-
----
-
-## Phase 3 — Story split (parent, no files yet)
-
-Draft the story list as a product owner would review it:
-
-| # | Story title | Persona | SP | Subtasks (titles) | Merge order note |
-| --- | --- | --- | --- | --- | --- |
-
-Rules (contract section 8): split by merge dependency, 3-6 subtasks,
-1-3 SP each, story at most 8 SP, destructive work last. Cut anything
-that does not serve the goal. For UI/polish goals, list **user-visible
-bugs** in the story table—not audit chores (capture matrix, attach PNGs,
-token diff). Present the table in chat and continue; do not wait unless
-the user asked to approve the split.
-
-Create `00-START-HERE.md` and `_internal/` when the sprint will carry PM
-evidence; keep dev story files at the folder root only.
-
-Write now:
-
-- `<folder>/sprint.json` from Phase 1 answers (contract section 2).
-- `<folder>/00-epic.md` from the epic template, including the
-  Stories table and Recommended merge order.
-
----
-
-## Phase 4 — Author stories in parallel
-
-One `st-sprint-author` per story, all in one turn (batch by 16 on
-Cursor):
-
-| Host | Call |
-| --- | --- |
-| Cursor | `Task` `subagent_type: st-sprint-author` (model inherit) |
-| Claude Code | `Agent` `st-sprint-author` |
-
-Each prompt carries: repo path, folder, file name, story brief, that
-story's slice of the recon table, the epic goal, sibling titles, the
-routing rules (contract 4.4), and the full contract text. Template in
-`references/fanout-prompts.md` (Author).
-
-Collect return blocks. Any `SELF-CHECK: fail` or `GAPS` that names a
-missing decision: decide it yourself and re-run that author with the
-decision added.
-
----
-
-## Phase 5 — Adversarial critic pass
-
-One `st-sprint-critic` per story, `MODE: fix`, all in one turn:
-
-| Host | Call |
-| --- | --- |
-| Cursor | `Task` `subagent_type: st-sprint-critic`, `model: composer-2.5` (escalate to inherit only on a disputed verdict) |
-| Claude Code | `Agent` `st-sprint-critic`, `model: haiku` |
-
-Template in `references/fanout-prompts.md` (Critic). Outcomes:
-
-| Verdict | Parent action |
-| --- | --- |
-| `READY` / `FIXED` | Accept |
-| `NEEDS RE-PLAN` | Re-split that story in Phase 3, re-author, re-critique |
-
-Two stories may not both claim the same file change with different
-behaviour; if the critics disagree, the parent resolves it and edits
-the epic Scope lines.
-
----
-
-## Phase 6 — Lint gate
+Then find the Jira data as in `jira-connection.md` (site, cloud id,
+project key, sprint id and name; the board is optional). Check
+`node "$CLI" auth status` first: with the user key use `discover`,
+else the MCP tools. Ask only for what you cannot find (for example
+the project, when several are visible). A new folder may start with
+no Jira data at all; the upload skill asks later.
 
 ```bash
-node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --lint
+node "$CLI" init "$REPO_ROOT/sprint_planning/<slug>" \
+  --project-key <PROJECT_KEY> --site <JIRA_SITE> --cloud-id <id> \
+  --sprint-id <n> --sprint-name "<SPRINT_NAME>"
+DIR="$REPO_ROOT/sprint_planning/<slug>"
 ```
 
-Must exit 0 with zero errors. Fix warnings when cheap (missing subtask
-SP, long task items). Then print the manifest:
-
-```bash
-node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --diff
-```
-
-Everything should be in `create` for a new folder.
-
-Finally, emit shards for the build so `/st-build-with-subagents` can
-skip its Phase 0 heuristics:
-
-```bash
-node "$SPRINT/sprint-to-shards.mjs" "<folder>" --repo-root "$ACTIVE_ROOT" --dry-run
-```
-
-`--dry-run` prints the manifest to stdout without writing files; drop
-it and add `--out shards.json` when the build is about to start. It
-exits 1 when the story cards would not form a valid shard manifest
-(overlapping paths, an undeclared shared file, a dependency cycle) and
-warns `needs paths` for any card whose "Files to touch" is empty. Treat
-both as lint: fix the card, not the manifest.
+State the goal back in 5 to 8 bullets. Do not write cards yet.
 
 ---
 
-## Phase 7 — Handoff
+## Phase 2: Read the code (parallel)
 
-Summarise: folder path, story count, total SP, per-story SP table,
-decisions you made alone. Then offer, via the structured question
-tool:
+Split the goal into 3 to 6 areas (data, server, UI, jobs, tests).
+Start one read-only explorer per area in one message (see Subagents).
+Each returns a table `Area | Exists today | Path:line | We will`.
+Merge them. Never invent a path: when a thing does not exist, the card
+creates it and says so. Read the repo's `AGENTS.md`, `CONTRIBUTING.md`
+or `package.json` scripts for the exact test and lint commands; cards
+quote them as written.
 
-1. Upload to Jira now (Recommended) — run `/st-jira-upload <folder>`
-2. Refine first — run `/st-sprint-refine <folder>`
+---
+
+## Phase 3: Split into stories
+
+Draft the list a product owner would review:
+
+| # | Story title | User | Points | Subtasks |
+| --- | --- | --- | --- | --- |
+
+Split by what merges first. 3 to 6 subtasks per story, story 1 to 8
+points, risky or destructive work last, no test-only or research
+cards. Show the table and go on, unless the user asked to approve it.
+
+Make the cards (template text is filled in Phase 4):
+
+```bash
+node "$CLI" new "$DIR" epic --title "<epic title>"
+node "$CLI" new "$DIR" story --parent <epic local_id> --title "<title>" --points <n>
+node "$CLI" new "$DIR" subtask --parent <story local_id> --title "<title>"
+```
+
+Titles have no "User Story N:" prefix; `new` and `number` add it.
+For an epic that is already in Jira, run `/st-sprint-refine` instead.
+
+---
+
+## Phase 4: Write the cards (parallel)
+
+One `st-sprint-author` per story, all in one message (batches of 8 or
+fewer). Each prompt: repo path, `$DIR`, the story card path and its
+subtask card paths, the brief, that story's code notes, the sibling
+story titles, the path of `$DIR/CARD-FORMAT.md` and `$CLI`.
+
+Then write the epic card yourself: Goal, Scope, and the Stories list
+from the story cards.
+
+---
+
+## Phase 5: Adversarial review (parallel)
+
+One `st-sprint-critic` per story, `MODE: fix`, all in one message.
+
+| Verdict | Action |
+| --- | --- |
+| `READY` or `FIXED` | Accept |
+| `NEEDS RE-PLAN` | Split again (Phase 3), write again, review again |
+
+When two critics claim the same change, decide which story owns it and
+edit the other to point at it.
+
+---
+
+## Phase 6: Check and view
+
+```bash
+node "$CLI" number "$DIR"
+node "$CLI" lint "$DIR"          # must exit 0
+node "$CLI" push "$DIR"          # dry run: every card is a create
+node "$CLI" serve "$DIR"         # prints http://127.0.0.1:8766/
+```
+
+Run `serve` in the background and give the user the URL. Fix lint
+errors before the handoff. Add one line to `SPRINT-CHANGES.md`.
+
+---
+
+## Phase 7: Handoff
+
+Report: folder path, story count, total points, a table of stories
+with points, decisions you made alone, the viewer URL. Then offer:
+
+1. Send to Jira now: `/st-jira-upload <folder>` (Recommended)
+2. Refine first: `/st-sprint-refine <folder>`
 3. Stop here
 
-On Cursor, run the chosen skill in this chat.
+## Subagents
 
----
+| Host | How to start one worker |
+| --- | --- |
+| Claude Code | The `Agent` tool (called `Task` in older versions) with `subagent_type` set to the agent name. Plugin agents may show as `<plugin>:<agent>`; use the name the tool lists. Several calls in one message run in parallel. |
+| Cursor (editor or CLI) | The `Task` tool with `subagent_type` set to the agent name. Several calls in one message run in parallel. |
+| Headless, no subagent tool | One `agent -p --trust --workspace <repo> "<prompt>"` process per worker (the Cursor CLI, older installs call it `cursor-agent`), or `claude -p "<prompt>"`, started in the background and awaited. |
+| None of these | Do the work yourself, one story at a time. |
+
+Each worker prompt is self-contained: absolute paths, the CLI path, the brief, and the return format. Workers never write to Jira.
 
 ## Forbidden
 
-- Writing story files before Phase 2 recon finishes.
-- Hardcoding a project key, site, board, or account id in a card.
-- "Research", "consider", "TBD", or any contract section 5 word in a
-  card. Decide, then write the decision.
-- Links to `.md` files, plan docs, or transcripts as card content.
-- Prerequisites, Depends on, Blocks, gate, checkpoint, or rollback
-  sections inside stories or subtasks. Sequencing lives in the epic.
-- Dev cards that assign evidence screenshot capture, visual matrix
-  runs, or audit synthesis (PM-only under `_internal/`). Mockup
-  subtasks per contract 4.2 are allowed and encouraged for UI changes.
-- Testing tasks, Test plan sections, command AC, checks, gates, QA
-  passes, or soak periods on any card.
-- Auto-generating “navy → brand purple” or token-swap stories without an
-  explicit product decision and a user-visible mismatch.
 - Any Jira write from this skill.
-- Helper scripts written into the target repo.
+- Writing cards before Phase 2 finishes.
+- A project key, site or account id inside a card body.
+- Editing `*.jira.md`, `local_id`, keys, `order` or `plan_number` by hand.
+- Helper scripts written into the app repo.
+- Asking the user to paste an API token into the chat.

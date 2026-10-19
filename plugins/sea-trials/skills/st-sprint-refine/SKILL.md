@@ -1,14 +1,13 @@
 ---
 name: st-sprint-refine
 description: >-
-  Bring an existing sprint folder or an existing Jira epic up to the
-  dev-ready card contract: pull cards from Jira into the folder when
-  needed, run parallel critics in fix mode, verify paths against the
-  repo, pass lint, then hand off to /st-jira-upload for the changed
-  cards only. Use when cards exist but are vague, stale, or fail
-  review, or when the user says "refine the sprint", "refine the
-  epic", "clean up the cards", "tighten the stories", or "make the
-  sprint dev-ready".
+  Bring an existing sprint folder or Jira epic into the card format:
+  resync the Jira copies (GET only), adopt Jira issues as local cards,
+  rewrite every card that is not Done with parallel authors and
+  adversarial critics, renumber stories 1..n, pass the card lint, and
+  show the local vs Jira diff in the viewer. Done cards keep their
+  Jira text. Never writes to Jira; st-jira-upload does that. Use when
+  cards exist but are vague, stale, out of order or fail review.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -23,175 +22,151 @@ user-invocable: true
 > Build now). Never output `/clear` or `/new-chat`.
 > On Claude Code: clear-context handoffs remain valid.
 
-
 # Sprint refine
 
-Same contract as `/st-sprint-plan`, applied to cards that already
-exist. The rubric is not repeated here; read the contract.
+Same card format as `/st-sprint-plan`, applied to cards that exist.
 
 **Read first:**
 
-- [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
-- [`references/shared/sprint-dev-voice.md`](references/shared/sprint-dev-voice.md)
-- [`references/jira-pull.md`](references/jira-pull.md)
-- [`references/refine-checklist.md`](references/refine-checklist.md)
+- [`references/shared/sprint-card-format.md`](references/shared/sprint-card-format.md)
+- [`references/shared/sprint-folder-format.md`](references/shared/sprint-folder-format.md)
+- [`references/shared/sprint-cards-cli.md`](references/shared/sprint-cards-cli.md)
+- [`references/shared/jira-connection.md`](references/shared/jira-connection.md)
 
-## When to use
-
-| Input | Path |
+| Input | Phases |
 | --- | --- |
-| Sprint folder exists, Jira empty or partial | Phases 0, 2-5 |
-| Jira epic exists, no folder | Phases 0, 1, 2-5 |
-| Both exist | Phase 1 reconciles, then 2-5 |
-| No cards anywhere | Use `/st-sprint-plan` |
+| Card folder exists | 0, 1, 2 to 6 |
+| Jira epic or sprint exists, no folder | 0, 1 (with adopt), 2 to 6 |
+| Old flat folder (`00-epic.md`, `NN-usN-*.md`) | 0, then make a new card folder and adopt from Jira by epic key; the old files stay as they are |
+| No cards anywhere | `/st-sprint-plan` |
 
 ## Autonomy
 
-Ask one structured question only when the source of truth is unclear
-(folder vs Jira). Otherwise finish without asking; the critics make
-the calls and record them in Context sections.
+Ask one structured question only when the source of truth is not
+clear (local folder or Jira) or a value in `jira-connection.md`
+cannot be found. Otherwise finish without asking.
 
 ---
 
-## Phase 0 — Locate and lint baseline
+## Phase 0: Locate
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
-if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_RUN="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)"
-  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
-  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
-fi
-SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
-node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --lint || true
-node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --diff
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CLI=""
+for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  if [[ -n "$root" && -f "$root/scripts/sprint-cards/cli.mjs" ]]; then CLI="$root/scripts/sprint-cards/cli.mjs"; break; fi
+done
+[[ -n "$CLI" ]] || CLI="<skill folder>/../../scripts/sprint-cards/cli.mjs"   # folder of this SKILL.md
+node "$CLI" --help >/dev/null && echo "CLI: $CLI"
+DIR="$REPO_ROOT/sprint_planning/<sprint-slug>"     # the folder the user named
+node "$CLI" doctor "$DIR"; node "$CLI" auth status "$DIR"
 ```
 
-Record the error count. It is the baseline the summary compares to.
-If the folder does not exist but the user gave an epic key, create the
-folder and `sprint.json` with `projectKey` and `epicKey`, then go to
-Phase 1.
+No folder yet: `node "$CLI" init "$DIR" --project-key ... --site ...`
+with the values found as in `jira-connection.md`.
 
 ---
 
-## Phase 1 — Pull from Jira (when Jira is the source)
+## Phase 1: Resync from Jira (read only)
 
-Follow `references/jira-pull.md`:
-
-1. Use only the `--seatrials` Atlassian connector (contract header).
-   `getAccessibleAtlassianResources` for `cloudId`; stop unless an entry
-   has `url == sprint.json.site` (default `https://seatrials.atlassian.net`);
-   write it to `sprint.json`.
-2. `searchJiraIssuesUsingJql` with
-   `parent = <epicKey> ORDER BY rank` for stories, then
-   `parent = <STORY-KEY>` per story for subtasks. Request
-   `responseContentFormat: "markdown"` for reading; this direction is
-   safe.
-3. Write each story to `NN-usN-<slug>.md` in the contract shape.
-   Put the Jira key on the metadata line (`**Jira:** <KEY>`) and record
-   keys, hashes, and each issue's `updated` in `jira_state.json` so the
-   upload later edits rather than creates and can run the stale check
-   (contract 10.6). Check every returned issue's `key` and `parent`
-   match what you asked for; a mismatch is a hard stop.
-4. Anything in a Jira card that the template has no section for goes
-   under `## Context`; nothing is dropped.
-
-When both exist and differ, the structured question offers:
-`Folder wins`, `Jira wins (Recommended when others edited in Jira)`.
-
----
-
-## Phase 2 — Reconnaissance for cited paths
-
-Collect every path cited across the folder:
+With the user key:
 
 ```bash
-rg -o '`[^`]+\.[a-z]{1,5}`' "<folder>" | sort -u
+node "$CLI" pull "$DIR" [--epic <KEY>]... [--adopt]
 ```
 
-Launch one read-only explorer per 20 paths (cheap model; dispatch
-table in the contract, section 12) to confirm each exists or is
-marked `new`. Merge into a `Path | Exists | Note` table for the critics.
-
----
-
-## Phase 2b — Cull non-work (before critics)
-
-Walk every story with `sprint-dev-voice.md`:
-
-- Remove subtasks or whole stories that are not real work: product-
-  declined behaviour, audit/capture homework, token-only polish without
-  product sign-off, and testing tasks (test plans, checks, gates, QA
-  passes, soak periods).
-- **Keep** mockup and attach-image subtasks (contract 4.2); never cull
-  them.
-- Apply assignment routing and labels (contract 4.4) and config
-  delivery rules (contract 4.3).
-- Record removals in `<folder>/_internal/pm/REMOVED-CARDS.md` (create
-  `pm/` if needed). Do not replace removed cards with softer wording.
-- Renumber subtasks contiguously in markdown. Update epic Stories SP
-  table if totals change.
-
-Jira keys for removed cards are deleted during `/st-jira-upload`, not
-renamed `[Cancelled]`.
-
----
-
-## Phase 3 — Critics in fix mode, in parallel
-
-One `st-sprint-critic` per story, `MODE: fix`, one turn, batch by 16
-on Cursor, on the cheap model (`composer-2.5` on Cursor, `haiku` on
-Claude Code); re-run one story on the parent's model only when its
-verdict is disputed. Prompt: repo path, folder, file, the path table, the
-routing rules (contract 4.4), the epic goal, sibling titles, and the full contract
-text. Use `references/refine-checklist.md` as the extra lens list
-(strip-list for legacy sections, kind-specific expectations).
-
-| Verdict | Parent action |
-| --- | --- |
-| `READY` / `FIXED` | Accept |
-| `NEEDS RE-PLAN` | Re-split with `/st-sprint-plan` Phase 3 rules, re-author with `st-sprint-author`, re-critique |
-
-Epic file: the parent refines it directly (Stories table, merge
-order, no per-story detail that belongs on the cards).
-
----
-
-## Phase 4 — Lint gate and diff
+With MCP: search with `searchJiraIssuesUsingJql`, for example
+`sprint = <sprint_id>`, `parent = <EPIC>` and, for subtasks,
+`parent in (<story keys>)`. Ask for the fields `summary, description,
+status, labels, parent, issuetype, updated, attachment` and the story
+points and sprint field ids when `field_ids` has them. Save all issues
+as one JSON list, then:
 
 ```bash
-node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --lint
-node "$SPRINT/parse-sprint-folder.mjs" "<folder>" --diff
+node "$CLI" import-jira "$DIR" /tmp/issues.json [--adopt]
 ```
 
-Lint must exit 0. The diff shows which cards changed; only those will
-be edited in Jira. Print before/after error counts.
+`--adopt` makes local cards for Jira issues that have none, parents
+first. Then:
+
+```bash
+node "$CLI" ids "$DIR" && node "$CLI" manifest "$DIR"
+node "$CLI" lint "$DIR" --json > /tmp/lint-before.json
+```
+
+Read `compare/index.json`: `sync_status` per card. `jira_edited` or
+`conflict` means Jira changed since the last pull: show the user the
+diff in the viewer and take the Jira text unless they say otherwise.
 
 ---
 
-## Phase 5 — Handoff
+## Phase 2: Read the code (parallel)
 
-Summary: cards touched, verdict per story, decisions made alone,
-before/after lint counts. Then offer via the structured question tool:
+One read-only explorer per epic or area, in one message (see
+Subagents). Each checks every path, function and line the cards cite
+and returns `Card | Cited | Real path:line | Note`.
 
-1. Upload changed cards now (Recommended) — `/st-jira-upload <folder>`
+---
+
+## Phase 3: Rewrite (parallel)
+
+Skip every card whose Jira copy is Done (`status_category: done`):
+it keeps the Jira text (rule 15). For the rest, one
+`st-sprint-author` per story, all in one message, with the story and
+subtask card paths, the code notes, the sibling titles, the path of
+`$DIR/CARD-FORMAT.md` and `$CLI`. The author keeps the meaning of the
+card and rewrites it into the format. Missing subtasks are made with
+`node "$CLI" new "$DIR" subtask --parent <story local_id> --title ...`
+before the author starts.
+
+---
+
+## Phase 4: Adversarial review (parallel)
+
+One `st-sprint-critic` per story, `MODE: fix`, all in one message.
+`NEEDS RE-PLAN`: split or merge the stories (move folders, then
+`ids`), write again, review again.
+
+---
+
+## Phase 5: Order and check
+
+```bash
+node "$CLI" number "$DIR"
+node "$CLI" lint "$DIR"        # must exit 0
+node "$CLI" push "$DIR"        # dry run: the changes Jira would get
+node "$CLI" serve "$DIR"       # background; give the user the URL
+```
+
+The user can drag cards in the viewer to change the order; that
+renumbers the stories. Add one line per change to `SPRINT-CHANGES.md`.
+
+---
+
+## Phase 6: Handoff
+
+Report: cards changed (from the dry run), cards kept as Done, lint
+before and after, the viewer URL, and decisions you made alone. Offer:
+
+1. Send the changes to Jira: `/st-jira-upload <folder>` (Recommended)
 2. Stop here
 
----
+## Subagents
+
+| Host | How to start one worker |
+| --- | --- |
+| Claude Code | The `Agent` tool (called `Task` in older versions) with `subagent_type` set to the agent name. Plugin agents may show as `<plugin>:<agent>`; use the name the tool lists. Several calls in one message run in parallel. |
+| Cursor (editor or CLI) | The `Task` tool with `subagent_type` set to the agent name. Several calls in one message run in parallel. |
+| Headless, no subagent tool | One `agent -p --trust --workspace <repo> "<prompt>"` process per worker (the Cursor CLI, older installs call it `cursor-agent`), or `claude -p "<prompt>"`, started in the background and awaited. |
+| None of these | Do the work yourself, one story at a time. |
+
+Each worker prompt is self-contained: absolute paths, the CLI path, the brief, and the return format. Workers never write to Jira.
 
 ## Forbidden
 
-- Any Jira write from this skill. Reads only (deletes happen in upload).
-- Any connector other than the `--seatrials` Atlassian connector.
-- Writing a Jira body from a markdown export of the live card; the
-  upload builds bodies from the folder markdown only.
-- Culling mockup or attach-image subtasks.
-- Adding testing tasks, Test plan sections, or command AC.
-- PR review loops for sprint-doc commits (contract 11).
-- Rewording a non-defect into a weaker AC instead of deleting the card.
-- Deleting content from a card because it lacks a template slot;
-  move it to Context instead.
-- Leaving `[Cancelled]` summaries in Jira when the work is withdrawn.
-- Repeating the contract rubric in this skill or its references.
-- Patching a wrong split with wording. Return `NEEDS RE-PLAN`.
+- Any Jira write from this skill (pull and import are reads).
+- Changing a card that is Done in Jira.
+- Editing `*.jira.md`, ids, keys, `order` or `plan_number` by hand.
+- Deleting a card folder that has a Jira key. Close the issue in Jira
+  instead (rule 14), through `/st-jira-upload`.
+- Asking the user to paste an API token into the chat.

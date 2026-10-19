@@ -1,14 +1,12 @@
 ---
 name: st-jira-board-vet
 description: >-
-  Board hygiene sweep over the active sprint (or any JQL): flag cards
-  that break the dev-ready contract (missing AC or story points,
-  markdown links, template leftovers, banned phrasing, unassigned or
-  stale status, status that disagrees with the branch), then fix in
-  place or report. Parallel verifiers and critics. Use mid-sprint or
-  before planning. Also when the user says
-  "vet the board", "check the sprint board", or "audit the Jira
-  cards".
+  Board check over the active sprint (or any JQL): import the Jira
+  cards into a card folder (read only), run the card lint on them,
+  compare each card's status with the code on a branch, then fix the
+  cards through the normal refine and upload flow or report. Use mid
+  sprint or before planning, or when the user says "vet the board",
+  "check the sprint board" or "audit the Jira cards".
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -23,157 +21,129 @@ user-invocable: true
 > Build now). Never output `/clear` or `/new-chat`.
 > On Claude Code: clear-context handoffs remain valid.
 
-
 # Jira board vet
 
-Two questions per card: does the card meet the contract, and does its
-status match reality on the branch. Fix the first in place; propose
-the second and transition after one confirmation.
+Two questions per card: does it meet the card format, and does its
+status match the code. Fix the first through the sprint folder; ask
+once before changing the second.
 
 **Read first:**
 
-- [`references/shared/sprint-contract.md`](references/shared/sprint-contract.md)
+- [`references/shared/sprint-card-format.md`](references/shared/sprint-card-format.md)
+- [`references/shared/sprint-cards-cli.md`](references/shared/sprint-cards-cli.md)
+- [`references/shared/jira-connection.md`](references/shared/jira-connection.md)
 - [`references/vet-rules.md`](references/vet-rules.md)
 - [`references/jql-recipes.md`](references/jql-recipes.md)
 
-## Modes
-
 | Mode | Behaviour |
 | --- | --- |
-| `report` (default when the user says "check" or "audit") | Read-only; table of findings |
-| `fix` | Content defects fixed via `editJiraIssue`; status changes still confirmed |
-
-Pick the mode from the user's wording; ask via the structured question
-tool only when it is genuinely unclear.
+| `report` (default for "check" or "audit") | Read only; a findings table |
+| `fix` | Cards fixed in the folder, then sent with `/st-jira-upload` after the user approves the dry run |
 
 ---
 
-## Phase 0 — Scope
+## Phase 0: Scope
 
 ```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-export ST_PLUGIN_ROOT="${ST_PLUGIN_ROOT:-${CURSOR_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}}"
-if [[ -z "${ST_PLUGIN_ROOT:-}" ]]; then
-  _ST_RUN="$(find "${HOME}/.cursor/plugins" "${HOME}/.claude/plugins" -path '*/sea-trials/scripts/st-run.mjs' 2>/dev/null | head -1)"
-  [[ -n "${_ST_RUN}" ]] || { echo "Enable sea-trials in Team Marketplace" >&2; exit 1; }
-  ST_PLUGIN_ROOT="$(node "${_ST_RUN}" print-plugin-root)"
-fi
-SPRINT="$ST_PLUGIN_ROOT/scripts/sprint"
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CLI=""
+for root in "${CLAUDE_PLUGIN_ROOT:-}" "${CURSOR_PLUGIN_ROOT:-}" "${ST_PLUGIN_ROOT:-}"; do
+  if [[ -n "$root" && -f "$root/scripts/sprint-cards/cli.mjs" ]]; then CLI="$root/scripts/sprint-cards/cli.mjs"; break; fi
+done
+[[ -n "$CLI" ]] || CLI="<skill folder>/../../scripts/sprint-cards/cli.mjs"   # folder of this SKILL.md
+node "$CLI" auth status
 ```
 
-Read `sprint.json` for `cloudId`, `projectKey`, `storyPointsFieldId`,
-`reviewStatuses`, `boardId`. Default JQL:
+Use the sprint folder for this sprint when one exists. Else make a
+scratch folder outside the repo:
 
-```text
-project = <PROJECT_KEY> AND sprint in openSprints()
-  AND statusCategory != Done ORDER BY rank ASC
+```bash
+DIR=$(mktemp -d /tmp/board-vet.XXXX)
+node "$CLI" init "$DIR" --project-key <PROJECT_KEY> --site <JIRA_SITE> --sprint-id <n> --sprint-name "<SPRINT_NAME>"
 ```
 
-Alternatives in `references/jql-recipes.md` (epic, story, branch
-keys, stale reviews). `searchJiraIssuesUsingJql` with `fields`
-`summary,description,status,issuetype,assignee,labels,parent,
-<storyPointsFieldId>,updated,comment`; page with `nextPageToken`.
+Find the values as in `jira-connection.md`. Default JQL:
+`project = <PROJECT_KEY> AND sprint in openSprints() ORDER BY rank ASC`
+(more in `references/jql-recipes.md`).
 
 ---
 
-## Phase 1 — Content sweep (parallel verifiers)
+## Phase 1: Import (read only)
 
-One `st-jira-verifier` per 10 keys, cheap model, one turn:
+User key: `node "$CLI" pull "$DIR" --adopt` (for a scratch folder,
+also `--epic <KEY>` for each epic in scope).
 
-| Host | Call |
-| --- | --- |
-| Cursor | `Task` `subagent_type: st-jira-verifier`, `model: composer-2.5` |
-| Claude Code | `Agent` `st-jira-verifier`, `model: haiku` |
-
-No source markdown is available here, so verifiers run C1-C6 and
-F1-F5 only (no parity). Merge into one findings table keyed by issue.
+MCP: `searchJiraIssuesUsingJql` with the JQL and the fields
+`summary,description,status,issuetype,assignee,labels,parent,updated,attachment`
+(plus story points and sprint field ids when known), paged with
+`nextPageToken`; then subtasks with `parent in (<story keys>)`. Save
+one JSON list and run
+`node "$CLI" import-jira "$DIR" /tmp/vet-issues.json --adopt`.
 
 ---
 
-## Phase 2 — Status vs branch (optional, when a branch is named)
+## Phase 2: Content check
 
-Isolated worktree, never the user's checkout:
+```bash
+node "$CLI" lint "$DIR" --json > /tmp/vet-lint.json
+```
+
+Map each problem to a row with `references/vet-rules.md`. Cards whose
+status category is Done are listed but never fixed. Add the field
+rules (F2 to F6) from the imported fields.
+
+## Phase 3: Status vs branch (only when a branch is named)
+
+Use a separate worktree, never the user's checkout:
 
 ```bash
 git fetch origin "<branch>"
-WT=$(mktemp -d /tmp/vet.XXXX); git worktree add "$WT" "origin/<branch>"
+WT=$(mktemp -d /tmp/vet-wt.XXXX); git worktree add "$WT" "origin/<branch>"
 ```
 
-One read-only explorer per story (cheap model) compares each subtask's
-Files to change and AC with the code in `$WT`. Output per card:
-
-| Key | Jira status | Code looks | Suggest | Reason |
-| --- | --- | --- | --- | --- |
-
-`Code looks` is one of: not started, partial, complete on branch,
-merged. `Suggest` is a status name from the project's workflow, taken
+One read-only explorer per story (see Subagents) compares each
+subtask's Where and Done when with the code in `$WT`:
+`Key | Jira status | Code looks | Suggest | Reason`. Status names come
 from `getTransitionsForJiraIssue`, never invented. Remove the worktree
-when done.
+at the end (`git worktree remove "$WT"`).
 
----
+## Phase 4: Fix (mode `fix`)
 
-## Phase 3 — Fix content (mode `fix`)
+Fixes always go through the folder, never straight into Jira:
 
-For each card with C-class errors, dispatch one `st-sprint-critic` in
-`MODE: fix` on a temp markdown copy of the card:
+1. One `st-sprint-critic` per story with errors, `MODE: fix`, in
+   parallel. For a scratch folder, pass the app repo path so paths are
+   checked.
+2. `node "$CLI" number "$DIR"` and `lint` (exit 0).
+3. Status changes the user approved: set `status` in the local card.
+4. Run `/st-jira-upload` on `$DIR`: dry run, one approval, then the
+   writes (it reads the live issue before each update and skips Done).
 
-1. Source markdown: when a sprint folder exists for this epic, copy the
-   card from the folder file (never from Jira). With no folder, read
-   the card with `responseContentFormat: "markdown"` for the critic
-   **in report mode only**, and list the fix as a manual step: a body
-   is never written back from a markdown export of the live card
-   (contract 10.6).
-2. Critic fixes the folder copy in place against the contract (paths
-   verified in the repo when one is available).
-3. `node "$SPRINT/md-to-adf.mjs" /tmp/vet/<KEY>.md --strip-h1 --out
-   /tmp/vet/<KEY>.adf.json`, then `editJiraIssue` with
-   `contentFormat: "adf"` and `fields.description` set to the object.
-   Set `fields.<storyPointsFieldId>` when F1 was flagged and the critic
-   sized the card.
-4. Read back; parity per contract 10.3 against `/tmp/vet/<KEY>.md`.
-
-One writer per site, one edit at a time, stale check before and
-read-back after every edit (contract 10.6), 2-8 s apart. Labels and
-story points go in the same edit as the body. When a sprint
-folder exists for this epic, also apply the same edit to the story
-file and update `jira_state.json` hash so the next upload does not
-revert it.
-
----
-
-## Phase 4 — Status changes (confirm once)
-
-Show the full delta table from Phase 2 plus F2/F3 findings
-(unassigned in progress, stale review). One structured question:
-apply all, apply selected rows, or skip. Then per approved row:
-`getTransitionsForJiraIssue`, pick by name, `transitionJiraIssue` with
-`transition.id` only. Optional one-line first-person comment on a
-mismatch ("Moving this to In Progress, the branch has the service but
-not the UI yet"). Never paste specs into comments.
-
----
-
-## Phase 5 — Summary
+## Phase 5: Report
 
 ```text
-| Key | Type | Content errors | Fixed | Status | Suggested | Applied |
-| --- | --- | --- | --- | --- | --- | --- |
+| Key | Type | Lint errors | Fixed | Status | Suggested | Applied |
 ```
 
-Plus counts before and after, and anything left manual. Offer via the
-structured question tool:
-
-1. Run `/st-jira-test-review` on the review-column cards (Recommended)
-2. Stop here
+Counts before and after, what is left for a person, and the folder
+path (offer `node "$CLI" serve "$DIR"` to look at the diff). Offer:
+`/st-jira-test-review` on the review column cards, or stop.
 
 ---
+
+## Subagents
+
+| Host | How |
+| --- | --- |
+| Claude Code | `Agent` (or `Task`) with `subagent_type` set to the agent name, several in one message |
+| Cursor | `Task` with `subagent_type`, several in one message |
+| No subagent tool | One by one |
 
 ## Forbidden
 
-- Transitioning without the Phase 4 confirmation.
-- Editing content in `report` mode.
-- Inventing status names; read them from transitions.
-- Dumping card bodies or specs into comments.
-- `contentFormat: "markdown"` for descriptions.
+- Any Jira write in `report` mode.
+- Writing a description straight to Jira without the folder, lint and
+  the upload dry run.
+- Changing a Done card. Inventing status names.
 - Touching the user's checkout branch.
-- Words from contract section 5, emojis, or `historyMetadata`.
+- Asking for an API token in chat.
