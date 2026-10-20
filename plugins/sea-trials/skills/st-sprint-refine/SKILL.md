@@ -85,16 +85,24 @@ With the user key:
 node "$CLI" pull "$DIR" [--epic <KEY>]... [--adopt]
 ```
 
+When the `sprint-plan-viewer/` submodule is there, plain `pull` runs
+its GET-only `spv.py resync --images` (the CLI prints the command);
+`--epic` and `--adopt` use the built-in code.
+
 With MCP: search with `searchJiraIssuesUsingJql`, for example
 `sprint = <sprint_id>`, `parent = <EPIC>` and, for subtasks,
 `parent in (<story keys>)`. Ask for the fields `summary, description,
 status, labels, parent, issuetype, updated, attachment` and the story
-points and sprint field ids when `field_ids` has them. Save all issues
-as one JSON list, then:
+points and sprint field ids when `field_ids` has them, with
+`responseContentFormat: "adf"`. Save the results, then:
 
 ```bash
-node "$CLI" import-jira "$DIR" /tmp/issues.json [--adopt]
+node "$CLI" import-jira "$DIR" /tmp/issues.json [/tmp/page2.json ...] [--adopt]
 ```
+
+With the viewer present this runs `spv.py import-jira`, which takes the
+search result pages as they are. Without it (or with `--adopt`), save
+all issues as one JSON file.
 
 `--adopt` makes local cards for Jira issues that have none, parents
 first. Then:

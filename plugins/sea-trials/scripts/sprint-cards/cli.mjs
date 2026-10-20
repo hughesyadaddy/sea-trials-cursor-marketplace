@@ -11,18 +11,24 @@
  *   node cli.mjs number <sprint-dir> [--dry-run]     order, User Story N, N.M
  *   node cli.mjs lint <sprint-dir> [--json]          card-format check (exit 1 on errors)
  *   node cli.mjs manifest <sprint-dir>               rebuild compare/manifest.json
- *   node cli.mjs serve <sprint-dir> [--viewer DIR] [--port N]   start sprint-plan-viewer (git submodule) on this folder
+ *   node cli.mjs serve <sprint-dir> [--viewer DIR] [--port N] [--strict-port]
+ *                                  start sprint-plan-viewer (git submodule): spv.py serve --plan <sprint-dir>
+ *   node cli.mjs viewer <spv-command> <sprint-dir> [spv args...]   any spv.py command with --plan <sprint-dir>
  *   node cli.mjs auth status|login --email E|logout  the optional user key
  *   node cli.mjs discover [--project-key KEY] [--board N]   (user key) list projects, boards, sprints
- *   node cli.mjs pull <sprint-dir> [--epic KEY]... [--adopt] [--no-images]   GET-only resync
+ *   node cli.mjs pull <sprint-dir> [--epic KEY]... [--adopt] [--no-images] [--builtin]   GET-only resync
+ *                                  (viewer present: runs spv.py resync, unless --epic/--adopt/--builtin)
  *   node cli.mjs import-jira <sprint-dir> <issues.json> [--adopt] [--story-points-field ID] [--sprint-field ID]
  *                                  Jira copies from MCP issue JSON (search or getJiraIssue)
  *   node cli.mjs push <sprint-dir> [--apply] [--keys K,..] [--only create,update,transition,upload,sprint,rank]
- *                                  [--backlog] [--mcp-plan FILE] [--json] [--skip-lint]
+ *                                  [--backlog] [--mcp-plan FILE] [--json] [--skip-lint] [--builtin]
+ *                                  (viewer present: --apply sends updates, creates and images through
+ *                                  spv.py push, and only transitions, sprint moves and rank from here)
  *   node cli.mjs record <sprint-dir> <local_id> --key KEY [--id N]   write back a key made through MCP
  *   node cli.mjs doctor <sprint-dir>
  *
  * Push is a dry run unless --apply is given. Pull never writes to Jira.
+ * Viewer: https://github.com/hughesyadaddy/sprint-plan-viewer (git submodule `sprint-plan-viewer/`).
  * Credentials are never printed.
  */
 import fs from 'node:fs';
@@ -33,15 +39,15 @@ import { assignIds } from './lib/ids.mjs';
 import { renumber } from './lib/numbering.mjs';
 import { lintTree } from './lib/lint.mjs';
 import { buildManifest } from './lib/manifest.mjs';
-import { cardsRoot, loadTree, readIndex, writeJson, writeText } from './lib/tree.mjs';
+import { cardsRoot, loadTree, readIndex, writeJson, writePlanJson, writeText } from './lib/tree.mjs';
 import { keychainLogin, keychainLogout, maskEmail, normalizeSite, redact, resolveUserKey } from './lib/auth.mjs';
 import { createClient } from './lib/jira.mjs';
 import { importIssues, pull } from './lib/pull.mjs';
 import { applyPush, describeOp, mcpPlan, planPush, recordKey } from './lib/push.mjs';
 import { connectFields, init, newCard } from './lib/scaffold.mjs';
-import { findViewer, runViewer } from './lib/viewer.mjs';
+import { VIEWER_SETUP, findViewer, runViewer, viewerDisplay } from './lib/viewer.mjs';
 
-const BOOL = new Set(['apply', 'dry-run', 'json', 'adopt', 'no-images', 'backlog', 'skip-lint', 'help', 'open', 'yes']);
+const BOOL = new Set(['builtin', 'strict-port', 'apply', 'dry-run', 'json', 'adopt', 'no-images', 'backlog', 'skip-lint', 'help', 'open', 'yes']);
 
 export function parseArgv(argv) {
   const out = { _: [], epic: [] };
@@ -88,10 +94,58 @@ function needKey(dir) {
     throw e;
   }
   const saved = dir ? readIndex(dir)?.jira?.site : null;
+  if (saved && key.boundSite && key.boundSite !== normalizeSite(saved)) {
+    throw new Error(`the user key (${key.source}) is for ${key.boundSite} but this sprint folder is for ${normalizeSite(saved)}; use a key for that site`);
+  }
   if (saved && normalizeSite(saved) !== key.site) {
     throw new Error(`the user key is set up for ${key.site} but this sprint folder is for ${normalizeSite(saved)}; set JIRA_SITE to the folder's site or fix compare/index.json`);
   }
   return key;
+}
+
+/** Env for a viewer child: the user key goes into the child's env only, never on screen. */
+const KEY_VARS = ['JIRA_EMAIL', 'JIRA_API_TOKEN', 'ATLASSIAN_EMAIL', 'ATLASSIAN_API_TOKEN', 'JIRA_CREDS_FILE'];
+
+function viewerEnv(dir, { requireKey }) {
+  const env = { ...process.env };
+  if (!requireKey) {
+    // Commands that do not talk to Jira get no key at all.
+    for (const k of KEY_VARS) delete env[k];
+    return env;
+  }
+  const key = needKey(dir);
+  if (!(env.JIRA_EMAIL && env.JIRA_API_TOKEN) && !env.JIRA_CREDS_FILE) Object.assign(env, key.childEnv);
+  return env;
+}
+
+function viewerOrThrow(dir, o = {}) {
+  const v = findViewer(dir, { viewer: o.viewer });
+  if (!v) {
+    const e = new Error(VIEWER_SETUP);
+    e.code = 3;
+    throw e;
+  }
+  return v;
+}
+
+const VIEWER_CMDS = ['config', 'build', 'check', 'resync', 'import-jira', 'push', 'serve'];
+
+/** `viewer <cmd> <sprint-dir> [spv args...]`: spv args are passed through untouched. */
+async function viewerPassthrough(argv) {
+  const [, sub, dirArg, ...extra] = argv;
+  if (!VIEWER_CMDS.includes(sub)) throw new Error(`viewer <${VIEWER_CMDS.join('|')}> <sprint-dir> [spv args...]`);
+  const dir = sprintDirArg(dirArg);
+  const v = viewerOrThrow(dir);
+  const writes = sub === 'push' && extra.includes('--apply');
+  if (writes && process.env.JIRA_READ_ONLY === '1') throw new Error('JIRA_READ_ONLY=1 is set, so viewer push --apply is refused before any network call.');
+  // The key goes only to commands that talk to Jira: resync, push --apply, and serve (its Pull button).
+  let env = viewerEnv(dir, { requireKey: false });
+  if (sub === 'resync' || writes) env = viewerEnv(dir, { requireKey: true });
+  else if (sub === 'serve') {
+    try { env = viewerEnv(dir, { requireKey: true }); } catch { env = viewerEnv(dir, { requireKey: false }); }
+  }
+  process.stdout.write(`Running: ${viewerDisplay(v, sub, dir, extra)}\n`);
+  return runViewer(v, sub, dir, extra, { env });
 }
 
 function jiraFlags(a) {
@@ -99,6 +153,7 @@ function jiraFlags(a) {
 }
 
 async function main(argv) {
+  if (argv[0] === 'viewer') return viewerPassthrough(argv);
   const a = parseArgv(argv);
   const cmd = a._[0];
   if (!cmd || a.help || cmd === 'help') {
@@ -121,7 +176,8 @@ async function main(argv) {
       for (const v of Object.values(fids)) if (!/^customfield_\d+$/.test(v)) throw Object.assign(new Error(`${v} is not a Jira custom field id (customfield_NNNNN)`), { code: 2 });
       if (Object.keys(fids).length) idx.field_ids = { ...(idx.field_ids ?? {}), ...fids };
       writeJson(path.join(cardsRoot(dir), 'index.json'), idx);
-      out(a, `Saved in compare/index.json: ${JSON.stringify(idx.jira)}`, idx.jira);
+      writePlanJson(dir, idx.jira, idx.field_ids ?? {});
+      out(a, `Saved in compare/index.json and plan.json: ${JSON.stringify(idx.jira)}`, idx.jira);
       return 0;
     }
     case 'new': {
@@ -172,14 +228,15 @@ async function main(argv) {
     case 'serve': {
       const dir = sprintDirArg(a._[1]);
       assignIds(dir);
-      const v = findViewer(dir, { viewer: a.viewer });
-      if (!v) {
-        const e = new Error('sprint-plan-viewer not found. Add it to the sprint planning repo as a git submodule (git submodule add <sprint-plan-viewer repo URL> sprint-plan-viewer, then git submodule update --init), or pass --viewer DIR / set SPRINT_PLAN_VIEWER.');
-        e.code = 3;
-        throw e;
-      }
-      process.stdout.write(`Viewer: ${v.dir}\nRunning: ${v.display}\n`);
-      return runViewer(v, dir, { port: a.port });
+      const v = viewerOrThrow(dir, a);
+      const ix = readIndex(dir);
+      writePlanJson(dir, ix?.jira ?? {}, ix?.field_ids ?? {});
+      const extra = [...(a.port ? ['--port', String(a.port)] : []), ...(a['strict-port'] ? ['--strict-port'] : [])];
+      process.stdout.write(`Viewer: ${v.dir}\nRunning: ${viewerDisplay(v, 'serve', dir, extra)}\n`);
+      // The viewer's "Pull from Jira" button runs resync with this env, so hand it the user key when there is one.
+      let env;
+      try { env = viewerEnv(dir, { requireKey: true }); } catch { env = viewerEnv(dir, { requireKey: false }); }
+      return runViewer(v, 'serve', dir, extra, { env });
     }
     case 'auth': {
       const sub = a._[1] ?? 'status';
@@ -227,14 +284,34 @@ async function main(argv) {
     }
     case 'pull': {
       const dir = sprintDirArg(a._[1]);
+      const v = a.builtin || a.epic.length || a.adopt ? null : findViewer(dir, { viewer: a.viewer });
+      if (v) {
+        const extra = a['no-images'] ? [] : ['--images'];
+        const env = viewerEnv(dir, { requireKey: true });
+        process.stdout.write(`Viewer found, so its resync runs (GET only).\nRunning: ${viewerDisplay(v, 'resync', dir, extra)}\n`);
+        const code = await runViewer(v, 'resync', dir, extra, { env });
+        if (code === 0) assignIds(dir);
+        return code;
+      }
       const key = needKey(dir);
       const r = await pull(dir, { auth: key.auth, epics: a.epic, adopt: a.adopt, images: !a['no-images'] });
+      const ix = readIndex(dir);
+      writePlanJson(dir, ix?.jira ?? {}, ix?.field_ids ?? {});
       out(a, `Pulled ${r.fetched} issue(s) (GET only, ${r.writes} writes). Jira copies: ${r.updated_copies}. Adopted: ${r.adopted.length}. In Jira but not here: ${r.unmatched_jira.length}. Here but not found: ${r.missing_in_jira.length}.`, r);
       return 0;
     }
     case 'import-jira': {
       const dir = sprintDirArg(a._[1]);
-      if (!a._[2]) throw new Error('import-jira <sprint-dir> <issues.json>');
+      if (!a._[2]) throw new Error('import-jira <sprint-dir> <issues.json> [more.json...]');
+      const v = a.builtin || a.adopt || a['story-points-field'] || a['sprint-field'] ? null : findViewer(dir, { viewer: a.viewer });
+      if (v) {
+        const files = a._.slice(2).map((f) => path.resolve(f));
+        process.stdout.write(`Viewer found, so its import runs.\nRunning: ${viewerDisplay(v, 'import-jira', dir, files)}\n`);
+        const code = await runViewer(v, 'import-jira', dir, files, { env: viewerEnv(dir, { requireKey: false }) });
+        if (code === 0) assignIds(dir);
+        return code;
+      }
+      if (a._.length > 3) throw new Error('the built-in import-jira takes one JSON file: merge the pages, or use the viewer');
       const r = importIssues(dir, JSON.parse(fs.readFileSync(a._[2], 'utf8')), { storyPoints: a['story-points-field'], sprint: a['sprint-field'] }, { adopt: a.adopt });
       out(a, `Jira copies written: ${r.written.length}. Adopted as new local cards: ${r.adopted.length}. Not in this folder: ${r.unmatched.join(', ') || 'none'}${r.unmatched.length ? ' (use --adopt to add them)' : ''}.`, r);
       return 0;
@@ -262,11 +339,24 @@ async function main(argv) {
         out(a, `Wrote ${mp.steps.length} MCP step(s) to ${a['mcp-plan']}${mp.deferred_creates ? ` (${mp.deferred_creates} child create(s) wait for their parent keys: record them, then run this again)` : ''}. ${mp.steps.filter((s) => s.needs).length} step(s) need the user key.`, mp);
         return 0;
       }
+      const viewer = a.builtin ? null : findViewer(dir, { viewer: a.viewer });
+      const VIEWER_OPS = ['update', 'create', 'upload'];
+      const vUpdates = plan.ops.filter((o) => o.op === 'update').map((o) => o.key);
+      const vCreates = plan.ops.filter((o) => o.op === 'create').map((o) => o.local_id);
+      const vImages = plan.ops.some((o) => o.op === 'upload');
+      const vExtra = ['--apply', ...(vUpdates.length ? ['--keys', vUpdates.join(',')] : []), ...(vCreates.length ? ['--create', vCreates.join(',')] : []), ...(vImages ? ['--images'] : [])];
+      const vRun = viewer && vExtra.length > 1;
+      const restOps = viewer ? plan.ops.filter((o) => !VIEWER_OPS.includes(o.op)) : plan.ops;
+      const viewerLines = viewer ? [
+        `  viewer: ${viewer.dir}. With --apply, updates, creates and images go through it${vRun ? `:\n    ${viewerDisplay(viewer, 'push', dir, vExtra)}` : ' (none in this plan)'}`,
+        `  then from here: ${restOps.length} transition / sprint / rank operation(s). See the viewer's own dry run: node <cli> viewer push ${dir}`,
+      ] : [];
       const lines = [
         `${a.apply ? 'APPLY' : 'DRY RUN'}: ${plan.ops.length} operation(s), ${plan.skipped.length} Done card(s) skipped.`,
         ...plan.ops.map((op, i) => `  ${String(i + 1).padStart(3)}. ${describeOp(op)}`),
         ...plan.problems.map((p) => `  note: ${p.folder ? `compare/${p.folder}: ` : ''}${p.message}`),
         ...dropNote,
+        ...viewerLines,
         ...(lint.length ? [`  lint: ${lint.length} error(s); run lint and fix them${a.apply && !a['skip-lint'] ? ' (push refused)' : ''}`] : []),
       ];
       if (!a.apply) {
@@ -280,7 +370,26 @@ async function main(argv) {
       const key = needKey(dir);
       if (!index.jira?.project_key && plan.ops.some((o) => o.op === 'create')) throw new Error('compare/index.json has no jira.project_key; run connect --project-key KEY first');
       process.stdout.write(`${lines.join('\n')}\nWriting to ${key.site} as ${maskEmail(key.email)}...\n`);
-      const r = await applyPush(dir, plan, { auth: key.auth, log: (e) => { if (!a.json && e.kind) process.stdout.write(`  ${e.kind} ${e.key ?? e.local_id ?? ''}\n`); } });
+      let runPlan = plan;
+      if (viewer) {
+        if (vRun) {
+          process.stdout.write(`Running: ${viewerDisplay(viewer, 'push', dir, vExtra)}\n`);
+          const code = await runViewer(viewer, 'push', dir, vExtra, { env: viewerEnv(dir, { requireKey: true }) });
+          if (code !== 0) {
+            out(a, `The viewer push exited ${code}; nothing more was sent from here. Fix it, then run push again (it only sends what is still different).`, { viewer_exit: code });
+            return 1;
+          }
+        }
+        // Re-plan from disk: the viewer wrote the new keys into the cards.
+        assignIds(dir);
+        const keep = ['transition', 'sprint', 'backlog', 'rank'].filter((k) => !a.only || a.only.split(',').map((s) => s.trim()).includes(k));
+        runPlan = planPush(loadTree(dir), readIndex(dir) ?? {}, { keys: a.keys ? a.keys.split(',').map((s) => s.trim()) : null, only: keep, backlog: a.backlog });
+        if (!runPlan.ops.length) {
+          out(a, 'Done through the viewer. No transitions, sprint moves or rank changes left. Run pull to refresh the Jira copies.', { viewer: true });
+          return 0;
+        }
+      }
+      const r = await applyPush(dir, runPlan, { auth: key.auth, log: (e) => { if (!a.json && e.kind) process.stdout.write(`  ${e.kind} ${e.key ?? e.local_id ?? ''}\n`); } });
       const bad = r.verify.filter((v) => !v.ok);
       out(a, `Done. created ${r.created.length}, updated ${r.updated.length}, transitions ${r.transitioned.length}, images ${r.uploaded.length}, sprint ${r.sprint.length}, rank ${r.ranked.length}, skipped ${r.skipped.length}, failed ${r.failed.length}. Read-back: ${r.verify.length - bad.length}/${r.verify.length} match.${bad.length ? `\nMismatch: ${bad.map((b) => `${b.key} (${b.diffs.join(',')})`).join(', ')}` : ''}${r.failed.length ? `\nFailed:\n${r.failed.map((f) => `  ${f.op} ${f.key ?? f.local_id}: ${f.reason}`).join('\n')}` : ''}\nLog: ${r.log}`, r);
       return r.failed.length ? 1 : 0;
@@ -301,6 +410,7 @@ async function main(argv) {
         [Boolean(idx?.jira?.site || idx?.jira?.cloud_id), `site: ${idx?.jira?.site ?? idx?.jira?.cloud_id ?? 'not set (connect --site)'}`],
         [true, `sprint: ${idx?.jira?.sprint_name ?? 'not set'} (${idx?.jira?.sprint_id ?? 'no id'})`],
         [true, `Jira connection: ${k.ok ? `user key from ${k.source}` : 'Atlassian MCP (no user key)'}`],
+        [true, (() => { const v = findViewer(dir); return v ? `viewer: ${v.dir} (${v.python} spv.py)` : 'viewer: not found (serve needs the sprint-plan-viewer submodule; push and pull use the built-in code)'; })()],
       ];
       out(a, checks.map(([ok, t]) => `${ok ? 'ok  ' : 'FAIL'} ${t}`).join('\n'), { checks: checks.map(([ok, t]) => ({ ok, t })) });
       return checks.every(([ok]) => ok) ? 0 : 1;

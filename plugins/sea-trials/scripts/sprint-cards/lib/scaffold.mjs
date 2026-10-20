@@ -7,7 +7,7 @@ import { renderCard } from './frontmatter.mjs';
 import { slugify } from './convert.mjs';
 import { assignIds } from './ids.mjs';
 import { renumber } from './numbering.mjs';
-import { cardsRoot, loadTree, readIndex, writeJson, writeText } from './tree.mjs';
+import { cardsRoot, loadTree, readIndex, writeJson, writePlanJson, writeText } from './tree.mjs';
 import { normalizeSite } from './auth.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -111,10 +111,11 @@ export function init(dir, jira = {}) {
   put('SPRINT-CHANGES.md', '# Sprint changes\n\nOne line per change to the plan, newest first. Each line says what changed and why.\n');
   put('OPEN-QUESTIONS.md', '# Open questions\n\nAnything still open goes here, never into a card. Each item names the card and the decision that is needed.\n\nNo open items.\n');
   put('.gitignore', 'compare/.state/\ncompare/manifest.json\njira-snapshot-*/\nPUSH-LOG-*.jsonl\nPUSH-BACKUP-*.jsonl\n**/images/jira/\n**/.up-*/\n');
-  put('README.md', `# ${path.basename(sdir)}\n\nSprint cards in the card format (see CARD-FORMAT.md).\n\n- Cards: \`compare/NN-epic-<KEY>-<slug>/\` with stories and \`subtasks/\` inside.\n- View: the sprint-plan-viewer submodule of the sprint planning repo (see its README), or \`node <plugin>/scripts/sprint-cards/cli.mjs serve ${path.basename(sdir)}\`, which starts it.\n- Check: \`... cli.mjs lint ${path.basename(sdir)}\`\n- Push: \`... cli.mjs push ${path.basename(sdir)}\` (dry run), then \`--apply\`.\n`);
+  put('README.md', `# ${path.basename(sdir)}\n\nSprint cards in the card format (see CARD-FORMAT.md).\n\n- Cards: \`compare/NN-epic-<KEY>-<slug>/\` with stories and \`subtasks/\` inside.\n- View: the sprint-plan-viewer submodule of the sprint planning repo (see its README), started with \`python3 sprint-plan-viewer/spv.py serve --plan ${path.basename(sdir)}\` from the planning folder, or \`node <plugin>/scripts/sprint-cards/cli.mjs serve ${path.basename(sdir)}\`. \`plan.json\` holds the Jira settings the viewer reads.\n- Check: \`... cli.mjs lint ${path.basename(sdir)}\`\n- Push: \`... cli.mjs push ${path.basename(sdir)}\` (dry run), then \`--apply\`.\n`);
   const idx = readIndex(sdir) ?? { version: 2, jira: {}, pulled_at: null, items: {} };
   idx.jira = { ...idx.jira, ...connectFields(jira) };
   writeJson(path.join(root, 'index.json'), idx);
+  writePlanJson(sdir, idx.jira, idx.field_ids ?? {});
   return { dir: sdir, created, jira: idx.jira };
 }
 

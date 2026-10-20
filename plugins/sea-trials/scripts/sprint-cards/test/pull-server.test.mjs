@@ -50,10 +50,12 @@ test('serve finds the sprint-plan-viewer submodule above the sprint folder', () 
   init(sprint, {});
   assert.equal(findViewer(sprint, { env: {} }), null);
   fs.mkdirSync(path.join(root, 'sprint_planning', 'sprint-plan-viewer'), { recursive: true });
-  fs.writeFileSync(path.join(root, 'sprint_planning', 'sprint-plan-viewer', 'server.mjs'), '');
+  // An uninitialised submodule (empty folder) is not a viewer.
+  assert.equal(findViewer(sprint, { env: {} }), null);
+  fs.writeFileSync(path.join(root, 'sprint_planning', 'sprint-plan-viewer', 'spv.py'), '');
   const v = findViewer(sprint, { env: {} });
   assert.equal(v.dir, path.join(root, 'sprint_planning', 'sprint-plan-viewer'));
-  assert.equal(v.args[0].endsWith('server.mjs'), true);
+  assert.equal(v.spv.endsWith('spv.py'), true);
 });
 
 test('import-jira (MCP path) adopts an epic with its stories, parents first, and stamps jira_updated', async () => {
@@ -108,7 +110,7 @@ test('findViewer walks up past 8 levels to the git root', () => {
   const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'viewer-deep-'));
   fs.mkdirSync(path.join(root, '.git'));
   fs.mkdirSync(path.join(root, 'sprint-plan-viewer'));
-  fs.writeFileSync(path.join(root, 'sprint-plan-viewer', 'server.mjs'), '');
+  fs.writeFileSync(path.join(root, 'sprint-plan-viewer', 'spv.py'), '');
   const deep = path.join(root, ...Array.from({ length: 11 }, (_, i) => `d${i}`));
   fs.mkdirSync(deep, { recursive: true });
   const v = findViewer(deep, { env: {} });

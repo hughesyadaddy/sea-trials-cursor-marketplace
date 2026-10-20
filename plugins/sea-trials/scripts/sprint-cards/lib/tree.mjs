@@ -145,7 +145,49 @@ export function bySiblingOrder(a, b) {
 }
 
 export function readIndex(dir) {
-  return readJson(path.join(cardsRoot(dir), 'index.json'), null);
+  const idx = readJson(path.join(cardsRoot(dir), 'index.json'), null);
+  // plan.json is the viewer's settings file. Fill what index.json lacks.
+  const pj = readJson(path.join(sprintDir(dir), 'plan.json'), null)?.jira;
+  if (!idx || !pj || typeof pj !== 'object') return idx;
+  const jira = { ...(idx.jira ?? {}) };
+  const take = (to, ...from) => { if (jira[to] == null) for (const f of from) if (pj[f] != null && pj[f] !== '') { jira[to] = pj[f]; break; } };
+  take('site', 'site');
+  take('cloud_id', 'cloud_id', 'cloudId');
+  take('project_key', 'project', 'projectKey');
+  take('board_id', 'board_id', 'boardId');
+  take('sprint_id', 'sprint_id', 'sprintId');
+  take('sprint_name', 'sprint_name', 'sprintName');
+  idx.jira = jira;
+  const fid = { ...(idx.field_ids ?? {}) };
+  if (!fid.storyPoints && pj.story_points_field) fid.storyPoints = pj.story_points_field;
+  if (!fid.sprint && pj.sprint_field) fid.sprint = pj.sprint_field;
+  if (Object.keys(fid).length) idx.field_ids = fid;
+  return idx;
+}
+
+/**
+ * Mirror the Jira settings into plan.json so sprint-plan-viewer reads the
+ * same site, project, board, sprint and field ids. Other keys are kept.
+ */
+export function writePlanJson(dir, jira = {}, fieldIds = {}) {
+  const p = path.join(sprintDir(dir), 'plan.json');
+  const pj = readJson(p, null) ?? {};
+  const cur = pj.jira && typeof pj.jira === 'object' ? pj.jira : {};
+  const next = { ...cur };
+  const put = (k, v) => { if (v !== undefined && v !== null && v !== '') next[k] = v; };
+  put('site', jira.site);
+  put('cloud_id', jira.cloud_id);
+  put('project', jira.project_key);
+  put('board_id', jira.board_id);
+  put('sprint_id', jira.sprint_id);
+  put('sprint_name', jira.sprint_name);
+  put('story_points_field', fieldIds.storyPoints);
+  put('sprint_field', fieldIds.sprint);
+  if (!pj.title && jira.sprint_name) pj.title = jira.sprint_name;
+  if (JSON.stringify(next) === JSON.stringify(cur) && fs.existsSync(p)) return p;
+  pj.jira = next;
+  writeJson(p, pj);
+  return p;
 }
 
 export function writeJson(p, obj) {

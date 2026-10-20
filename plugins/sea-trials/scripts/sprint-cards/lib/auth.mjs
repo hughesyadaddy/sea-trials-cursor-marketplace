@@ -98,7 +98,7 @@ export function resolveUserKey(o = {}) {
   let source = email && token ? 'env' : null;
   let fileSite = null;
   if (!source) {
-    const kc = (o.keychain ?? (() => readKeychain()))();
+    const kc = env.SPRINT_CARDS_NO_KEYCHAIN === '1' ? null : (o.keychain ?? (() => readKeychain()))();
     if (kc) {
       ({ email, token } = kc);
       source = 'keychain';
@@ -122,13 +122,19 @@ export function resolveUserKey(o = {}) {
   if (!source) return { ok: false, reason: 'no user key (env, keychain or ~/.jira-creds)', site };
   if (!site) return { ok: false, reason: 'user key found but no site; pass --site or set JIRA_SITE', source, site: null };
   const basic = Buffer.from(`${email}:${token}`, 'utf8').toString('base64');
-  return {
+  // The site the key itself names (JIRA_SITE, or the creds file it came from), if any.
+  const boundSite = normalizeSite(env.JIRA_SITE || (source?.startsWith('file:') ? fileSite : null)) || null;
+  const key = {
     ok: true,
     source,
     site,
+    boundSite,
     email,
     auth: { site, authorization: `Basic ${basic}` },
   };
+  // For a viewer child process only. Not enumerable, so JSON output never carries it.
+  Object.defineProperty(key, 'childEnv', { value: { JIRA_EMAIL: email, JIRA_API_TOKEN: token }, enumerable: false });
+  return key;
 }
 
 /** a***@example.com */

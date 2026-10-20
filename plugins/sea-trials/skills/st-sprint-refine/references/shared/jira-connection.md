@@ -59,7 +59,9 @@ Known limits of the MCP path: each create is a separate call, so a session that 
 
 ## The viewer's own scripts
 
-The `sprint-plan-viewer/` submodule may ship its own push and resync commands. When it does, its README is the guide for them, and the same rules hold: dry run first, the user approves, Done cards are skipped, search before create, no secrets printed. This plugin's CLI stays the way to make MCP plans (`push --mcp-plan`, `record`, `import-jira`) and the fallback for folders without the viewer.
+When the `sprint-plan-viewer/` submodule is there, its `spv.py resync`, `spv.py import-jira` and `spv.py push` are the one implementation for resync and for updates, creates and images with the user key; `node <CLI> pull`, `import-jira` and `push --apply` hand those jobs to it (see the table in the folder format). The CLI still does transitions, sprint moves and rank, the MCP plan (`push --mcp-plan`, `record`), and everything for folders without the viewer.
+
+The same rules hold for both: dry run first (`node <CLI> push <folder>` lists the exact `spv.py push --apply ...` command it will run), the user approves, Done cards are skipped, a create first looks for an existing issue with the same summary, no secrets printed. The viewer reads the key from `JIRA_EMAIL` + `JIRA_API_TOKEN` or `JIRA_CREDS_FILE`; when the key is in the keychain or `~/.jira-creds`, the CLI passes it to the viewer process in its environment only. The viewer stops when the key's `JIRA_SITE` is not the plan's site, and `read_only: true` in `plan.json` makes its `push --apply` refuse.
 
 ## Several Jira sites
 

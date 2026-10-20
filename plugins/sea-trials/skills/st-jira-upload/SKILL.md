@@ -94,6 +94,14 @@ written before the user says yes.
 node "$CLI" push "$DIR" --apply [--keys ...] [--only ...] [--backlog]
 ```
 
+With the `sprint-plan-viewer/` submodule there, the dry run prints the
+exact `spv.py push --apply --keys ... --create ... --images` command;
+`--apply` runs it (the viewer writes updates, creates and images and
+puts the new keys in the cards), then does the transitions, sprint
+moves and rank that the viewer does not do. Show the user that command
+in the dry run you ask them to approve. `--builtin` uses only this
+plugin's code.
+
 It creates parents first and searches before each create, so a rerun
 never makes duplicates. Updates read the live issue first, skip Done,
 and back up the old fields to `PUSH-BACKUP-*.jsonl`. Images are

@@ -27,7 +27,10 @@ Shared components (loaded by both hosts):
   sprint skills find the site at run time and save it in the sprint folder)
   and `chrome-devtools` (stdio)
 - **Sprint cards:** `scripts/sprint-cards/cli.mjs` (card folders, lint,
-  local viewer, Jira push and resync); see `skills/_sources/sprint-cards-cli.md`
+  MCP plans, Jira push and resync); the viewer is the
+  [sprint-plan-viewer](https://github.com/hughesyadaddy/sprint-plan-viewer)
+  submodule, whose push and resync the CLI uses when it is there; see
+  `skills/_sources/sprint-cards-cli.md`
 - **Hooks:** session-start model probe; block bare / `--no-verify` /
   `--force` `git push` unless a fresh gate-pass token exists (commits
   touching only `sprint_planning/**` are exempt)
