@@ -17,7 +17,7 @@ export const PHASE_CI = 'ci';
 /**
  * Model routing for fan-out workers. Running a gate command and fixing
  * a format/lint/analyze failure is mechanical work: pin it to the cheap,
- * fast tier on each host. Reviewers and planners stay on `inherit`.
+ * mechanical tier on each host. Reviewers and planners stay on `inherit`.
  *
  * Delegates to `resolveModel({ tier: 'mechanical' })`: env overrides
  * (`ST_SHARD_MODEL_MECHANICAL[_CLAUDE]`, `ST_WORKER_MODEL[_CLAUDE]`)

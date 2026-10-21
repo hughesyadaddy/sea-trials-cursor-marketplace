@@ -146,7 +146,7 @@ via environment:
 
 | Tier | Cursor `model` (preferred) | Claude `claudeModel` (preferred) | Env override |
 | --- | --- | --- | --- |
-| `mechanical` | `composer-2.5-fast` | `haiku` | `ST_SHARD_MODEL_MECHANICAL` / `…_CLAUDE` |
+| `mechanical` | `composer-2.5` | `haiku` | `ST_SHARD_MODEL_MECHANICAL` / `…_CLAUDE` |
 | `code` | `composer-2.5` | `sonnet` | `ST_SHARD_MODEL_CODE` / `…_CLAUDE` |
 | `reasoning` | `inherit` | `inherit` | `ST_SHARD_MODEL_REASONING` / `…_CLAUDE` |
 
