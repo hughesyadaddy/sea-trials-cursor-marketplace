@@ -24,10 +24,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { recordRun } from './lib/gate-telemetry.mjs';
 import { resolveModel, TIER_DEFAULTS } from './lib/host-capabilities.mjs';
 
-/** Default `maxParallel` when the manifest omits it. */
-export const DEFAULT_MAX_PARALLEL = 6;
-/** Hard cap; more than this overwhelms the Cursor extension host. */
-export const MAX_PARALLEL_CAP = 12;
+/** Default `maxParallel` when the manifest omits it (cost policy, Oct 2026). */
+export const DEFAULT_MAX_PARALLEL = 2;
+/** Hard cap on concurrent workers (cost policy, Oct 2026 — keep runs cheap). */
+export const MAX_PARALLEL_CAP = 4;
 
 /** Shard tiers. Workers execute; the parent plans, so it stays `inherit`. */
 export const TIERS = ['mechanical', 'code', 'reasoning'];

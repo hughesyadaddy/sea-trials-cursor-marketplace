@@ -1,5 +1,16 @@
 # Always-on, event-driven PR loops (Cursor)
 
+> **⚠️ PAUSED FOR COST (Oct 2026).** This always-on, cloud-agent design is
+> **on hold** under Alex's cost policy: coding runs locally on the user's
+> own machine via `/st-code-via-subscriptions` (Claude Code / Codex
+> subscription), falling back to a local Cursor `composer-2.5` agent (Fast
+> off). The dispatcher below spins up **Cursor cloud agents**, which this
+> policy forbids by default. **Do not install or enable any of this** (the
+> GitHub Actions dispatcher, `st-pr-dispatch.yml`, or the Cursor
+> Automation) **without Alex's explicit go-ahead.** The guard hook
+> `guard-cost-policy.mjs` also blocks the Cursor cloud/background agents
+> API unless `ST_ALLOW_CLOUD=1` is set for an explicitly approved run.
+
 Recommended: **GitHub Actions dispatcher → Cursor Automation (webhook
 trigger) → cloud agent running one `st-pr-review-loop-worktree` round.**
 Merging is done by the dispatcher itself via `st-pr-merge/merge-gate.mjs`

@@ -52,8 +52,8 @@ import {
 // CONSTANTS
 // ===========================================================================
 
-/** Default `maxParallel` for generated manifests. */
-export const DEFAULT_MAX_PARALLEL = 6;
+/** Default `maxParallel` for generated manifests (cost policy, Oct 2026). */
+export const DEFAULT_MAX_PARALLEL = 2;
 
 const REASONING_RE = /\b(migrations?|schema|architecture|security)\b/i;
 const MECHANICAL_RE = /\b(verify|verification|qa|docs?|rename|l10n)\b/i;

@@ -1,7 +1,7 @@
 ---
 name: st-jira-uploader
 description: Runs the write steps of a sprint-cards MCP plan (push --mcp-plan) through the Atlassian MCP tools, one step at a time, recording each new key with the CLI before the next step. Use from st-jira-upload only after the user approved the dry run, and only on the no-key path. One instance per sprint folder, never in parallel.
-model: inherit
+model: composer-2.5
 ---
 
 You write to Jira for the signed-in person, through the Atlassian MCP

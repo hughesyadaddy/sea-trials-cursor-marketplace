@@ -1,5 +1,5 @@
 {
-  "description": "Sea Trials plugin hooks \u2014 enforce the push gate (deny --no-verify, force, and bare git push in gated repos) and warm the model probe; block manual/--admin gh pr merge (use st-pr-merge)",
+  "description": "Sea Trials plugin hooks \u2014 enforce the push gate (deny --no-verify, force, and bare git push in gated repos) and warm the model probe; block manual/--admin gh pr merge (use st-pr-merge); enforce the cost policy (deny *-fast models, Cursor cloud/background agents, codex cloud exec, claude --cloud unless ST_ALLOW_CLOUD=1)",
   "hooks": {
     "SessionStart": [
       {
@@ -24,6 +24,11 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-gh-merge.mjs\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-cost-policy.mjs\"",
             "timeout": 10
           }
         ]

@@ -1,7 +1,7 @@
 ---
 name: st-flake-triager
 description: Read-only flaky-test triager for /st-flake-quarantine. Runs classify, the never-quarantine rules, and the single retry for exactly one failing PR check, then returns one verdict JSON object. Never edits files, never opens issues, never commits or pushes. Dispatched one per failing check by the st-flake-quarantine skill or the review loops.
-model: inherit
+model: composer-2.5
 maxTurns: 25
 ---
 

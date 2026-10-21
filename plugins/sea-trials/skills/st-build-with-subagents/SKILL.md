@@ -48,7 +48,7 @@ Parallel-first plan implementation. Workers build **shards** on the
 | --- | --- | --- |
 | Planner / parent | this chat | high (whatever the user picked; `inherit`) |
 | Shard worker | `st-shard-worker` agent, one per shard | **cheap execution tier** — `composer-2.5` / `sonnet` for code, `composer-2.5` / `haiku` for mechanical shards |
-| Integrator | parent, or `st-shard-integrator` agent | `inherit` |
+| Integrator | parent, or `st-shard-integrator` agent | parent model, or `composer-2.5` (the agent file is pinned) |
 | Reviewers | VGV review agents | as pinned in their agent files |
 
 The emitter stamps `model` (Cursor) and `claudeModel` (Claude Code)
@@ -92,7 +92,7 @@ node "$ST_PLUGIN_ROOT/skills/st-build-with-subagents/scripts/validate-shard-mani
 - Validator failures are contract errors, not noise: overlapping
   paths or an undeclared barrel in a split package will collide on the
   shared branch. Fix the manifest until it prints `✅`.
-- `maxParallel`: default 6, cap 12.
+- `maxParallel`: default 2, cap 4 (cost policy, Oct 2026).
 
 ### From a sprint folder
 
@@ -152,7 +152,7 @@ edits, no gate scripts, one result JSON line. Full contract in
 
 ## Phase 2 — Integrate
 
-Parent (or one `st-shard-integrator` subagent on `inherit`):
+Parent (or one `st-shard-integrator` subagent, pinned to `composer-2.5`):
 
 1. `$EMIT --status` → apply every `needsIntegration` item to the
    integrator-owned `sharedFiles` (barrel exports, `pubspec.yaml`,
@@ -203,7 +203,7 @@ or `-inplace`.
 | Role | Cursor `subagent_type` | Claude Code agent | Model |
 | --- | --- | --- | --- |
 | Shard worker | `st-shard-worker` (fallback `generalPurpose`) | `sea-trials:st-shard-worker` | from task line (cheap tier) |
-| Integrator | `st-shard-integrator` | `sea-trials:st-shard-integrator` | `inherit` |
+| Integrator | `st-shard-integrator` | `sea-trials:st-shard-integrator` | `composer-2.5` (agent-file pinned) |
 | Gate / CI lanes | `generalPurpose` | general subagent | as emitted |
 | Reviewers | VGV review agents | same names | pinned in agent files |
 

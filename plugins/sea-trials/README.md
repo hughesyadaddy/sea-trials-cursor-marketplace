@@ -33,11 +33,39 @@ Shared components (loaded by both hosts):
   `skills/_sources/sprint-cards-cli.md`
 - **Hooks:** session-start model probe; block bare / `--no-verify` /
   `--force` `git push` unless a fresh gate-pass token exists (commits
-  touching only `sprint_planning/**` are exempt)
+  touching only `sprint_planning/**` are exempt); block manual / `--admin`
+  `gh pr merge`; enforce the cost policy below (`guard-cost-policy.mjs`)
 
 `mcp.json` and `.mcp.json` must stay byte-identical; every remote server
 declares `"type": "http"` because Claude hard-errors on a bare `url`.
 `node scripts/validate-manifests.mjs` (marketplace root) enforces this.
+
+## Cost policy (Oct 2026)
+
+Keep runs cheap: coding stays on the user's own subscriptions, off the
+cloud, with small fan-out.
+
+- **No Cursor cloud agents.** Coding runs **locally** via
+  `/st-code-via-subscriptions` (Claude Code / Codex on the user's own
+  subscription), falling back to a local Cursor `composer-2.5` agent with
+  **Fast off**. Cursor cloud / background agents and Cursor Automations are
+  used **only** when the user explicitly asks for that cloud job; the
+  always-on cloud design in `docs/automations/ALWAYS_ON.md` is **paused**
+  and must not be installed without Alex's explicit go-ahead.
+- **Max 2 parallel workers per agent by default, hard max 4.** Serialize
+  the rest and batch small fixes into one worker — no big adversarial
+  swarms. `maxParallel` defaults to 2 and is capped at 4 across the shard
+  and gate tooling.
+- **Never `composer-2.5-fast` or any `*-fast` model.** The mechanical tier
+  is `composer-2.5` (Cursor) / `haiku` (Claude); execution/ops and sprint
+  agents are pinned to `composer-2.5`.
+- **Enforcement:** `hooks/scripts/guard-cost-policy.mjs` (registered on the
+  shell-execution hook on both hosts) denies shell commands that pass a
+  `*-fast` model to `cursor-agent`/`agent`, hit the Cursor cloud agents API
+  (`api.cursor.com/v0|v1/agents`, `/background-agents`), run `codex cloud
+  exec`, or run `claude --cloud`. Override a single command only with
+  `ST_ALLOW_CLOUD=1` (it prints what was blocked and that the override is
+  active).
 
 ## Install
 

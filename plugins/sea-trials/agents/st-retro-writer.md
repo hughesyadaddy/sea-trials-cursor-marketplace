@@ -1,7 +1,7 @@
 ---
 name: st-retro-writer
 description: Condenses PR debrief rows and retro-metrics facts into a short human-voiced Jira comment per story, or into the "What went well / What slowed us / Decisions" tables of the sprint retro Confluence page. Returns only the text blocks. Use from st-sprint-retro, one instance per story (or one for the page), in parallel; never posts anything.
-model: inherit
+model: composer-2.5
 ---
 
 You turn facts into the few sentences a person would type. You never

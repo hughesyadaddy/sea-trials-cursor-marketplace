@@ -12,22 +12,25 @@ them; the push guard allows their plain `git push`.
 
 ## Maximum parallel fan-out (`st-*` default)
 
-Sea Trials **`st-*`** skills default to **as many parallel workers as
-the host allows** — never serialize work the parent can fan out.
+Sea Trials **`st-*`** skills default to **2 concurrent workers**, with a
+**hard max of 4** (cost policy, Oct 2026 — no big adversarial swarms).
+Serialize everything beyond the cap, and **batch small fixes into a
+single worker** rather than spawning one worker per trivial change.
 
 | Workflow | Emitter | Parent action |
 | --- | --- | --- |
-| Push gate lanes | `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks` | One worker per JSON line |
-| PR adversarial vet | `node "$ST_ADVERSARIAL" --pr <n>` | 3 × thread count |
-| PR code fixes | `node "$ST_FIX" --pr <n>` | 1 × path (path-scoped) |
-| Build shards | `node "$ST_BUILD_SHARD" --manifest shards.json` | 1 × ready shard |
-| Pre-push review | Harden Phase 3 agents (4 types) | One worker each, same turn |
+| Push gate lanes | `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks` | One worker per JSON line, ≤ the cap |
+| PR adversarial vet | `node "$ST_ADVERSARIAL" --pr <n>` | Batched within the cap, not a thread-count swarm |
+| PR code fixes | `node "$ST_FIX" --pr <n>` | 1 × path (path-scoped); batch tiny fixes |
+| Build shards | `node "$ST_BUILD_SHARD" --manifest shards.json` | 1 × ready shard, ≤ the cap |
+| Pre-push review | Harden Phase 3 agents (4 types) | One worker each, same turn (within the cap) |
 
 **Rules:**
 
-1. Collect JSON lines first; launch **all workers in one parent turn**
-   when count ≤ **16** (Cursor concurrency cap). Above 16: batch rounds
-   of 16 — still never one-at-a-time unless only one task exists.
+1. Collect JSON lines first; launch **at most 2 workers per parent
+   turn** (hard max **4**). More tasks than the cap → run in batches of
+   ≤ the cap, serializing the rest — never a one-shot swarm. Batch
+   small/trivial fixes into one worker instead of one worker per line.
 2. Subagents run gates/fixes/reviews only — **never `git push`**, never
    commit, never reply to threads.
 3. Parent synthesizes, integrates conflicts, then **one gate + one
@@ -59,9 +62,9 @@ worker per line on either host — same parallelism rules as above.
 | **Cursor** | `Task({ subagent_type, … })` |
 | **Claude Code** | **Agent** tool or `context: fork` |
 
-Launch all workers in **one parent turn** per wave (batch by 16 on
-Cursor when needed). Subagents never push; parent merges then one
-harden + one push.
+Launch workers in **one parent turn** per wave, **≤ 2 at a time (hard
+max 4)**; serialize the rest across waves. Subagents never push; parent
+merges then one harden + one push.
 
 Full host-specific walkthrough (shards, gate lanes, prepush order):
 
@@ -182,9 +185,11 @@ commits, `Await`/sleep until reset, then push. Never fall back to bare
 ## Adversarial vet (3 agents × every unresolved thread)
 
 **Before** `format` + `close` on any bot thread (Codex, Bugbot, Cursor
-Bugbot), launch **three** Task subagents **per thread**, all in **one
-parent turn** (20 threads → 60 Tasks). Never skip because the thread
-count is small.
+Bugbot), vet each thread with the **three** agents below. Respect the
+fan-out cap (≤ 2 workers per turn, hard max 4): run the vet in batched
+waves, serializing the rest — **no 60-Task swarm** (cost policy, Oct
+2026). The parent may also vet a thread inline when a worker is not
+worth spawning. Never skip a thread because the count is small.
 
 ```bash
 node "$ST_ADVERSARIAL" --pr <n>
@@ -219,7 +224,7 @@ command re-uses that result. Never run the same lanes three times
 
 1. Emit lanes: `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks`.
 2. Dispatch one worker per JSON line (Cursor: `Task`; Claude: `Agent`),
-   all in one parent turn (batch by 16). Each worker runs
+   **≤ 2 at a time (hard max 4)**, batched across waves. Each worker runs
    `node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs" '<json>'`.
    A single line → the parent may run it inline.
 3. Red lane → root-cause fix → re-run that lane until green.
