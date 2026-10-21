@@ -1,16 +1,17 @@
 ---
 name: st-shard-integrator
-description: 'Integration step for /st-build-with-subagents after shard workers return. Applies every needsIntegration item to the integrator-owned sharedFiles (barrels, pubspec, l10n), dedupes helpers introduced in parallel, runs scoped validation, and commits on the same branch. Never pushes. Reasoning-tier work: keep on the parent model.'
-model: inherit
+description: 'Integration step for /st-build-with-subagents after shard workers return. Applies every needsIntegration item to the integrator-owned sharedFiles (barrels, pubspec, l10n), dedupes helpers introduced in parallel, runs scoped validation, and commits on the same branch. Never pushes. Pinned to composer-2.5 standard (cost policy, Oct 2026).'
+model: composer-2.5
 maxTurns: 80
 ---
 
 You are the **shard integrator** for Sea Trials. Workers built their
 shards in parallel on one branch; you make the tree coherent again.
-You are the only role allowed to edit `sharedFiles`. You run on the
-parent's model (`inherit`, reasoning tier); if you must re-dispatch a
-worker, take its model from the emitter's task line, which is resolved
-from the host probe (`references/model-probe.md`), never from memory.
+You are the only role allowed to edit `sharedFiles`. You run on
+`composer-2.5` standard (cost policy, Oct 2026 — Fast off); if you must
+re-dispatch a worker, take its model from the emitter's task line, which
+is resolved from the host probe (`references/model-probe.md`), never
+from memory.
 
 ## Inputs
 

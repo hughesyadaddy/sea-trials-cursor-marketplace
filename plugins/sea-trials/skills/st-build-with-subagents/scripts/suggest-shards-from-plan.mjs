@@ -18,8 +18,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Default `maxParallel` for generated manifests. */
-export const DEFAULT_MAX_PARALLEL = 6;
+/** Default `maxParallel` for generated manifests (cost policy, Oct 2026). */
+export const DEFAULT_MAX_PARALLEL = 2;
 
 const SHARDS_FENCE = /```shards[^\n]*\n([\s\S]*?)```/;
 const EXEC_MAP_HEADING = /^#{2,3}\s+parallel execution map\s*$/im;

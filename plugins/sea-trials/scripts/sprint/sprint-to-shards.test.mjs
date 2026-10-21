@@ -189,7 +189,7 @@ test('simple 3-story epic → valid manifest with ids, deps, tiers', () => {
   assert.deepEqual(needsPaths, []);
   assert.deepEqual(validateManifest(manifest).errors, []);
   assert.equal(manifest.version, 1);
-  assert.equal(manifest.maxParallel, 3);
+  assert.equal(manifest.maxParallel, 2);
   assert.deepEqual(manifest.sharedFiles, []);
   assert.deepEqual(
     manifest.shards.map((s) => [s.id, s.tier, s.dependsOn]),
@@ -361,8 +361,9 @@ test('unknown **Blocked by:** target is dropped with a hint', () => {
 
 test('--max-parallel and default clamp', () => {
   const dir = simpleEpic();
-  assert.equal(buildManifest(dir).manifest.maxParallel, 3);
-  assert.equal(buildManifest(dir, { maxParallel: 2 }).manifest.maxParallel, 2);
+  // Default clamps to DEFAULT_MAX_PARALLEL (2) even with 3 stories.
+  assert.equal(buildManifest(dir).manifest.maxParallel, 2);
+  assert.equal(buildManifest(dir, { maxParallel: 4 }).manifest.maxParallel, 4);
   const one = fixture({ '01-us1-a.md': story({ title: 'A', files: ['x/lib/'] }) });
   assert.equal(buildManifest(one).manifest.maxParallel, 1);
 });

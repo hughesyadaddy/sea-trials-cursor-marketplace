@@ -208,13 +208,13 @@ test('previewWave simulates earlier waves finishing', () => {
   assert.deepEqual(previewWave(chain, emptyState(), 6, 2), []);
 });
 
-test('resolveMaxParallel defaults to 6 and caps at 12', () => {
-  assert.equal(DEFAULT_MAX_PARALLEL, 6);
-  assert.equal(MAX_PARALLEL_CAP, 12);
-  assert.equal(resolveMaxParallel(undefined), 6);
-  assert.equal(resolveMaxParallel(0), 6);
-  assert.equal(resolveMaxParallel(40), 12);
-  assert.equal(resolveMaxParallel(8), 8);
+test('resolveMaxParallel defaults to 2 and caps at 4', () => {
+  assert.equal(DEFAULT_MAX_PARALLEL, 2);
+  assert.equal(MAX_PARALLEL_CAP, 4);
+  assert.equal(resolveMaxParallel(undefined), 2);
+  assert.equal(resolveMaxParallel(0), 2);
+  assert.equal(resolveMaxParallel(40), 4);
+  assert.equal(resolveMaxParallel(3), 3);
 });
 
 test('inferTier: l10n / generated shards are mechanical', () => {
@@ -461,14 +461,14 @@ test('CLI --wave previews batch view', () => {
 test('validateManifest accepts a clean manifest with defaults', () => {
   const res = validateManifest({ shards: chain });
   assert.equal(res.ok, true, res.errors.join('; '));
-  assert.equal(res.maxParallel, 6);
+  assert.equal(res.maxParallel, 2);
 });
 
-test('validateManifest enforces maxParallel 1..12', () => {
-  assert.equal(validateManifest({ shards: chain, maxParallel: 12 }).ok, true);
+test('validateManifest enforces maxParallel 1..4', () => {
+  assert.equal(validateManifest({ shards: chain, maxParallel: 4 }).ok, true);
   assert.match(
-    validateManifest({ shards: chain, maxParallel: 13 }).errors[0],
-    /between 1 and 12/,
+    validateManifest({ shards: chain, maxParallel: 5 }).errors[0],
+    /between 1 and 4/,
   );
 });
 
@@ -672,7 +672,7 @@ test('suggest: Parallel execution map table', () => {
   ]);
   assert.deepEqual(manifest.shards[2].dependsOn, ['core', 'l10n']);
   assert.equal(manifest.shards[2].tier, undefined);
-  assert.equal(manifest.maxParallel, 3);
+  assert.equal(manifest.maxParallel, 2);
   assert.equal(suggestManifest(plan).source, 'plan-execution-map');
   const check = validateManifest(manifest);
   assert.equal(check.ok, true, check.errors.join('; '));
@@ -703,7 +703,7 @@ Ignore https://example.com/a/b.
     manifest.shards.map((s) => s.id),
     ['client-app', 'bar', 'foo', 'src', 'hooks', 'site'],
   );
-  assert.equal(manifest.maxParallel, 6);
+  assert.equal(manifest.maxParallel, 2);
   assert.equal(suggestManifest(plan).source, 'heuristic');
   assert.equal(validateManifest(manifest).ok, true);
 });

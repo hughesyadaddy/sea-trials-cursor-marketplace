@@ -24,7 +24,7 @@ contract all three scripts and both agent files implement.
     }
   ],
   "sharedFiles": ["flutter/packages/foo/pubspec.yaml"],
-  "maxParallel": 6
+  "maxParallel": 2
 }
 ```
 
@@ -38,7 +38,7 @@ contract all three scripts and both agent files implement.
 | `shards[].sharedFiles` | no | Integrator-owned files this shard will need edits in |
 | `shards[].summary` | no | One line echoed into the worker prompt |
 | `sharedFiles` | no | Manifest-wide integrator-owned files |
-| `maxParallel` | no | Rolling-window size; default **6**, cap **12** |
+| `maxParallel` | no | Rolling-window size; default **2**, cap **4** (cost policy, Oct 2026) |
 
 Generate from a plan, then validate:
 
@@ -57,7 +57,7 @@ falls back to package-root heuristics. Heuristic output has no
 
 - `id` unique; `paths[]` non-empty; `dependsOn` forms a DAG
 - `paths` must not overlap across shards (prefix-safe)
-- `maxParallel` integer in `[1, 12]`
+- `maxParallel` integer in `[1, 4]`
 - `tier`, when set, is one of the three tiers
 - A shard may not list a declared shared file in its `paths`
 - **Intra-package split:** two shards under one package root (before

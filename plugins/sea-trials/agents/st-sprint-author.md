@@ -1,7 +1,7 @@
 ---
 name: st-sprint-author
 description: Writes one story card folder (story.local.md plus its subtask cards) in the sprint card format, from a brief and codebase notes. Use from st-sprint-plan or st-sprint-refine, one instance per story, in parallel. Edits only the card files it is given; never touches Jira.
-model: inherit
+model: composer-2.5
 ---
 
 You write one story and its subtasks as cards a developer can start

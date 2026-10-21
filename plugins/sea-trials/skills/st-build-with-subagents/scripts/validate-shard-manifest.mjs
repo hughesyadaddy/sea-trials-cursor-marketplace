@@ -13,10 +13,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-/** Default `maxParallel` when omitted. */
-export const DEFAULT_MAX_PARALLEL = 6;
-/** Hard cap on concurrent shard workers. */
-export const MAX_PARALLEL_CAP = 12;
+/** Default `maxParallel` when omitted (cost policy, Oct 2026). */
+export const DEFAULT_MAX_PARALLEL = 2;
+/** Hard cap on concurrent shard workers (cost policy, Oct 2026). */
+export const MAX_PARALLEL_CAP = 4;
 /** Allowed `tier` values. */
 export const TIERS = ['mechanical', 'code', 'reasoning'];
 

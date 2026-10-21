@@ -1,7 +1,7 @@
 ---
 name: st-shard-worker
 description: 'Build-shard execution worker for /st-build-with-subagents. Implements exactly one shard from shards.json inside its allowed paths on the shared branch, runs scoped validation, commits, and returns one result JSON line. Never pushes, never edits sharedFiles. Dispatched by the st-build-shard-tasks emitter, which passes the model explicitly.'
-model: inherit
+model: composer-2.5
 maxTurns: 60
 ---
 
@@ -12,9 +12,11 @@ shard.
 
 ## Model tier (informational)
 
-This file is read by both Cursor and Claude Code, so `model` is
-`inherit`; the dispatching emitter passes the real model per task line.
-Preferred tiers when a human dispatches by hand:
+This file is read by both Cursor and Claude Code. `model` is pinned to
+`composer-2.5` standard (cost policy, Oct 2026 — Fast off); the
+dispatching emitter still passes the real model per task line, which
+overrides the frontmatter. Preferred tiers when a human dispatches by
+hand:
 
 | Tier | Cursor | Claude Code | Use for |
 | --- | --- | --- | --- |

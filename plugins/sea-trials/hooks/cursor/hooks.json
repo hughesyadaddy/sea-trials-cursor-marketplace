@@ -19,6 +19,12 @@
         "matcher": "gh[\\s\\S]*merge",
         "timeout": 10,
         "failClosed": true
+      },
+      {
+        "command": "node ./hooks/scripts/guard-cost-policy.mjs",
+        "matcher": "-fast\\b|api\\.cursor\\.com|background-agents|codex[\\s\\S]*cloud|claude[\\s\\S]*--cloud",
+        "timeout": 10,
+        "failClosed": true
       }
     ]
   }

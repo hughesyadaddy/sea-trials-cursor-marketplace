@@ -67,9 +67,13 @@ the parent runs the serial committed-diff gate through
 
 ## Concurrency
 
+Cost policy (Oct 2026): keep local subscription runs cheap — **default
+2 concurrent workers, hard cap 4**. No big adversarial swarms.
+
 | Host | Practical limit | Why |
 | --- | --- | --- |
-| Cursor | `maxParallel` ≤ 12 (default 6) | no hard cap, but ~40 concurrent subagents stall the extension host |
-| Claude Code | same manifest value | parallel subagents are fine; keep the number for predictable integration |
+| Cursor | `maxParallel` default **2**, cap **4** | cost policy — serialize the rest; large fan-out burns subscription spend |
+| Claude Code | same manifest value | parallel subagents are fine; keep the number small for cost and predictable integration |
 
-The emitter enforces the window; you never need to batch by hand.
+The emitter enforces the window (clamped to the cap); you never need to
+batch by hand.
