@@ -107,10 +107,12 @@ Parent chat for handoffs: **Composer 2.5** (schema-gated) — see
 | Review agents (Phase 3, plan review) | pinned | as pinned in each agent file | Never override on `Task` |
 | `reasoning` shard worker | high-reasoning | inherit | Rare; most shards are `code` |
 | `code` shard worker | fast coding | `composer-2.5` | Default for fan-out |
-| `mechanical` shard worker | cheapest | `composer-2.5` or `gpt-5.6-luna-fast` | See slug note |
+| `mechanical` shard worker | cheapest | `composer-2.5` | See slug note |
+
+Never pick a `*-fast` variant; Fast mode bills at a premium.
 
 Slug status: `composer-2.5` is confirmed in the Task tool's model list.
-`gpt-5.6-luna-fast`, `claude-opus-5-5`, and `gpt-5.6-sol` were reported
+`claude-opus-5-5` and `gpt-5.6-sol` were reported
 available on 2026-09-22 but are **unverified** in the current schema —
 confirm with `agent --list-models` (or the chat model picker) before
 pinning. If a slug is rejected, fall back to `composer-2.5` or omit

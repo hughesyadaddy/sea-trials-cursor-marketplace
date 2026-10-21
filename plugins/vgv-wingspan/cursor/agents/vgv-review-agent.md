@@ -1,7 +1,7 @@
 ---
 name: vgv-review-agent
 description: 'Reviews code against Very Good Ventures engineering standards. Use after implementing features, modifying code, creating new packages, or before opening PRs. Enforces architecture, state management conventions, testing quality, and code simplicity.'
-model: inherit
+model: composer-2.5
 ---
 
 <!-- CURSOR_VGV_AGENT -->

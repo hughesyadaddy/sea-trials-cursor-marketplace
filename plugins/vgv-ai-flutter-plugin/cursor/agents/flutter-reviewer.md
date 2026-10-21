@@ -1,7 +1,7 @@
 ---
 name: flutter-reviewer
 description: 'Read-only Flutter code reviewer. Dispatch after writing or changing Dart code to review changed code against VGV bloc, testing, security, and accessibility standards. Never edits files.'
-model: inherit
+model: composer-2.5
 readonly: true
 ---
 
