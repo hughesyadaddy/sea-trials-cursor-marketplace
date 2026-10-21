@@ -70,9 +70,10 @@ node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs <your changed file
 node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs" <files>
 ```
 
-Add `--analyze-only` when your chunk touched no test files. Passing your
-explicit files keeps the run scoped to one merged `dart analyze` — do
-not run the no-arg whole-diff form from a shard.
+Add `--analyze-only` when your chunk touched no test files. Both forms
+run one merged `dart analyze`; passing your explicit files narrows the
+scope to **only your files** — not the whole dirty tree other shards may
+share — so do not run the no-arg whole-diff form from a shard.
 
 A machine-wide lock serialises agent-validate across all shards: parallel
 workers **queue** rather than each spawning an analysis server, and a
