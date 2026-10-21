@@ -150,20 +150,20 @@ test('normalizeTier falls back to code', () => {
 
 test('pickFromList: tier default when present', () => {
   const list = ['inherit', 'composer-2.5', 'composer-2.5-fast'];
-  assert.equal(pickFromList('mechanical', list, 'cursor'), 'composer-2.5-fast');
+  assert.equal(pickFromList('mechanical', list, 'cursor'), 'composer-2.5');
   assert.equal(pickFromList('code', list, 'cursor'), 'composer-2.5');
   assert.equal(pickFromList('reasoning', list, 'cursor'), 'inherit');
 });
 
-test('pickFromList mechanical: any *-fast, then composer-2.5, then inherit', () => {
+test('pickFromList mechanical: composer-2.5, then inherit', () => {
   assert.equal(
     pickFromList('mechanical', ['inherit', 'grok-4.7-high-fast', 'composer-2.5'], 'cursor'),
-    'grok-4.7-high-fast',
+    'composer-2.5',
   );
   assert.equal(
     pickFromList('mechanical', ['zeta-fast', 'alpha-fast'], 'cursor'),
-    'alpha-fast',
-    'deterministic: sorted first',
+    'inherit',
+    'Fast-only lists inherit',
   );
   assert.equal(
     pickFromList('mechanical', ['inherit', 'composer-2.5'], 'cursor'),
@@ -286,7 +286,7 @@ test('probe list without the tier default picks the closest slug', () => {
     },
   };
   const mech = resolveHostModel({ tier: 'mechanical', host: 'cursor', caps, env: NO_ENV });
-  assert.deepEqual(mech, { model: 'grok-4.7-high-fast', verified: true, source: SOURCE_PROBE });
+  assert.deepEqual(mech, { model: 'inherit', verified: true, source: SOURCE_PROBE });
   const code = resolveHostModel({ tier: 'code', host: 'cursor', caps, env: NO_ENV });
   assert.deepEqual(code, { model: 'inherit', verified: true, source: SOURCE_PROBE });
 });
@@ -334,7 +334,7 @@ test('resolveModel with caps undefined reads the probe file from disk', () => {
     }),
   );
   const r = resolveModel({ tier: 'mechanical', env: { ST_STATE_DIR: root } });
-  assert.equal(r.model, 'only-fast');
+  assert.equal(r.model, 'inherit');
   assert.equal(r.verified, true);
   fs.rmSync(root, { recursive: true, force: true });
 });
@@ -344,4 +344,11 @@ test('resolveModel exposes both per-host results and defaults tier to code', () 
   assert.equal(r.tier, 'code');
   assert.deepEqual(r.cursor, { model: 'composer-2.5', verified: true, source: SOURCE_PROBE });
   assert.deepEqual(r.claude, { model: 'sonnet', verified: true, source: SOURCE_PROBE });
+});
+
+test('all tiers exclude Fast defaults', () => {
+  for (const tier of ['mechanical', 'code', 'reasoning']) {
+    assert.doesNotMatch(pickFromList(tier, ['a-fast', 'B-FAST', 'composer-2.5'], 'cursor'), /-fast$/i);
+    assert.equal(pickFromList(tier, ['a-fast', 'B-FAST'], 'cursor'), 'inherit');
+  }
 });

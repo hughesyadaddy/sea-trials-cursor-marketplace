@@ -62,3 +62,8 @@ Retries: a failed/timed-out agent round leaves the gate red, so the next
 event or the 15-minute sweep fires it again — "retried until it succeeds"
 without a human. Add a cap (e.g. 6 rounds/head) in the Automation memory
 to stop runaway loops and page Alex instead.
+
+Cloud Agents API launches must explicitly pass
+`model: {id: "composer-2.5", params: [{id: "fast", value: "false"}]}`;
+otherwise the user/team default applies, which may be Fast. Use
+`/st-code-via-subscriptions` first for interactive coding hand-offs.

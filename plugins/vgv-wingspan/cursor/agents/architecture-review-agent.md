@@ -1,7 +1,7 @@
 ---
 name: architecture-review-agent
 description: 'Validates project architecture against VGV standards post-implementation. Use after writing code to verify layer separation, state management correctness, dependency direction, and package structure.'
-model: inherit
+model: composer-2.5
 ---
 
 <!-- CURSOR_VGV_AGENT -->

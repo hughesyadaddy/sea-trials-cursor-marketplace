@@ -28,8 +28,8 @@ to call from a session-start hook.
 | `mcp.servers` | keys of `mcpServers` in `~/.cursor/mcp.json`, the plugin `mcp.json`, `~/.claude.json` | names only; server configs are never copied |
 
 Static fallback lists (the Task-tool schema seen in a Cursor session on
-2026-09-22): `inherit`, `composer-2.5`, `composer-2.5-fast`,
-`cursor-grok-4.6-high-fast`, `gpt-5.6-sol-medium`, `grok-4.7-high-fast`.
+2026-09-22, with Fast variants intentionally excluded): `inherit`,
+`composer-2.5`, `gpt-5.6-sol-medium`.
 Claude: `inherit`, `haiku`, `sonnet`, `opus`.
 
 ## How skills use it
@@ -54,7 +54,7 @@ subagents (which may lack the tool) know:
 ```bash
 node "$ST_PLUGIN_ROOT/scripts/hooks/st-model-probe.mjs" --quiet \
   --set tools.askQuestion=true \
-  --set 'cursor.models=["inherit","composer-2.5","composer-2.5-fast"]' \
+  --set 'cursor.models=["inherit","composer-2.5"]' \
   --set cursor.source="task-tool-schema" --set cursor.verified=true
 ```
 
@@ -87,8 +87,7 @@ Per host, in order:
    the slug (or it is `inherit`).
 2. **Probe list** (`verified: true`, non-empty) — the tier default if it
    is in the list, else the closest available:
-   - `mechanical`: `composer-2.5-fast` -> any `*-fast` slug (sorted) ->
-     `composer-2.5` -> `inherit`
+   - `mechanical`: `composer-2.5` -> `inherit`
    - `code`: `composer-2.5` -> `inherit` (a fast slug is not a substitute)
    - `reasoning`: `inherit`
    - Claude ladder: mechanical `haiku` -> `sonnet` -> `opus`;
@@ -99,9 +98,13 @@ Per host, in order:
 
 | Tier | Cursor default | Claude default |
 | --- | --- | --- |
-| `mechanical` | `composer-2.5-fast` | `haiku` |
+| `mechanical` | `composer-2.5` | `haiku` |
 | `code` | `composer-2.5` | `sonnet` |
 | `reasoning` | `inherit` | `inherit` |
+
+Fast variants (`*-fast`) are never chosen automatically; set an env
+override only if you deliberately want one. Mechanical Cursor work uses
+standard speed, Fast off.
 
 `verified` in the top-level result follows the detected host (`host`
 arg -> `caps.host` -> env). For `unknown` it is true only when both

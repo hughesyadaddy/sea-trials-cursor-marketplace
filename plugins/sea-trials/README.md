@@ -126,6 +126,7 @@ gate fan-outs pin slugs the host actually accepts. See
 | Flaky-test quarantine | `/st-flake-quarantine`, `flake-quarantine.mjs` | Classifies, retries, quarantines with `skip:` + tracking issue |
 | Build sharding | `st-run st-build-shard-tasks`, `sprint-to-shards.mjs` | Disjoint file ownership; sprint folders become `shards.json` |
 | Host model probe | `st-run st-model-probe` | Detects host + accepted model slugs; `resolveModel()` picks worker tiers |
+| Subscription hand-off | `/st-code-via-subscriptions` | Claude Code MCP first; Codex CLI fallback on your own subscription |
 | Sprint → Jira | `/st-sprint-plan`, `/st-sprint-refine`, `/st-jira-upload`, `/st-jira-test-review`, `/st-sprint-retro` | Dev-ready cards in human English; see below |
 
 ### Sprint cards (developers, not auditors)
@@ -217,3 +218,67 @@ the runners from it via [`ci/setup`](ci/README.md).
 3. `node scripts/validate-manifests.mjs` and `claude plugin validate .`
 4. Push → Cursor Dashboard → Refresh → Cmd+Q; Claude
    `/plugin marketplace update sea-trials-claude-marketplace`
+
+## Subscription hand-off (Claude Code / Codex)
+
+### What it is
+
+`/st-code-via-subscriptions` hands coding work to your own subscription:
+Claude Code through this plugin's Cursor `claude-code` MCP server first,
+then Claude Code / Codex CLI, cloud sessions for parallel work, and finally
+Composer standard when needed. Codex has no supported MCP mode and is used
+via `codex exec`: its MCP server was
+[removed upstream](https://learn.chatgpt.com/docs/mcp-server);
+`codex app-server` is experimental and is not MCP.
+
+### Setup (each person)
+
+| Setup (each person) | Action |
+| --- | --- |
+| Install | [Claude Code](https://code.claude.com/docs/en/setup) and/or [Codex CLI](https://developers.openai.com/codex/cli) |
+| Sign in yourself | `claude auth login` with YOUR OWN Claude Pro/Max subscription; `codex login` → Sign in with ChatGPT with YOUR OWN Plus/Pro/Business plan |
+| Check | `node "$ST_PLUGIN_ROOT/scripts/st-run.mjs" st-subscriptions-preflight -- --require any` |
+| Connect | Reload Cursor; check the `claude-code` server in Cursor's MCP settings panel |
+
+The preflight is read-only: it never logs in or writes configuration. Use
+`--require claude|codex|any|all` (default `any`), and `--json` for machines.
+It exits 0 only when the requirement is met. `st-run` resolves this hook
+under `scripts/hooks/` and requires a git checkout. Outside a checkout use:
+
+```bash
+node "$ST_PLUGIN_ROOT/scripts/hooks/st-subscriptions-preflight.mjs" --json --require any
+```
+
+### How auth works
+
+Auth stays per-person. The local stdio server runs the official
+[`claude mcp serve`](https://code.claude.com/docs/en/mcp#use-claude-code-as-an-mcp-server)
+as you, with your own Claude Code login. Nothing is shared; no tokens live
+in the repo. The launcher strips `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and
+`ANTHROPIC_AUTH_TOKEN` from the child environment to prevent API-key billing.
+A subscription login is required; remove any configured `apiKeyHelper`
+before using the Claude lane. The MCP entry is only in Cursor's `mcp.json`,
+not Claude Code's `.mcp.json`: exposing Claude Code to itself adds no value.
+
+### Security notes
+
+Claude Code's MCP server exposes Bash/Edit/Write and its other tools to the
+Cursor agent, so Cursor's own tool approvals apply. Disable it with
+`ST_SUBSCRIPTION_MCP=0` in Cursor's launch environment, or toggle the server
+off in Cursor's MCP settings.
+
+### Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Only `subscription_setup_status` appears | Call it for the preflight reason and setup steps, then reload Cursor after fixing setup. This stub keeps the plugin loading cleanly. |
+| `spawn claude ENOENT` / minimal Dock PATH | Install Claude Code; the launcher also searches `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin`, and `/usr/local/bin`. Set Cursor's launch PATH if installed elsewhere. |
+| API-key login detected | Sign in yourself using the subscription option above; API-key env variables are ignored by the launcher. |
+| MCP fails to connect | Open Cursor Settings → MCP → `claude-code` and its server logs/output; launcher diagnostics go to stderr. Re-run preflight directly. |
+
+### Costs and limits
+
+Usage draws on your plan's 5-hour/weekly limits. Fast is off
+(`--settings '{"fastMode":false}'`); never enable Fast/Ultrafast. Keep local
+Codex to one stream, local Claude to two, and total cloud fan-out around four.
+When limits hit, fall back to `composer-2.5` standard with Fast off.
