@@ -47,7 +47,7 @@ Parallel-first plan implementation. Workers build **shards** on the
 | Role | Who | Model |
 | --- | --- | --- |
 | Planner / parent | this chat | high (whatever the user picked; `inherit`) |
-| Shard worker | `st-shard-worker` agent, one per shard | **cheap execution tier** — `composer-2.5` / `sonnet` for code, `composer-2.5-fast` / `haiku` for mechanical shards |
+| Shard worker | `st-shard-worker` agent, one per shard | **cheap execution tier** — `composer-2.5` / `sonnet` for code, `composer-2.5` / `haiku` for mechanical shards |
 | Integrator | parent, or `st-shard-integrator` agent | `inherit` |
 | Reviewers | VGV review agents | as pinned in their agent files |
 
@@ -211,6 +211,10 @@ Do **not** use the shell subagent type — unvalidated in this repo.
 
 ## Compatibility
 
+- **Coding hand-off:** Before launching a Cursor cloud agent for coding,
+  try `/st-code-via-subscriptions` (Claude Code / Codex on your own
+  subscription); fall back to a Cursor agent on `composer-2.5` with
+  Fast off.
 - **Cloud Agents:** stdio MCP may be limited; run gates locally when
   cloud lacks the toolchain.
 - **Claude Code:** scripts live under `${CLAUDE_PLUGIN_ROOT}`; set

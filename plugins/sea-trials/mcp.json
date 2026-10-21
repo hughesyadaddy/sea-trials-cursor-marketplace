@@ -23,6 +23,13 @@
         "NODE_OPTIONS": "--max-old-space-size=8192",
         "CHROME_DEVTOOLS_MCP_NO_USAGE_STATISTICS": "1"
       }
+    },
+    "claude-code": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CURSOR_PLUGIN_ROOT}/scripts/subscriptions/claude-code-mcp.mjs"
+      ]
     }
   }
 }
