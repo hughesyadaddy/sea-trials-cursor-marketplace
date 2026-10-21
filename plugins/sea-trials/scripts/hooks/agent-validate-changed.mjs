@@ -5,6 +5,19 @@
  * Use during /build, /hotfix, and iteration. Full-package gates stay on
  * prepush (format, analyze, custom lint) and CI (tests).
  *
+ * Built to stay light on the machine, because many agents (shard
+ * fan-outs, iteration loops) run it at once on one laptop:
+ *   - ONE merged `dart analyze --fatal-infos` per flutter root, taking
+ *     the whole budget — so a dirty tree spawns a single analysis server
+ *     instead of one per file.
+ *   - A machine-wide single-flight lock serialises concurrent runs; a
+ *     waiter whose change set the holder just validated coalesces onto
+ *     that verdict instead of re-running.
+ *   - `machine-slots` caps analysers across every process; macOS runs
+ *     every spawn at background QoS (`taskpolicy -b`).
+ * Correctness is unchanged: the same `--fatal-infos` diagnostics and the
+ * same `flutter test` failures still fail the run.
+ *
  * Usage:
  *   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
  *   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs flutter/packages/foo/lib/a.dart
@@ -13,15 +26,42 @@
  *
  * Explicit paths may be repo-relative (flutter/...) or absolute — including
  * git worktrees outside the current checkout.
+ *
+ * Env:
+ *   ST_AGENT_VALIDATE_BUDGET             weighted concurrency cap (default 4)
+ *   ST_AGENT_VALIDATE_ANALYZE_TIMEOUT_MS analyze timeout    (default 180000)
+ *   ST_AGENT_VALIDATE_TEST_TIMEOUT_MS    test timeout       (default 300000)
+ *   ST_AGENT_VALIDATE_LOCK=0             disable the single-flight lock
+ *   ST_AGENT_VALIDATE_LOCK_WAIT_MS       lock wait cap      (default 30 min)
+ *   ST_GATE_NO_SLOTS=1                   disable machine-wide analyzer slots
+ *   ST_GATE_BACKGROUND_QOS=0             disable macOS background QoS
+ *   ST_GATE_FAIL_FAST=0                  run every phase, report all failures
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runParallelLimited } from './lib/parallel.mjs';
+import {
+  failFastDefault,
+  runAsync,
+  runParallelLimited,
+} from './lib/parallel.mjs';
 import { findNearestPubspecYaml, getFlutterWorkspaceMembers } from './lib/flutter-packages.mjs';
 import { assertL10nGenerated } from './lib/check-l10n-generated.mjs';
 import { isLintableDartPath } from './lib/artifact-paths.mjs';
+import { acquireSlots } from './lib/machine-slots.mjs';
+import { buildAgentValidatePlan } from './lib/agent-validate-plan.mjs';
+import {
+  acquireLock,
+  canCoalesce,
+  computeFingerprint,
+  LOCK_TIMEOUT_EXIT,
+  lockWaitMs,
+  readLastResult,
+  singleFlightEnabled,
+  writeLastResult,
+} from './lib/single-flight.mjs';
+import { stateDir } from '../lib/st-state-dir.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -246,33 +286,33 @@ Fast agent validation (changed Dart files only).
 
 Absolute paths from git worktrees are supported.
 
+Runs in phases (pub get → analyze → test). Analyze is ONE merged
+\`dart analyze --fatal-infos\` per flutter root, and a machine-wide lock
+serialises concurrent runs so parallel agents queue instead of each
+spawning an analysis server. Set ST_AGENT_VALIDATE_LOCK=0 to opt out,
+ST_AGENT_VALIDATE_BUDGET to change the concurrency cap (default 4).
+
 Full gates: prepush hook + CI. Do not run whole-package MCP test during
 iteration unless the user explicitly asks before merge.
 `);
 }
 
-async function main() {
-  const { flags, paths: explicitPaths } = parseArgs(process.argv.slice(2));
-
-  if (flags.has('help')) {
-    printHelp();
-    process.exit(0);
-  }
-
-  const analyzeOnly = flags.has('analyze-only');
-  const testsOnly = flags.has('tests-only');
-
+/**
+ * Resolve the current change set and group it by package.
+ *
+ * Re-runnable: called once up front and again after the single-flight
+ * lock is acquired (files may have changed while a waiter blocked).
+ *
+ * @param {string[]} explicitPaths
+ * @returns {{ resolvedFiles: { repoRoot: string, repoRel: string,
+ *   flutterRoot: string }[], groups: Map<string, object> }}
+ */
+function collectChangeSet(explicitPaths) {
   /** @type {{ repoRoot: string, repoRel: string, flutterRoot: string }[]} */
   let resolvedFiles = [];
 
   if (explicitPaths.length > 0) {
     resolvedFiles = resolveExplicitPaths(explicitPaths);
-    if (resolvedFiles.length === 0) {
-      process.stderr.write(
-        '❌ No valid flutter/*.dart paths in explicit file list.\n',
-      );
-      process.exit(2);
-    }
   } else {
     const repoPaths = gitChangedDartPaths();
     resolvedFiles = repoPaths.map((repoRel) => ({
@@ -283,11 +323,7 @@ async function main() {
 
     // Include pubspec.yaml changes that sit beside changed dart files.
     for (const repoRel of repoPaths) {
-      const pkgRel = packageRelFromResolved({
-        repoRoot,
-        repoRel,
-        flutterRoot,
-      });
+      const pkgRel = packageRelFromResolved({ repoRoot, repoRel, flutterRoot });
       if (!pkgRel) continue;
       const pubspecRepoPath =
         pkgRel === '.'
@@ -304,11 +340,7 @@ async function main() {
           pubspecRepoPath,
         ]);
       if (pubspecChanged) {
-        resolvedFiles.push({
-          repoRoot,
-          repoRel: pubspecRepoPath,
-          flutterRoot,
-        });
+        resolvedFiles.push({ repoRoot, repoRel: pubspecRepoPath, flutterRoot });
       }
     }
   }
@@ -322,25 +354,159 @@ async function main() {
     ).values(),
   ];
 
-  if (resolvedFiles.length === 0) {
+  return { resolvedFiles, groups: groupByPackage(resolvedFiles) };
+}
+
+/**
+ * Flatten the `groupByPackage` map into the plan builder's input shape:
+ * analyze paths made flutter-root-relative, tests left package-relative
+ * (their cwd is the package), and the per-package pubspec-changed flag.
+ *
+ * @param {Map<string, { resolved: { repoRoot: string, flutterRoot: string },
+ *   pkgRel: string, lib: string[], test: string[] }>} groups
+ */
+function normalizeGroups(groups) {
+  const out = [];
+  for (const [, { resolved, pkgRel, lib, test }] of groups) {
+    const pkgCwd =
+      pkgRel === '.'
+        ? resolved.flutterRoot
+        : path.join(resolved.flutterRoot, pkgRel);
+    const libFlutterRel = lib.map((p) =>
+      pkgRel === '.' ? p : `${pkgRel}/${p}`,
+    );
+    const pubspecRepoPath =
+      pkgRel === '.'
+        ? 'flutter/pubspec.yaml'
+        : `flutter/${pkgRel}/pubspec.yaml`;
+    // Pubspec-change detection is git-based, so it only applies to the
+    // main checkout; explicit worktree groups skip `pub get`.
+    const pubspecChanged =
+      resolved.repoRoot === repoRoot &&
+      Boolean(
+        capture('git', ['diff', '--name-only', pubspecRepoPath]) ||
+          capture('git', [
+            'diff',
+            '--name-only',
+            '--cached',
+            pubspecRepoPath,
+          ]) ||
+          capture('git', [
+            'ls-files',
+            '--others',
+            '--exclude-standard',
+            pubspecRepoPath,
+          ]),
+      );
+    out.push({
+      flutterRoot: resolved.flutterRoot,
+      repoRoot: resolved.repoRoot,
+      pkgRel,
+      pkgCwd,
+      lib: libFlutterRel,
+      test,
+      pubspecChanged,
+    });
+  }
+  return out;
+}
+
+/**
+ * Wrap `runAsync` so every spawn first takes machine-wide analyzer slots
+ * keyed by its owning repo — the same key `run-gate-task` uses, so
+ * prepush / run-gate-task / agent-validate all contend for one slot dir.
+ * The weight and repo travel in `options` because `runParallelLimited`'s
+ * runner seam only forwards `(cmd, args, options)`.
+ *
+ * @param {{ budget: number, env: NodeJS.ProcessEnv, activeReleases: Set<Function> }} opts
+ */
+function makeSlotRunner({ budget, env, activeReleases }) {
+  const noSlots = (env.ST_GATE_NO_SLOTS ?? '').trim() === '1';
+  return async function slotRunner(cmd, args, options = {}) {
+    const weight = options.slotWeight ?? 1;
+    const slotRepoRoot = options.slotRepoRoot;
+    if (noSlots || !slotRepoRoot) {
+      return runAsync(cmd, args, options);
+    }
+    const slots = await acquireSlots({ repoRoot: slotRepoRoot, weight, budget });
+    activeReleases.add(slots.release);
+    try {
+      return await runAsync(cmd, args, options);
+    } finally {
+      slots.release();
+      activeReleases.delete(slots.release);
+    }
+  };
+}
+
+/**
+ * Run the plan phase by phase, each awaited before the next. On fail-fast
+ * (the default) a failing phase short-circuits the rest; with
+ * ST_GATE_FAIL_FAST=0 every phase runs and all failures are reported.
+ *
+ * @returns {Promise<{ failed: boolean }>}
+ */
+async function runPhases(plan, { failFast, env, activeReleases }) {
+  const runner = makeSlotRunner({ budget: plan.budget, env, activeReleases });
+  let failed = false;
+  for (const phase of plan.phases) {
+    if (phase.tasks.length === 0) continue;
+    const { failures } = await runParallelLimited(phase.tasks, plan.budget, {
+      failFast,
+      repoRoot,
+      runner,
+    });
+    if (failures.length > 0) {
+      failed = true;
+      if (failFast) break;
+    }
+  }
+  return { failed };
+}
+
+/** Absolute paths of every file in the change set, for fingerprinting. */
+function changeSetFiles(resolvedFiles) {
+  return resolvedFiles.map((f) => path.join(f.repoRoot, f.repoRel));
+}
+
+async function main() {
+  const { flags, paths: explicitPaths } = parseArgs(process.argv.slice(2));
+
+  if (flags.has('help')) {
+    printHelp();
+    process.exit(0);
+  }
+
+  const analyzeOnly = flags.has('analyze-only');
+  const testsOnly = flags.has('tests-only');
+  const planFlags = { analyzeOnly, testsOnly };
+  /** Flags that change the verdict, so they belong in the fingerprint. */
+  const fingerprintFlags = [
+    ...(analyzeOnly ? ['analyze-only'] : []),
+    ...(testsOnly ? ['tests-only'] : []),
+  ];
+
+  // ---- cheap collection + l10n + early exits (all before the lock) ---
+  const initial = collectChangeSet(explicitPaths);
+  if (explicitPaths.length > 0 && initial.resolvedFiles.length === 0) {
+    process.stderr.write(
+      '❌ No valid flutter/*.dart paths in explicit file list.\n',
+    );
+    process.exit(2);
+  }
+  if (initial.resolvedFiles.length === 0) {
     process.stdout.write('✅ No changed Flutter Dart files to validate.\n');
     process.exit(0);
   }
-
-  const groups = groupByPackage(resolvedFiles);
-  if (groups.size === 0) {
+  if (initial.groups.size === 0) {
     process.stdout.write('✅ No analyzable Flutter packages in changed set.\n');
     process.exit(0);
   }
-
-  process.stdout.write(
-    `🔎 Agent validate (${resolvedFiles.length} file(s), ` +
-      `${groups.size} package(s))...\n`,
-  );
-
   if (!testsOnly) {
     const repoRoots = [
-      ...new Set([...groups.values()].map(({ resolved }) => resolved.repoRoot)),
+      ...new Set(
+        [...initial.groups.values()].map(({ resolved }) => resolved.repoRoot),
+      ),
     ];
     for (const root of repoRoots) {
       const l10n = assertL10nGenerated(root);
@@ -351,83 +517,131 @@ async function main() {
     }
   }
 
-  const tasks = [];
+  // ---- machine-wide single-flight lock + coalescing ------------------
+  const locksDir = stateDir('locks');
+  const lockPath = path.join(locksDir, 'agent-validate.lock');
+  const lastPath = path.join(locksDir, 'agent-validate-last.json');
+  const env = process.env;
 
-  for (const [, { resolved, pkgRel, lib, test }] of groups) {
-    const pkgCwd =
-      pkgRel === '.'
-        ? resolved.flutterRoot
-        : path.join(resolved.flutterRoot, pkgRel);
-
-    const pubspecRepoPath =
-      pkgRel === '.'
-        ? 'flutter/pubspec.yaml'
-        : `flutter/${pkgRel}/pubspec.yaml`;
-    const pubspecChanged =
-      resolved.repoRoot === repoRoot &&
-      (capture('git', ['diff', '--name-only', pubspecRepoPath]) ||
-        capture('git', ['diff', '--name-only', '--cached', pubspecRepoPath]) ||
-        capture('git', [
-          'ls-files',
-          '--others',
-          '--exclude-standard',
-          pubspecRepoPath,
-        ]));
-
-    if (pubspecChanged) {
-      tasks.push({
-        label: `flutter pub get (${pkgRel})`,
-        cmd: 'flutter',
-        args: ['pub', 'get'],
-        options: { cwd: pkgCwd },
+  /** @type {Set<Function>} */
+  const activeReleases = new Set();
+  let releaseLock = () => {};
+  const cleanup = () => {
+    for (const release of activeReleases) release();
+    activeReleases.clear();
+    releaseLock();
+  };
+  process.on('exit', cleanup);
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    try {
+      process.on(sig, () => {
+        cleanup();
+        process.exit(130);
       });
-    }
-
-    if (!testsOnly && lib.length > 0) {
-      // --fatal-infos matches pre-push and CI severity so agent
-      // iteration surfaces the same failures the push gate would.
-      //
-      // weight 1: a single file-scoped analyze is far lighter than the
-      // merged package-scoped chunks pre-push builds, so these can run
-      // concurrently. Pre-push instead serializes with
-      // `weight: max(cores, 2)` — it must never run two analysis servers
-      // against the IDE at once. Both shapes are intentional, which is
-      // why this script does not share `lib/check-plan.mjs`.
-      for (const libFile of lib) {
-        tasks.push({
-          label: `dart analyze (${pkgRel}, ${libFile})`,
-          cmd: 'dart',
-          args: ['analyze', '--fatal-infos', libFile],
-          options: { cwd: pkgCwd },
-          weight: 1,
-        });
-      }
-    }
-
-    if (!analyzeOnly && test.length > 0) {
-      tasks.push({
-        label: `flutter test (${pkgRel}, ${test.length} file(s))`,
-        cmd: 'flutter',
-        args: ['test', '--reporter', 'compact', ...test],
-        options: { cwd: pkgCwd },
-      });
+    } catch {
+      // Windows may not support every signal.
     }
   }
 
-  if (tasks.length === 0) {
+  let current = initial;
+  if (singleFlightEnabled(env)) {
+    const lock = await acquireLock({
+      lockPath,
+      cwd: process.cwd(),
+      waitMs: lockWaitMs(env),
+      log: (msg) => process.stderr.write(`${msg}\n`),
+    });
+    if (!lock.acquired) {
+      process.stderr.write(
+        `❌ Timed out after ${Math.round(lockWaitMs(env) / 60000)} min ` +
+          'waiting for another agent-validate to finish. Not running ' +
+          'unlocked — retry, or ST_AGENT_VALIDATE_LOCK=0 to bypass.\n',
+      );
+      process.exit(LOCK_TIMEOUT_EXIT);
+    }
+    releaseLock = lock.release;
+
+    if (lock.waited) {
+      // Files may have changed while we blocked: re-collect so both the
+      // coalesce check and the run reflect the current tree.
+      current = collectChangeSet(explicitPaths);
+      if (current.resolvedFiles.length === 0 || current.groups.size === 0) {
+        process.stdout.write(
+          '✅ No changed Flutter Dart files to validate (change set ' +
+            'cleared while waiting).\n',
+        );
+        releaseLock();
+        process.exit(0);
+      }
+      const fingerprint = computeFingerprint({
+        files: changeSetFiles(current.resolvedFiles),
+        flags: fingerprintFlags,
+      });
+      const last = readLastResult(lastPath);
+      if (canCoalesce(last, { fingerprint, waitStartedAt: lock.waitStartedAt })) {
+        process.stdout.write(
+          `♻️  coalesced: identical change set just validated by pid ` +
+            `${last.pid ?? '?'} — ${last.ok ? 'passed' : 'FAILED'}.\n`,
+        );
+        releaseLock();
+        process.exit(last.ok ? 0 : 1);
+      }
+    }
+  }
+
+  const fingerprint = computeFingerprint({
+    files: changeSetFiles(current.resolvedFiles),
+    flags: fingerprintFlags,
+  });
+
+  process.stdout.write(
+    `🔎 Agent validate (${current.resolvedFiles.length} file(s), ` +
+      `${current.groups.size} package(s))...\n`,
+  );
+
+  const plan = buildAgentValidatePlan({
+    groups: normalizeGroups(current.groups),
+    flags: planFlags,
+    env,
+  });
+
+  const hasWork = plan.phases.some((phase) => phase.tasks.length > 0);
+  if (!hasWork) {
     process.stdout.write(
-      '✅ Nothing to run (lib-only change with no test files — analyze skipped with --tests-only, or no lib with --analyze-only).\n',
+      '✅ Nothing to run (lib-only change with no test files — analyze ' +
+        'skipped with --tests-only, or no lib with --analyze-only).\n',
     );
+    writeLastResult(lastPath, {
+      fingerprint,
+      ok: true,
+      finishedAt: Date.now(),
+      pid: process.pid,
+      summary: 'nothing to run',
+    });
+    releaseLock();
     process.exit(0);
   }
 
-  const { failures } = await runParallelLimited(tasks);
+  const failFast = failFastDefault(env);
+  const { failed } = await runPhases(plan, { failFast, env, activeReleases });
 
-  if (failures.length > 0) {
+  const summary = failed
+    ? 'agent validation failed'
+    : 'agent validation passed';
+  writeLastResult(lastPath, {
+    fingerprint,
+    ok: !failed,
+    finishedAt: Date.now(),
+    pid: process.pid,
+    summary,
+  });
+
+  if (failed) {
     process.stderr.write(
       '\n❌ Agent validation failed. Fix issues above.\n' +
         'Full gates still run on push via prepush + CI.\n',
     );
+    releaseLock();
     process.exit(1);
   }
 
@@ -435,6 +649,7 @@ async function main() {
     '✅ Agent validation passed (changed files only).\n' +
       'Run full package tests locally before merge if you changed shared code.\n',
   );
+  releaseLock();
 }
 
 main().catch((err) => {

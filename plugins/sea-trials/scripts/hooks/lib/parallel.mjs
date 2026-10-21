@@ -104,6 +104,40 @@ function resolveSpawn(cmd, args) {
 }
 
 /**
+ * macOS background-QoS wrapper decision, as a pure function so it can be
+ * unit-tested without spawning anything.
+ *
+ * `os.setPriority` only touches CPU nice-ness; on macOS it leaves the
+ * process in the default QoS tier, so a `dart analyze` still competes
+ * with foreground work for the CPU, IO and the efficiency/performance
+ * core scheduler. `taskpolicy -b` drops the process (and, because
+ * taskpolicy EXECs the target, every child it spawns) into the
+ * background QoS tier — the same treatment Spotlight indexing gets.
+ * Because taskpolicy execs rather than forks, the returned pid is the
+ * real tool process, so `killProcessTree` still reaches it.
+ *
+ * @param {{ platform: string, executable: string, args: string[],
+ *   env?: NodeJS.ProcessEnv, exists: (path: string) => boolean }} opts
+ * @returns {{ executable: string, args: string[], wrapped: boolean }}
+ */
+export function backgroundSpawn({
+  platform,
+  executable,
+  args,
+  env = process.env,
+  exists,
+}) {
+  const ci = (env.CI ?? '').trim().toLowerCase();
+  const ciSet = ci !== '' && ci !== '0' && ci !== 'false';
+  const disabled = (env.ST_GATE_BACKGROUND_QOS ?? '').trim() === '0' || ciSet;
+  const taskpolicy = '/usr/sbin/taskpolicy';
+  if (platform === 'darwin' && !disabled && exists(taskpolicy)) {
+    return { executable: taskpolicy, args: ['-b', executable, ...args], wrapped: true };
+  }
+  return { executable, args, wrapped: false };
+}
+
+/**
  * Drop a spawned child to below-normal OS priority so heavy gate
  * runs (dozens of dart analyze servers) never starve the user's
  * foreground work. Children inherit the priority class on Windows,
@@ -157,13 +191,25 @@ export function runAsync(cmd, args, options = {}) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     const { cmd: executable, args: spawnArgs, shell } = resolveSpawn(cmd, args);
-    const child = spawn(executable, spawnArgs, {
+    // Apply macOS background QoS AFTER resolveSpawn so the Windows
+    // flutter.bat/pnpm quoting it set up is preserved untouched
+    // (backgroundSpawn is a no-op on every non-darwin platform).
+    const bg = backgroundSpawn({
+      platform: process.platform,
+      executable,
+      args: spawnArgs,
+      env: options.env ?? process.env,
+      exists: existsSync,
+    });
+    const child = spawn(bg.executable, bg.args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: options.shell ?? shell,
       cwd: options.cwd,
       env: options.env,
     });
-    lowerPriority(child);
+    // taskpolicy already placed the whole tree in background QoS; the
+    // nice-level nudge is for the other POSIX/Windows paths.
+    if (!bg.wrapped) lowerPriority(child);
     if (typeof options.onSpawn === 'function') options.onSpawn(child);
 
     let stdout = '';

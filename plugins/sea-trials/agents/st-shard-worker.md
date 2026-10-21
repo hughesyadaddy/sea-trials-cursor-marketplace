@@ -59,11 +59,25 @@ note. Do not guess a scope.
 
 ## Validate before returning
 
+Validate **once**, at the end of your chunk, with your explicit files —
+never after every edit, never in a loop. Between edits, rely on IDE
+**ReadLints** / Dart MCP `analyze_files` on the specific files you
+touched; that is instant and needs no analysis server.
+
 ```bash
-node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs <changed lib/test files>
+node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs <your changed files>
 # or, from any host:
 node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs" <files>
 ```
+
+Add `--analyze-only` when your chunk touched no test files. Passing your
+explicit files keeps the run scoped to one merged `dart analyze` — do
+not run the no-arg whole-diff form from a shard.
+
+A machine-wide lock serialises agent-validate across all shards: parallel
+workers **queue** rather than each spawning an analysis server, and a
+shard whose change set a sibling just validated coalesces onto that
+verdict. So one validate at the end is cheap even with many shards live.
 
 Fix what you can inside your paths. A failure you cannot fix inside
 your paths is `blocked`, with the failing command and output in
