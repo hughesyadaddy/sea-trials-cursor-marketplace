@@ -8,6 +8,8 @@
  *   telemetry/        gate-runs.jsonl — one JSON object per task run
  *   host/             capabilities.json written by st-model-probe
  *   quarantine/       flaky-test ledger written by st-flake-quarantine
+ *   locks/            machine-wide single-flight locks + last-run records
+ *                     (agent-validate.lock, agent-validate-last.json)
  */
 import fs from 'node:fs';
 import os from 'node:os';
