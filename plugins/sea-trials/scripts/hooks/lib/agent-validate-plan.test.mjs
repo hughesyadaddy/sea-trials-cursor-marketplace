@@ -6,6 +6,7 @@ import {
   DEFAULT_ANALYZE_TIMEOUT_MS,
   DEFAULT_BUDGET,
   DEFAULT_TEST_TIMEOUT_MS,
+  groupTasksByRepoRoot,
   parseBudget,
   parseAnalyzeTimeoutMs,
   parseTestTimeoutMs,
@@ -150,6 +151,36 @@ test('--analyze-only drops tests; --tests-only drops analyze', () => {
   });
   assert.equal(phaseTasks(testsOnly, 'dart analyze').length, 0);
   assert.equal(phaseTasks(testsOnly, 'flutter test').length, 1);
+});
+
+test('analyze stamps each task with its own repo as slotRepoRoot', () => {
+  // Two worktrees -> two analyze tasks, each keyed to its own repo so the
+  // gate-cache key is computed against the right git root.
+  const plan = buildAgentValidatePlan({
+    groups: [
+      group({ flutterRoot: '/a/flutter', repoRoot: '/a', lib: ['packages/foo/lib/a.dart'] }),
+      group({ flutterRoot: '/b/flutter', repoRoot: '/b', lib: ['packages/foo/lib/b.dart'] }),
+    ],
+    env: {},
+  });
+  const byRepo = groupTasksByRepoRoot(phaseTasks(plan, 'dart analyze'));
+  assert.deepEqual([...byRepo.keys()].sort(), ['/a', '/b']);
+  assert.equal(byRepo.get('/a')[0].options.cwd, '/a/flutter');
+  assert.equal(byRepo.get('/b')[0].options.cwd, '/b/flutter');
+});
+
+test('groupTasksByRepoRoot partitions by slotRepoRoot, order preserved', () => {
+  const tasks = [
+    { label: 't1', options: { slotRepoRoot: '/a' } },
+    { label: 't2', options: { slotRepoRoot: '/b' } },
+    { label: 't3', options: { slotRepoRoot: '/a' } },
+    { label: 't4', options: {} },
+  ];
+  const byRepo = groupTasksByRepoRoot(tasks);
+  assert.deepEqual([...byRepo.keys()], ['/a', '/b', '']);
+  assert.deepEqual(byRepo.get('/a').map((t) => t.label), ['t1', 't3']);
+  assert.deepEqual(byRepo.get('/b').map((t) => t.label), ['t2']);
+  assert.deepEqual(byRepo.get('').map((t) => t.label), ['t4']);
 });
 
 test('phases come back in run order: pub get, analyze, test', () => {

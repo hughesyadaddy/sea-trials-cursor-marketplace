@@ -50,7 +50,10 @@ import { findNearestPubspecYaml, getFlutterWorkspaceMembers } from './lib/flutte
 import { assertL10nGenerated } from './lib/check-l10n-generated.mjs';
 import { isLintableDartPath } from './lib/artifact-paths.mjs';
 import { acquireSlots } from './lib/machine-slots.mjs';
-import { buildAgentValidatePlan } from './lib/agent-validate-plan.mjs';
+import {
+  buildAgentValidatePlan,
+  groupTasksByRepoRoot,
+} from './lib/agent-validate-plan.mjs';
 import {
   acquireLock,
   canCoalesce,
@@ -451,14 +454,21 @@ async function runPhases(plan, { failFast, env, activeReleases }) {
   let failed = false;
   for (const phase of plan.phases) {
     if (phase.tasks.length === 0) continue;
-    const { failures } = await runParallelLimited(phase.tasks, plan.budget, {
-      failFast,
-      repoRoot,
-      runner,
-    });
-    if (failures.length > 0) {
-      failed = true;
-      if (failFast) break;
+    // Partition by owning repo so each task's gate-cache key is computed
+    // against its own git root (worktree / explicit-path tasks have a cwd
+    // under a different root than the main checkout).
+    for (const [taskRepoRoot, tasks] of groupTasksByRepoRoot(phase.tasks)) {
+      const { failures } = await runParallelLimited(tasks, plan.budget, {
+        failFast,
+        repoRoot: taskRepoRoot || repoRoot,
+        runner,
+      });
+      if (failures.length > 0) {
+        failed = true;
+        // Fail-fast stops not just the rest of this phase but every later
+        // phase too.
+        if (failFast) return { failed };
+      }
     }
   }
   return { failed };
@@ -467,6 +477,50 @@ async function runPhases(plan, { failFast, env, activeReleases }) {
 /** Absolute paths of every file in the change set, for fingerprinting. */
 function changeSetFiles(resolvedFiles) {
   return resolvedFiles.map((f) => path.join(f.repoRoot, f.repoRel));
+}
+
+/**
+ * Fingerprint inputs for the current change set. Analyze/test verdicts
+ * depend on files OUTSIDE the listed set (imports, a moved HEAD, an edit
+ * to a non-listed file when explicit paths are passed), so for every repo
+ * the change set touches we fold in that repo's HEAD and every dirty file
+ * (unstaged + staged + untracked, all file types; deleted files hash as
+ * 'missing' via the content reader).
+ *
+ * @param {{ repoRoot: string, repoRel: string }[]} resolvedFiles
+ * @returns {{ files: string[], heads: string[] }}
+ */
+function collectFingerprintInputs(resolvedFiles) {
+  const repoRoots = [
+    ...new Set(resolvedFiles.map((f) => f.repoRoot)),
+  ].sort();
+  const heads = [];
+  const dirty = new Set();
+  for (const root of repoRoots) {
+    const head = capture('git', ['-C', root, 'rev-parse', 'HEAD']) ?? '';
+    heads.push(`${root}=${head}`);
+    const listings = [
+      capture('git', ['-C', root, 'diff', '--name-only']) ?? '',
+      capture('git', ['-C', root, 'diff', '--name-only', '--cached']) ?? '',
+      capture('git', [
+        '-C',
+        root,
+        'ls-files',
+        '--others',
+        '--exclude-standard',
+      ]) ?? '',
+    ];
+    for (const out of listings) {
+      for (const rel of out
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean)) {
+        dirty.add(path.join(root, rel));
+      }
+    }
+  }
+  const files = [...new Set([...changeSetFiles(resolvedFiles), ...dirty])];
+  return { files, heads };
 }
 
 async function main() {
@@ -573,8 +627,10 @@ async function main() {
         releaseLock();
         process.exit(0);
       }
+      const fpInputs = collectFingerprintInputs(current.resolvedFiles);
       const fingerprint = computeFingerprint({
-        files: changeSetFiles(current.resolvedFiles),
+        files: fpInputs.files,
+        heads: fpInputs.heads,
         flags: fingerprintFlags,
       });
       const last = readLastResult(lastPath);
@@ -589,8 +645,10 @@ async function main() {
     }
   }
 
+  const fpInputs = collectFingerprintInputs(current.resolvedFiles);
   const fingerprint = computeFingerprint({
-    files: changeSetFiles(current.resolvedFiles),
+    files: fpInputs.files,
+    heads: fpInputs.heads,
     flags: fingerprintFlags,
   });
 

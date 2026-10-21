@@ -36,6 +36,18 @@ function fakeIo(seedFiles = {}) {
     remove(p) {
       files.delete(p);
     },
+    removeIfHolder(p, expected) {
+      const current = this.readJson(p);
+      if (
+        current &&
+        current.pid === expected.pid &&
+        current.startedAt === expected.startedAt
+      ) {
+        files.delete(p);
+        return true;
+      }
+      return false;
+    },
     readFileBytes(p) {
       if (!files.has(p)) throw new Error(`ENOENT ${p}`);
       return Buffer.from(files.get(p));
@@ -87,6 +99,58 @@ test('acquireLock reclaims a lock whose holder pid is dead', async () => {
   assert.equal(res.acquired, true);
   assert.equal(res.waited, false);
   assert.equal(JSON.parse(io.files.get(LOCK)).pid, 7);
+});
+
+test('acquireLock reclaim does not clobber a fresh lock won by a racing waiter', async () => {
+  // Two waiters both observe the same dead holder {999}. Waiter A wins:
+  // it removes the dead lock and creates a fresh LIVE one {42}. Waiter B,
+  // mid-reclaim, must re-read and refuse to delete A's fresh lock.
+  const dead = { pid: 999, startedAt: 1 };
+  const fresh = { pid: 42, startedAt: 2 };
+  const files = new Map([[LOCK, JSON.stringify(dead)]]);
+  let reads = 0;
+  const io = {
+    createExclusive(p, contents) {
+      if (files.has(p)) return false;
+      files.set(p, contents);
+      return true;
+    },
+    readJson(p) {
+      if (p !== LOCK) return null;
+      reads += 1;
+      // First read = B's outer observation (dead). After that, A has
+      // swapped in its fresh live lock.
+      if (reads >= 2) files.set(LOCK, JSON.stringify(fresh));
+      return JSON.parse(files.get(LOCK));
+    },
+    remove(p) {
+      files.delete(p);
+    },
+    removeIfHolder(p, expected) {
+      const current = this.readJson(p); // re-read sees A's fresh lock
+      if (current.pid === expected.pid && current.startedAt === expected.startedAt) {
+        files.delete(p);
+        return true;
+      }
+      return false;
+    },
+    pidAlive(pid) {
+      return pid === 42; // 999 dead, 42 (A) alive
+    },
+  };
+  let clock = 0;
+  const res = await acquireLock({
+    lockPath: LOCK,
+    pid: 7,
+    waitMs: 0, // one pass, then give up rather than spin on A's live lock
+    now: () => clock++,
+    sleep: neverSleep,
+    io,
+  });
+  assert.equal(res.acquired, false, 'B must not steal the live lock');
+  assert.equal(res.timedOut, true);
+  // A's fresh lock survived — B did not delete it.
+  assert.equal(JSON.parse(files.get(LOCK)).pid, 42);
 });
 
 test('acquireLock waits for a live holder, then acquires on release', async () => {
@@ -153,6 +217,51 @@ test('computeFingerprint is content-addressed over files and flags', () => {
   // A missing file is distinct from a present one but still deterministic.
   const missing = computeFingerprint({ files: ['/gone.dart'], io });
   assert.equal(computeFingerprint({ files: ['/gone.dart'], io }), missing);
+});
+
+test('computeFingerprint busts on a different HEAD (moved commit/checkout)', () => {
+  const io = fakeIo({ '/a.dart': 'void a() {}' });
+  const base = computeFingerprint({
+    files: ['/a.dart'],
+    heads: ['/repo=aaaa'],
+    io,
+  });
+  // HEAD moved -> different fingerprint -> no coalesce even if files match.
+  assert.notEqual(
+    computeFingerprint({ files: ['/a.dart'], heads: ['/repo=bbbb'], io }),
+    base,
+  );
+  // Head order does not matter.
+  assert.equal(
+    computeFingerprint({
+      files: ['/a.dart'],
+      heads: ['/repo=aaaa'],
+      io,
+    }),
+    base,
+  );
+});
+
+test('computeFingerprint busts when a non-listed dirty file changes', () => {
+  // The script folds every dirty file (not just the listed change set)
+  // into `files`, so editing one that was not explicitly listed still
+  // changes the fingerprint and blocks coalescing.
+  const io = fakeIo({
+    '/listed.dart': 'void a() {}',
+    '/dirty_elsewhere.dart': 'void b() {}',
+  });
+  const base = computeFingerprint({
+    files: ['/listed.dart', '/dirty_elsewhere.dart'],
+    io,
+  });
+  io.files.set('/dirty_elsewhere.dart', 'void b() { return; }');
+  assert.notEqual(
+    computeFingerprint({
+      files: ['/listed.dart', '/dirty_elsewhere.dart'],
+      io,
+    }),
+    base,
+  );
 });
 
 test('canCoalesce requires same fingerprint AND a fresh-enough result', () => {

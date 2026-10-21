@@ -77,6 +77,30 @@ export const defaultIo = {
       // already gone / raced another reclaimer
     }
   },
+  /**
+   * Reclaim a dead holder's lock, but ONLY if the file still holds that
+   * exact holder: re-read immediately before unlinking and compare
+   * pid+startedAt, so a lock a concurrent waiter just re-created (fresh,
+   * live) is never deleted out from under it.
+   *
+   * @returns {boolean} true when the expected dead holder was removed
+   */
+  removeIfHolder(lockPath, expected) {
+    const current = this.readJson(lockPath);
+    if (
+      current &&
+      current.pid === expected.pid &&
+      current.startedAt === expected.startedAt
+    ) {
+      try {
+        fs.unlinkSync(lockPath);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  },
   readFileBytes(absPath) {
     return fs.readFileSync(absPath);
   },
@@ -91,17 +115,22 @@ export const defaultIo = {
 };
 
 /**
- * Content-addressed fingerprint of a change set: the sorted absolute
- * file list, each file's content hash, and the relevant flags. Because
- * it is content-based, a newer edit to any file changes the fingerprint
- * — so coalescing a prior verdict can never mask an unvalidated change.
+ * Content-addressed fingerprint of a change set. Hashes, in sorted order:
+ * the relevant flags; `heads` — one `<repoRoot>=<HEAD sha>` entry per repo
+ * so a commit / checkout that moved HEAD (changing what imports resolve
+ * to) busts the fingerprint; and each file's absolute path + content hash.
+ * The caller supplies in `files` BOTH the listed change set AND every
+ * dirty file across the involved repos (so an edit to a file not on the
+ * explicit list still busts it), and `heads` for those repos. Because it
+ * is content-based, a newer edit can never be coalesced away.
  *
- * @param {{ files: string[], flags?: string[], io?: typeof defaultIo }} opts
+ * @param {{ files: string[], flags?: string[], heads?: string[],
+ *   io?: typeof defaultIo }} opts
  * @returns {string} hex digest
  */
-export function computeFingerprint({ files, flags = [], io = defaultIo }) {
+export function computeFingerprint({ files, flags = [], heads = [], io = defaultIo }) {
   const hash = crypto.createHash('sha256');
-  hash.update(JSON.stringify({ flags: [...flags].sort() }));
+  hash.update(JSON.stringify({ flags: [...flags].sort(), heads: [...heads].sort() }));
   for (const abs of [...files].sort()) {
     let digest;
     try {
@@ -170,7 +199,15 @@ export async function acquireLock({
     // Held — reclaim a dead holder, otherwise wait.
     const holder = io.readJson(lockPath);
     if (!holder || !io.pidAlive(holder.pid)) {
-      io.remove(lockPath);
+      if (holder) {
+        // Reclaim ONLY this exact dead holder; a concurrent waiter may
+        // have already replaced it with a fresh, live lock.
+        io.removeIfHolder(lockPath, holder);
+      } else {
+        // Unreadable / absent lock file: drop it so the next loop can
+        // re-create.
+        io.remove(lockPath);
+      }
       continue;
     }
     waited = true;

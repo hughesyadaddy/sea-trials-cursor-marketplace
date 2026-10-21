@@ -56,6 +56,27 @@ export function parseTestTimeoutMs(env = process.env) {
   );
 }
 
+/**
+ * Partition a phase's tasks by their owning repo root (the `slotRepoRoot`
+ * the plan stamped on each task). Each analyze task's gate-cache key must
+ * be computed against ITS OWN repo — an analyze from another worktree has
+ * a cwd under a different git root — so the runner runs each partition
+ * with the matching `repoRoot`.
+ *
+ * @param {object[]} tasks
+ * @returns {Map<string, object[]>} repoRoot → tasks (insertion order kept)
+ */
+export function groupTasksByRepoRoot(tasks) {
+  /** @type {Map<string, object[]>} */
+  const byRoot = new Map();
+  for (const task of tasks) {
+    const root = task.options?.slotRepoRoot ?? '';
+    if (!byRoot.has(root)) byRoot.set(root, []);
+    byRoot.get(root).push(task);
+  }
+  return byRoot;
+}
+
 /** Short, stable label for a flutter root (its parent repo dir name). */
 function rootLabel(flutterRoot) {
   const parts = flutterRoot.replace(/[\\/]+$/, '').split(/[\\/]/);
