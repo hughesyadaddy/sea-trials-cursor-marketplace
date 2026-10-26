@@ -1,5 +1,21 @@
 # Push-gate hooks (tool-level enforcement)
 
+> **Targeted pre-push rule (Alex Hughes, 2026-10-26).** Skip the full
+> pre-push once targeted tests and lint pass on the changed code; CI does
+> the full check. In `sea_trials_universal`, `.husky/pre-push` runs
+> `scripts/hooks/targeted-prepush.mjs`: only the packages the pushed diff
+> touches (`dart format --set-exit-if-changed` on changed files,
+> `dart analyze --fatal-infos`, `sea-trials-lint` incl. architecture
+> rules, flutter/dart test; goldens excluded on macOS; static migration
+> lint for `supabase/migrations`; docs or pubspec-version-only pushes
+> skip). There is no open-PR refusal any more. `ST_PREPUSH_FULL=1` runs
+> the full local gate. `pr-review-push`'s `prepush` phase runs the same
+> targeted check, and its local `ci` phase is opt-in
+> (`ST_PREPUSH_FULL=1`, `--full`, or `--phases …,ci`). So this guard now
+> **allows** `--no-verify` and a bare push in a repo with the targeted
+> hook, and still denies force pushes; `guard-gh-merge.mjs` still denies
+> `gh pr merge --admin`.
+
 The rules in `.cursor/rules/*.mdc` say "never bare `git push`". These
 hooks make the tool refuse. One Node implementation,
 `hooks/scripts/guard-git-push.mjs`, serves both hosts; it reads the
@@ -11,7 +27,7 @@ so it behaves the same on Windows.
 
 | Host | Event | Command (cwd = plugin root) | Purpose |
 | --- | --- | --- | --- |
-| Cursor | `beforeShellExecution` (matcher `git[\s\S]*push`, `failClosed: true`, 10 s) | `node ./hooks/scripts/guard-git-push.mjs` | Deny bypass flags and bare pushes in gated repos |
+| Cursor | `beforeShellExecution` (matcher `git[\s\S]*push`, `failClosed: true`, 10 s) | `node ./hooks/scripts/guard-git-push.mjs` | Deny force pushes, and bare pushes in older gated repos |
 | Cursor | `sessionStart` (10 s) | `node ./hooks/scripts/session-start.mjs` | Warm `scripts/hooks/st-model-probe.mjs --quiet` (detached, silent) |
 | Claude | `PreToolUse` matcher `Bash` (10 s) | `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-git-push.mjs"` | Same guard |
 | Claude | `SessionStart` (10 s) | `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-start.mjs"` | Same probe warm-up |
@@ -36,16 +52,17 @@ misread.
 
 | Command shape | Decision | Exact message |
 | --- | --- | --- |
-| `git push --no-verify`, `git push -n`, `git push --dry-run`, bundled `-nf` | DENY, no override | `Sea Trials: never git push with --no-verify, -n, or --dry-run. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>` |
-| `git push --force`, `-f`, `--force-with-lease[=…]` | DENY unless `ST_ALLOW_FORCE_PUSH=1` | `Sea Trials: force push is blocked (--force, -f, --force-with-lease). Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>. ST_ALLOW_FORCE_PUSH=1 only for an explicitly approved rewrite.` |
-| Bare `git push …` in a **gated** repo, no fresh gate-pass token | DENY unless `ST_ALLOW_BARE_PUSH=1` | `Sea Trials: bare git push is blocked here. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> (<reason>)` where reason is `no gate token`, `gate token is for a different HEAD`, `working tree changed since the gate ran`, `gate token is stale`, or `gate token lacks phase prepush` |
+| `git push --no-verify`, `git push -n`, `git push --dry-run` | ALLOW (targeted pre-push rule: use it only after the targeted checks passed on this change) | — |
+| `git push --force`, `-f`, `--force-with-lease[=…]`, `+<refspec>`, bundled `-nf` | DENY unless `ST_ALLOW_FORCE_PUSH=1` | `Sea Trials: force push is blocked (--force, -f, --force-with-lease, +refspec). Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>. ST_ALLOW_FORCE_PUSH=1 only for an explicitly approved rewrite.` |
+| Bare `git push …` in a gated repo whose `.husky/pre-push` runs `targeted-prepush` | ALLOW (stderr note `targeted pre-push hook gates this push`; git runs the targeted checks) | — |
+| Bare `git push …` in an **older gated** repo (full pre-push hook), no fresh gate-pass token | DENY unless `ST_ALLOW_BARE_PUSH=1` | `Sea Trials: bare git push is blocked here. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> (<reason>)` where reason is `no gate token`, `gate token is for a different HEAD`, `working tree changed since the gate ran`, `gate token is stale`, or `gate token lacks phase prepush` |
 | Bare `git push …` in a gated repo **with** a fresh token | ALLOW (stderr note `gate already passed for this HEAD`) | — |
 | `git push …` in a repo **without** the gate (e.g. this marketplace) | ALLOW | — |
 | `git push …` outside any git repo | ALLOW (the push fails on its own) | — |
 | Anything that is not `git push` | ALLOW | — |
 
 When several pushes are chained, the strictest decision wins:
-no-verify beats force beats bare-push.
+force beats bare-push.
 
 **Gated repo** = root contains `.husky/st-plugin-run.sh` **or** its
 `package.json` has a `pr-review-push` script. The repo root comes from
@@ -79,7 +96,7 @@ would also block but is not needed.
 
 - Parser or git errors: fail **open** (allow) with a
   `Sea Trials push guard …` note on stderr, except that a raw-text scan
-  still denies `--no-verify` / `-n` / `--dry-run` / `--force` / `-f`.
+  still denies `--force` / `-f` / `+refspec`.
 - Token check errors in a gated repo: treated as "no token" (deny).
 - Cursor `failClosed: true`: if `node` is missing or the guard times
   out, the matched command is blocked rather than let through.
@@ -91,7 +108,7 @@ would also block but is not needed.
 | `ST_ALLOW_BARE_PUSH=1` | Allows bare `git push` in gated repos; stderr warning | Repo bootstrap before `pr-review-push` exists; a branch with **no** open PR where you accept running the husky pre-push gate alone. **Never** in the consuming repo with an open PR. |
 | `ST_ALLOW_FORCE_PUSH=1` | Skips the force-flag deny (the bare-push gate still applies) | An explicitly approved history rewrite on your own feature branch, after the user asked for it. Never on `dev`/`main`, never to bypass a red gate. |
 
-Nothing disables the `--no-verify` / `-n` / `--dry-run` deny.
+`--no-verify` needs no hatch; it is allowed (see the rule at the top).
 
 The hook process is spawned by the IDE, so an `export` in the agent's
 shell never reaches it. The guard therefore also honours the variable
@@ -110,10 +127,10 @@ From the plugin root:
 # Cursor shape — allow
 echo '{"command":"git status"}' | node hooks/scripts/guard-git-push.mjs
 
-# Cursor shape — deny (no-verify)
-echo '{"command":"git push --no-verify"}' | node hooks/scripts/guard-git-push.mjs
+# Cursor shape — deny (force)
+echo '{"command":"git push --force-with-lease"}' | node hooks/scripts/guard-git-push.mjs
 
-# Cursor shape — bare push in the consuming repo (deny unless token is fresh)
+# Cursor shape — bare push in the consuming repo (allowed with the targeted hook)
 echo '{"command":"git push","cwd":"/path/to/sea_trials_universal"}' \
   | node hooks/scripts/guard-git-push.mjs
 
