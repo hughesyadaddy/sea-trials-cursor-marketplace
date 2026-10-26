@@ -2,12 +2,23 @@
 /**
  * Canonical push gate — one entry point for checks + push.
  *
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>           # full gate + push
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>           # targeted gate + push
+ *   ST_PREPUSH_FULL=1 node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>  # full local gate
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks  # subagent fan-out
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only  # gate without push
+ *
+ * Default (2026-10-26 targeted pre-push rule): phases `dirty` + `prepush`.
+ * When the consuming repo ships `scripts/hooks/lib/targeted-prepush.mjs`
+ * (sea_trials_universal does), `prepush` is that repo's TARGETED check
+ * (changed packages only, no goldens on macOS); otherwise the plugin's
+ * committed-diff prepush. The local `ci` parity phase runs only with
+ * ST_PREPUSH_FULL=1, `--full`, or an explicit `--phases …,ci`; GitHub CI
+ * is the full check.
  */
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   buildReviewSnapshot,
   evaluateSnapshot,
@@ -54,7 +65,10 @@ function parsePushArgs(argv) {
     process.exit(0);
   }
   const base = parsePrArgs(argv);
-  const phases = new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
+  const full = argv.includes('--full') || process.env.ST_PREPUSH_FULL === '1';
+  const phases = new Set(
+    full ? [PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI] : [PHASE_DIRTY, PHASE_PREPUSH],
+  );
   let listTasks = false;
   let checkOnly = false;
   // Fan-out defaults to fine: each worker owns a few files or one package.
@@ -63,6 +77,7 @@ function parsePushArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--list-tasks') listTasks = true;
+    else if (arg === '--full') continue;
     else if (arg === '--check-only') checkOnly = true;
     else if (arg === '--granularity') {
       const value = (argv[++i] ?? '').trim();
@@ -85,12 +100,40 @@ function parsePushArgs(argv) {
     }
   }
 
-  return { ...base, listTasks, checkOnly, phases, granularity };
+  return { ...base, listTasks, checkOnly, phases, granularity, full };
+}
+
+/**
+ * The consuming repo's targeted pre-push module, or null when the repo
+ * has none (then the plugin's prepush phase runs as before).
+ *
+ * @param {string} repoRoot
+ */
+async function loadTargetedPrepush(repoRoot) {
+  const file = path.join(repoRoot, 'scripts/hooks/lib/targeted-prepush.mjs');
+  if (!fs.existsSync(file)) return null;
+  return import(pathToFileURL(file).href);
+}
+
+/** Map a targeted task onto the push-gate task shape. */
+function toGateTask(task, repoRoot) {
+  return {
+    label: task.label,
+    cmd: task.cmd,
+    args: task.args,
+    kind: task.kind,
+    options: { cwd: path.join(repoRoot, task.cwd) },
+    weight: 1,
+  };
 }
 
 function printHelp() {
   process.stdout.write(`\
 Canonical push gate (one entry point).
+
+Default: dirty + TARGETED prepush (changed packages only). CI is the
+full check. ST_PREPUSH_FULL=1 (or --full) adds the local CI-parity phase
+and the plugin's full prepush.
 
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks
@@ -106,8 +149,14 @@ Parent re-runs pr-review-push after fixes (never bare git push).
 
 async function main() {
   const repoRoot = getRepoRoot();
-  const { prNumber, listTasks, checkOnly, phases, granularity } =
+  const { prNumber, listTasks, checkOnly, phases, granularity, full } =
     parsePushArgs(process.argv.slice(2));
+  const targeted = !full && phases.has(PHASE_PREPUSH)
+    ? await loadTargetedPrepush(repoRoot)
+    : null;
+  // Plugin phases; the repo's targeted module owns `prepush` when present.
+  const pluginPhases = new Set(phases);
+  if (targeted) pluginPhases.delete(PHASE_PREPUSH);
   const pr = fetchPrMeta(repoRoot, prNumber);
   const artifactPaths = reviewPaths(repoRoot, prNumber);
   const pruned = pruneClosedReviewArtifacts(repoRoot, {
@@ -124,12 +173,28 @@ async function main() {
     const plan = await buildPushGatePlan({
       repoRoot,
       prNumber,
-      phases,
+      phases: pluginPhases,
       granularity,
     });
     if (!plan.ok) {
       process.stderr.write(`❌ ${plan.error}\n`);
       process.exit(2);
+    }
+    if (targeted) {
+      const dry = targeted.runTargetedPrepush(repoRoot, {
+        branch: pr.headRefName,
+        dryRun: true,
+        write: (s) => process.stderr.write(s),
+      });
+      const tasks = (dry.plan?.tasks ?? []).map((t) => toGateTask(t, repoRoot));
+      if (tasks.length > 0) {
+        plan.groups.push({
+          id: `g${plan.groups.length + 1}`,
+          phase: PHASE_PREPUSH,
+          parallel: true,
+          tasks,
+        });
+      }
     }
     emitPushGateTaskLines(plan, repoRoot);
     process.exit(0);
@@ -140,10 +205,9 @@ async function main() {
 
   // A stale token from an earlier run must never vouch for this tree.
   clearGatePassToken(repoRoot);
-  const local = await runLocalPushGate(repoRoot, {
-    prNumber,
-    phases,
-  });
+  const local = pluginPhases.size > 0
+    ? await runLocalPushGate(repoRoot, { prNumber, phases: pluginPhases })
+    : { ok: true, steps: [] };
   if (!local.ok) {
     for (const step of local.steps) {
       if (!step.ok) {
@@ -164,6 +228,15 @@ async function main() {
       process.stdout.write(`${captured}\n`);
     }
     process.stdout.write(`✅ ${step.name}\n`);
+  }
+
+  if (targeted) {
+    const result = targeted.runTargetedPrepush(repoRoot, {
+      branch: pr.headRefName,
+      force: true,
+    });
+    if (!result.ok) process.exit(4);
+    process.stdout.write('✅ targeted prepush\n');
   }
 
   // Record the pass so the pre-push hook fired by `git push` below does

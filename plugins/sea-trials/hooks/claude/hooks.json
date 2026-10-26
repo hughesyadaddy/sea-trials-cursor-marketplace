@@ -1,5 +1,5 @@
 {
-  "description": "Sea Trials plugin hooks \u2014 enforce the push gate (deny --no-verify, force, and bare git push in gated repos) and warm the model probe; block manual/--admin gh pr merge (use st-pr-merge)",
+  "description": "Sea Trials plugin hooks \u2014 enforce the push gate (deny force pushes, and bare git push in older gated repos) and warm the model probe; block manual/--admin gh pr merge (use st-pr-merge)",
   "hooks": {
     "SessionStart": [
       {

@@ -31,9 +31,12 @@ Shared components (loaded by both hosts):
   [sprint-plan-viewer](https://github.com/hughesyadaddy/sprint-plan-viewer)
   submodule, whose push and resync the CLI uses when it is there; see
   `skills/_sources/sprint-cards-cli.md`
-- **Hooks:** session-start model probe; block bare / `--no-verify` /
-  `--force` `git push` unless a fresh gate-pass token exists (commits
-  touching only `sprint_planning/**` are exempt)
+- **Hooks:** session-start model probe; block force `git push`
+  (`--force`, `-f`, `--force-with-lease`, `+refspec`) and `gh pr merge
+  --admin`. `--no-verify` is allowed (targeted pre-push rule,
+  2026-10-26), and bare pushes are allowed where the repo's pre-push runs
+  the targeted gate (older gated repos still need a fresh gate-pass token;
+  `sprint_planning/**`-only commits are exempt)
 
 `mcp.json` and `.mcp.json` must stay byte-identical; every remote server
 declares `"type": "http"` because Claude hard-errors on a bare `url`.
@@ -105,10 +108,11 @@ and docs should use the namespaced form when addressing Claude explicitly.
 
 Both hook files call the same Node scripts. `hooks/scripts/guard-git-push.mjs`
 reads the tool-call JSON on stdin, parses the `git push` argv (flags, `-C`,
-`&&` chains) and denies `--no-verify`, `--force`, `-f`, `--force-with-lease`
-and any bare push whose branch has an open PR — unless
-`pr-review-push` wrote a fresh gate-pass token for the current HEAD and
-tree. Cursor gets `{"permission":"allow|deny"}`; Claude gets
+`&&` chains) and denies `--force`, `-f`, `--force-with-lease` and
+`+refspec`. It allows `--no-verify` (targeted pre-push rule, 2026-10-26)
+and a bare push where the repo's `.husky/pre-push` runs the targeted gate;
+in older gated repos a bare push still needs a fresh gate-pass token from
+`pr-review-push`. Cursor gets `{"permission":"allow|deny"}`; Claude gets
 `hookSpecificOutput.permissionDecision`. `hooks/scripts/session-start.mjs`
 refreshes the model probe (`st-model-probe`) once per session so shard and
 gate fan-outs pin slugs the host actually accepts. See
