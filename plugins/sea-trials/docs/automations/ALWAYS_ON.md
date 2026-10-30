@@ -42,7 +42,7 @@ Merging is done by the dispatcher itself via `st-pr-merge/merge-gate.mjs`
 
 1. Merge the plugin PR and refresh the Team Marketplace.
 2. Create Automation **st-pr-review-round** (cursor.com/automations):
-   trigger = Webhook; repo = `hughesyadaddy/sea_trials_universal`;
+   trigger = Webhook; repo = `lokeylabs/sea_trials_universal`;
    Run as = service account (team pool, not personal); tools = PR comment.
    Prompt:
    > A PR needs a review round. Payload: `{repo, pr, head, exit, reason}`.

@@ -366,7 +366,9 @@ function git(cwd, args) {
  * `pr-review-push`) can never silently turn the push gate off.
  * Override/extend with ST_GATED_REPOS="owner/name,owner2/name2".
  */
-export const PLUGIN_GATED_REPOS = ['hughesyadaddy/sea_trials_universal'];
+// Keep the pre-transfer owner too: old-owner clones still gate via the
+// GitHub redirect (hughesyadaddy/sea_trials_universal -> lokeylabs).
+export const PLUGIN_GATED_REPOS = ['hughesyadaddy/sea_trials_universal', 'lokeylabs/sea_trials_universal'];
 
 /** @param {string} url */
 export function originSlug(url) {

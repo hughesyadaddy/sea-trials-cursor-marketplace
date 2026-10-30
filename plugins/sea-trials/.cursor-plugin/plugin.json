@@ -7,8 +7,8 @@
     "name": "Sea Trials",
     "email": "alex@seatrials.com"
   },
-  "homepage": "https://github.com/hughesyadaddy/sea_trials_universal",
-  "repository": "https://github.com/hughesyadaddy/sea_trials_universal",
+  "homepage": "https://github.com/lokeylabs/sea_trials_universal",
+  "repository": "https://github.com/lokeylabs/sea_trials_universal",
   "license": "UNLICENSED",
   "keywords": ["sea-trials", "vgv", "cursor"],
   "agents": "./agents/",
