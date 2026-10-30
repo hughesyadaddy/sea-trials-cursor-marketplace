@@ -6,13 +6,14 @@
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --once
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --json          # snapshot per poll
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --webhook       # gh webhook fast path
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --bots codex,bugbot
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --bots aireview,bugbot
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --silence 30    # hard cap (minutes)
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-loop.mjs --pr <n> --interval 30   # REVIEWING poll (s)
  *
  * Replaces the flat 30-minute silence window with the settled machine
  * in lib/bot-review-settled.mjs: 20s grace → wait for a bot ack (≤3 min,
- * re-poke Codex once) → ETag-conditional REST every 30s (GraphQL only
+ * e.g. the AI Review (advisory) `review` job starting; never re-pokes a
+ * bot) → ETag-conditional REST every 30s (GraphQL only
  * when something changed; 60s while CI is pending) → two quiet polls →
  * 3-minute quiet window → act or finish. `--silence` remains the
  * absolute cap so nothing waits longer than before.

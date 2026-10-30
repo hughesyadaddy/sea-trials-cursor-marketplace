@@ -52,7 +52,8 @@ Why the CLI does not run its own OAuth sign-in: Atlassian's 3LO flow needs an ap
 2. `update`: run the `before` check (`getJiraIssue`): skip when its status category is Done, stop when its `updated` time is newer than the plan says.
 3. Steps with `needs: user-key` are not run. Tell the user what to do by hand (`instead`).
 4. When the plan says `deferred_creates`, run `push --mcp-plan` again after recording: the children of the new parents come next. A new epic with stories and subtasks takes three rounds.
-5. Finish with a resync (`import-jira`) and `node <CLI> push <sprint-folder>` (dry run). It shows 0 operations when Jira matches the plan.
+5. When every round is recorded, run `node <CLI> folders <sprint-folder> --apply` so no card with a key sits in a `LOCAL` folder (the viewer would hide its key and sprint).
+6. Finish with a resync (`import-jira`) and `node <CLI> push <sprint-folder>` (dry run). It shows 0 operations when Jira matches the plan, and every keyed card now has its `*.jira.md`.
 
 Known limits of the MCP path: each create is a separate call, so a session that stops mid-plan leaves some cards created; the `record` step after each create and the precheck search on the next run keep this from making duplicates. The MCP server checks the user's own Jira permissions on each call.
 

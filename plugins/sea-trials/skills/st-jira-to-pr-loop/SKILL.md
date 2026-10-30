@@ -62,7 +62,7 @@ Acceptance: <bullets from ticket>
 PR: <number>
 ```
 
-Thread replies should cite ticket ID when closing Codex/Bugbot items.
+Thread replies should cite ticket ID when closing AI review / Bugbot items.
 
 ## Phase 4 — Commit hygiene
 

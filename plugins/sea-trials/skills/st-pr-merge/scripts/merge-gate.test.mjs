@@ -27,14 +27,21 @@ test('skipped/neutral are green; queued is pending; cancelled/timed out fail', (
 test('required check missing keeps pending', () => {
   assert.equal(classifyChecks([run('a')], ['PR Checks / dart-static']).verdict, 'pending');
 });
-test('unresolved Codex thread blocks even with --allow-human-threads', () => {
-  const t = classifyThreads([{ id: 'T', isResolved: false, author: 'chatgpt-codex-connector' }]);
+test('unresolved AI review thread blocks even with --allow-human-threads', () => {
+  const t = classifyThreads([{ id: 'T', isResolved: false, author: 'github-actions' }]);
   const v = evaluate({ prMeta: pr(), checks: classifyChecks([run('a')]), threads: t, migrations: null, opts: { allowHumanThreads: true } });
   assert.equal(v.exit, EXIT.THREADS);
 });
-test('outdated-but-unresolved Codex thread still blocks', () => {
-  const t = classifyThreads([{ id: 'T', isResolved: false, isOutdated: true, author: 'chatgpt-codex-connector' }]);
-  assert.equal(t.codex.length, 1);
+test('outdated-but-unresolved AI review thread still blocks', () => {
+  const t = classifyThreads([{ id: 'T', isResolved: false, isOutdated: true, author: 'github-actions' }]);
+  assert.equal(t.bot.length, 1);
+});
+test('AI Review (advisory) check is never part of the CI verdict', () => {
+  const ai = (status, conclusion) => ({ kind: 'check', name: 'review', workflow: 'AI Review (advisory)', status, conclusion });
+  assert.equal(classifyChecks([run('a'), ai('IN_PROGRESS', null)]).verdict, 'green', 'never waits for it');
+  assert.equal(classifyChecks([run('a'), ai('COMPLETED', 'FAILURE')]).verdict, 'green', 'never fails on it');
+  assert.equal(classifyChecks([ai('COMPLETED', 'SUCCESS')]).verdict, 'pending', 'it alone is not CI');
+  assert.equal(classifyChecks([run('a'), ai('COMPLETED', 'SUCCESS')]).advisory.length, 1);
 });
 test('BEHIND / BLOCKED / DIRTY never merge', () => {
   for (const ms of ['BEHIND', 'BLOCKED', 'DIRTY']) {

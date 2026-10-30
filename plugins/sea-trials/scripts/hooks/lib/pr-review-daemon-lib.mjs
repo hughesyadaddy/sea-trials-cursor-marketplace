@@ -155,7 +155,7 @@ export function formatStatusDetail(snapshot, settledState) {
  * Classify the monitor state for one poll.
  *
  * Matches the proven chat monitor: CI fail and open threads are always
- * ACTION (fix immediately — never wait for the next Codex pass). WAIT
+ * ACTION (fix immediately — never wait for the next AI review pass). WAIT
  * only when threads are clear but CI is still running or bots are still
  * reviewing. GREEN when threads=0 and CI is green.
  *

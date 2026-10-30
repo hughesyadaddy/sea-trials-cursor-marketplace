@@ -171,13 +171,13 @@ test('mapThread prefers fullDatabaseId and falls back to originalLine', () => {
   const t = mapThread(
     { id: 'PRRT_1', isResolved: false, isOutdated: true, path: 'a.dart', line: null, originalLine: 12 },
     [
-      { fullDatabaseId: '99', author: { login: 'chatgpt-codex-connector' }, body: 'finding', createdAt: '2026-01-01T00:00:00Z' },
+      { fullDatabaseId: '99', author: { login: 'github-actions' }, body: 'finding', createdAt: '2026-01-01T00:00:00Z' },
       { databaseId: 100, author: { login: 'me' }, body: 'reply', createdAt: '2026-01-01T00:01:00Z' },
     ],
   );
   assert.equal(t.commentId, 99);
   assert.equal(t.line, 12);
-  assert.equal(t.author, 'chatgpt-codex-connector');
+  assert.equal(t.author, 'github-actions');
   assert.deepEqual(t.comments.map((c) => c.id), [99, 100]);
 });
 

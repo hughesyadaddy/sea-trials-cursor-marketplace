@@ -108,7 +108,7 @@ secrets, workspace packages) only works inside this checkout.
 
 Every review-loop, push and merge tool ships **inside this plugin**. The
 app repo needs **no** `pnpm pr-review-*` scripts, `.husky/st-plugin-run.sh`
-shim, `scripts/overlay-st-plugin-review-hooks.mjs`, or `codex-*` helpers.
+shim, or `scripts/overlay-st-plugin-review-hooks.mjs`.
 If those still exist in a checkout, ignore them — they are legacy wiring
 and may be older than the plugin. **Never** run the overlay script: it
 copies app-repo files over the installed plugin.
@@ -179,10 +179,65 @@ reset time (`gh api rate_limit -q .resources.graphql.reset`), keep local
 commits, `Await`/sleep until reset, then push. Never fall back to bare
 `git push` to dodge the gate.
 
+## Code review: the advisory AI review (Codex is not used)
+
+Sea Trials does **not** use Codex for PR review any more. Never request,
+wait for or re-trigger Codex, and never post `@codex review`. If an old
+Codex thread is still open on a PR, triage it like any other thread.
+
+The code review is the repo's own **advisory Claude review**, running in
+GitHub Actions on the self-hosted `st-ci` runners on the `lokey` Hetzner
+host (repo variable `ST_CI_REVIEW_RUNS_ON=st-ci`; unset falls back to
+`ubuntu-latest`), with the `ANTHROPIC_API_KEY` secret (no secret: the job
+skips with a notice). Its prompt and helper scripts come from `dev`, never
+from the PR head:
+
+| What | Value |
+| --- | --- |
+| Workflow | `AI Review (advisory)`, file `.github/workflows/ai-review.yml` |
+| Job / check run | `review` (every step `continue-on-error`, 25-minute timeout, always ends green) |
+| Posts as | `github-actions[bot]` (GraphQL login `github-actions`), with the job's `GITHUB_TOKEN` |
+| Inline findings | At most ~5 confirmed findings per run, as PR review comments (threads) |
+| Summary | One issue comment marked `<!-- st-ai-review -->`, edited in place every run, with a `**Verdict:**` line (`No new issues` / `Minor issues` / `Blocking issues (advisory)`) and the reviewed head in `<!-- st-ai-review:sha=<sha> -->` |
+| Triggers | `pull_request` `opened`, `synchronize`, `ready_for_review`; skips drafts and fork heads; a new push cancels the older run |
+| Scope | Only the commits since the last reviewed SHA; it is handed every finding already raised so it does not repeat them; it reads the whole checkout for context (Read/Grep/Glob) |
+| Re-run | Push a new commit (or mark a draft ready). Re-running the same head is a no-op: the summary already records that SHA |
+
+Rules:
+
+1. **Advisory, never a gate.** `merge-gate.mjs` leaves the `AI Review
+   (advisory)` check out of the CI verdict, never waits for it and never
+   fails on it. A `Blocking issues (advisory)` verdict is answered (fix,
+   or reply with a specific reason), not obeyed blindly.
+2. **Wait for it, then act on it.** After a push the settled machine
+   waits for the `review` check run on the new head (ack = queued or in
+   progress; done = completed, or the summary SHA equals the head). If it
+   never starts (draft, no credential, no reviewable files), the loop
+   moves on after the 3-minute ack window. Nothing posts a re-trigger
+   comment.
+3. **Its inline findings are review threads.** Triage, adversarial vet,
+   fix, reply with the verdict format and resolve them exactly like any
+   other bot thread. Zero unresolved threads is still required.
+4. **Read the summary on the current head.** If its SHA is older than the
+   head and the `review` run for the head is still running, wait for it;
+   otherwise proceed. Carry "Still open from earlier reviews" items into
+   triage.
+5. **CI green is still required.** The `PR Checks` lanes on the head
+   decide; the AI review never replaces them.
+
+Read it with:
+
+```bash
+repo=$(gh repo view --json nameWithOwner -q .nameWithOwner); head=$(gh pr view <n> --json headRefOid -q .headRefOid)
+gh api "repos/$repo/commits/$head/check-runs?check_name=review" -q '.check_runs[] | [.name,.status,(.conclusion//"-")] | @tsv'
+gh api "repos/$repo/issues/<n>/comments" --paginate \
+  -q '.[] | select(.user.login=="github-actions[bot]" and (.body|contains("<!-- st-ai-review -->"))) | .body' | tail -n 40
+```
+
 ## Adversarial vet (3 agents × every unresolved thread)
 
-**Before** `format` + `close` on any bot thread (Codex, Bugbot, Cursor
-Bugbot), launch **three** Task subagents **per thread**, all in **one
+**Before** `format` + `close` on any bot thread (the AI review,
+Cursor Bugbot), launch **three** Task subagents **per thread**, all in **one
 parent turn** (20 threads → 60 Tasks). Never skip because the thread
 count is small.
 
@@ -237,8 +292,8 @@ findings goes through steps 1–5 again in full. Bare `git push`,
 
 ## Bot review settled machine (replaces the flat 30-minute wait)
 
-Bot reviewers (Codex, Cursor Bugbot, CodeRabbit, Copilot) answer
-anywhere from seconds to ~15 minutes after a push, often **on existing
+Bot reviewers (the advisory AI review, Cursor Bugbot, CodeRabbit,
+Copilot) answer anywhere from seconds to ~25 minutes after a push, often **on existing
 threads** (thread `createdAt` stays old). The watcher no longer waits a
 flat 30 minutes; it drives a state machine anchored to the current
 HEAD sha `H` and push time `t0` — signals from an older head never
@@ -247,7 +302,7 @@ count:
 | State | Waits for | Poll |
 | --- | --- | --- |
 | `PUSHED` | 20 s grace | — |
-| `AWAITING_ACK` | Codex 👀 newer than `t0` · Bugbot/CodeRabbit check run queued or in progress · Copilot in `requested_reviewers`. ≤3 min; on timeout post `@codex review` once (if Codex enabled) | 15 s |
+| `AWAITING_ACK` | AI review `review` check run queued or in progress on `H` · Bugbot/CodeRabbit check run queued or in progress · Copilot in `requested_reviewers`. ≤3 min; on timeout move on (no re-trigger comment is ever posted) | 15 s |
 | `REVIEWING` | New bot review comments. ETag-conditional REST (`pulls/{n}/comments`, `reviews`, issue comments, check runs); GraphQL threads only on a 200. Backs off to 60 s while CI is pending. Cap 25 min | 30 s |
 | `SETTLED_CHECK` | Two consecutive polls with no new bot comment, then a 3-min quiet window (two 60 s polls) | 60 s |
 | `SETTLED` | — | — |
@@ -258,7 +313,7 @@ Bot completion signals the machine understands:
 
 | Bot | Ack | Complete | Re-trigger |
 | --- | --- | --- | --- |
-| Codex `chatgpt-codex-connector` | 👀 reaction on PR body | `Codex Review:` review, 👍 on PR body, or issue comment with `**Reviewed commit:** H` | comment `@codex review` |
+| AI review `github-actions[bot]` (advisory) | check run `review` (workflow `AI Review (advisory)`) queued/in_progress on `H` | that check run completed (any conclusion, skipped included), or the `<!-- st-ai-review -->` summary with `st-ai-review:sha=H` | none: push a new commit |
 | Cursor Bugbot | check run `Cursor Bugbot` queued/in_progress | check run `success` / `neutral` / `failure` | comment `bugbot run` |
 | CodeRabbit | check run queued/in_progress | check run completed | comment `@coderabbitai review` |
 | Copilot `copilot-pull-request-reviewer` | in `requested_reviewers` | dropped from `requested_reviewers` | `gh pr edit <n> --add-reviewer @copilot` |
@@ -270,7 +325,7 @@ normalizes both. GraphQL throttling (`errors[].type == RATE_LIMITED` or
 **Hard caps.** `--silence <min>` (default **30**) is the absolute
 max-silence cap: the watcher exits by then regardless of state (`8` if
 CI is still pending). `--interval <s>` overrides the `REVIEWING` poll.
-`--bots codex,bugbot,coderabbit,copilot` limits which acks are awaited.
+`--bots aireview,bugbot,coderabbit,copilot` limits which acks are awaited.
 `--webhook` adds the `gh webhook forward` fast path (local receiver on
 `127.0.0.1`; any review/comment/check event polls immediately; polling
 stays as the fallback; degrades silently when the extension is absent).
@@ -311,7 +366,7 @@ spawn host subagents).
 `pr-review-loop` background shell. The daemon emits `>>> ACTION:` /
 `>>> GREEN:` sentinels and never dies on handoff; use `Await` on the
 Cursor terminal task id. CI failures must wake the agent **immediately**
-— do not wait for Codex.
+— do not wait for the AI review.
 
 When `node "$ST_REVIEW_LOOP"` runs as a **single-pass** fallback, treat
 its exit code as a work ticket — **never ask the user** whether to
@@ -339,7 +394,7 @@ user explicitly stops the loop.
 
 Forbidden when the background watcher is active:
 
-- Asking "should I fix these Codex threads?"
+- Asking "should I fix these review threads?"
 - Stopping after the watcher exits `2` without fixing and re-pushing
 - Telling the user to "check back later" instead of continuing the loop
 
@@ -379,7 +434,7 @@ must land on the PR branch together. Never stage `.secrets/`, untracked
 
 **`pr-review-loop-worktree`:** keep **explicit-path** staging only.
 
-## Bot reply format (Codex / Bugbot)
+## Bot reply format (AI review / Bugbot)
 
 Every thread close reply MUST use an explicit adversarial verdict so bot
 reviewers can distinguish **fixed** from **rejected** findings on the
@@ -438,7 +493,8 @@ Required shape (first line):
 
 Include concrete evidence in the summary (file/symbol, production log fact,
 existing test, contract doc). Rejections without evidence read as dismissals
-and Codex will re-raise the same thread.
+and the AI review will raise the same finding again (it is handed every
+earlier finding and its replies on the next run).
 
 ## Pre-push harden (before every push)
 

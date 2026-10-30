@@ -6,7 +6,8 @@ description: >-
   for an in-place review loop, "fix reviews here", "PR review loop
   in-place", or to clear review threads on the current branch without a
   worktree. Runs the PR monitor in a Cursor in-chat background terminal
-  (Await + webhook or 3m poll) until 60m Codex-quiet after the last push.
+  (Await + webhook or 3m poll) until the advisory AI review has settled on
+  the last push and its threads are resolved.
   Project-directory lock and pre-push-harden before every push. Prefers zero questions:
   auto-merges origin when push is rejected, fixes regressions, re-pushes.
 disable-model-invocation: true
@@ -49,8 +50,8 @@ checkout clean and fully pushed when done.
 | **Event round** | Cloud agent started by an Automation / API on a review, CI or push event | **No daemon.** Steps 0→6 once for the current HEAD, then exit `0` with state written. The next GitHub event starts the next round. |
 
 Event-round rules: finish within the cloud-agent budget (target ≤45
-min/round); never sleep waiting for Codex — the "PR review submitted" /
-"CI completed" trigger wakes the next round; write
+min/round); never sleep waiting for the AI review — the "PR review submitted" /
+"CI completed" / "AI Review (advisory)" workflow-run trigger wakes the next round; write
 `docs/code-review/<scope>/pr-review-state.json` before exiting; a failed
 or timed-out round is simply retried by the next trigger (idempotent,
 Step 0).
@@ -60,8 +61,9 @@ Step 0).
 Resolve `$ST_*` with the block in
 `references/shared/review-loop-contract.md` → "Sea Trials plugin CLI".
 Use only plugin paths. Do not use `pnpm pr-review-*`, `.husky/st-plugin-run.sh`,
-`scripts/overlay-st-plugin-review-hooks.mjs` or `scripts/hooks/codex-*`
-from the app repo even if present.
+or `scripts/overlay-st-plugin-review-hooks.mjs` from the app repo even if
+present. Never request Codex or post `@codex review`: the code review is the
+advisory AI review (contract → "Code review"), and it is never a merge gate.
 
 ## Mode: in-place
 
@@ -135,8 +137,8 @@ this full-tree policy.
 Follow **`cursor-in-chat-monitor.md`**: stop detached daemon, Shell
 `block_until_ms: 0` + `notify_on_output` on `>>> ACTION:`, foreground
 `pr-review-daemon.mjs --silence 60`, then loop `Await` in **this chat**
-while executing the body. Do not exit the turn when Codex is still quiet
-within the 60-minute post-push window.
+while executing the body. Do not exit the turn while the AI review's `review`
+run on HEAD is still queued or running.
 
 ## Run the body
 
@@ -151,7 +153,7 @@ call uses absolute paths under `$REPO_ROOT`.
    CI green, `settled.state` = `DONE`).
 2. `git status --porcelain` → empty.
    `node "$ST_MERGE" --pr <n> --dry-run` → exit `0` or a reported
-   blocker (all checks on head, Codex threads, migration order).
+   blocker (all checks on head, unresolved threads, migration order).
 3. `git rev-list HEAD..origin/$PR_BRANCH --count` → 0 and
    `git rev-list origin/$PR_BRANCH..HEAD --count` → 0.
 4. `git branch --show-current` → `$PR_BRANCH`; toplevel → `$REPO_ROOT`.

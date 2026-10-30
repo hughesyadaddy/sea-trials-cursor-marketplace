@@ -41,6 +41,10 @@ On an error: do not retry a create blindly. Search again with the
 precheck; when the issue is there, record it. Stop after 3 errors in a
 row and report.
 
+When the plan has no `deferred_creates` left, run
+`node <CLI> folders <sprint-folder> --apply` so cards that got keys leave
+their `LOCAL` folders (the sprint-plan-viewer hides keys under `LOCAL`).
+
 Never delete an issue. Never change a Done issue. Never post comments.
 
 ## Return
