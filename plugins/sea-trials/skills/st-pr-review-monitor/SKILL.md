@@ -2,9 +2,10 @@
 name: st-pr-review-monitor
 description: >-
   Start and run the PR review monitor in a Cursor in-chat background
-  terminal. Wakes this chat on CI failure or Codex/Bot threads via
+  terminal. Wakes this chat on CI failure or review threads (advisory AI
+  review, Bugbot, humans) via
   >>> ACTION sentinels, Shell notify_on_output, and Await. Runs until
-  merge-ready and 60m Codex-quiet after the last push (or user stop).
+  merge-ready and the AI review has settled on the last push (or user stop).
   Pair with st-pr-review-loop-inplace or st-pr-review-loop-worktree.
 disable-model-invocation: true
 user-invocable: true
@@ -24,8 +25,10 @@ user-invocable: true
 # PR Review Monitor (`/st-pr-review-monitor`)
 
 Start the watch **in this chat's background terminal** and **stay on task**
-until the PR is merge-ready (and Codex has been quiet for 60 minutes on the
-current HEAD after the last push) or the user stops you.
+until the PR is merge-ready (and the advisory AI review has settled on the
+current HEAD: its `review` check run finished or was skipped, and its threads
+are resolved) or the user stops you. The AI review is never a merge gate;
+never request Codex or post `@codex review`.
 
 **Read:**
 
@@ -79,7 +82,7 @@ Bootstrap `$ST_PLUGIN_ROOT` and `$ST_REVIEW*` per
      --pr "$PR_NUM" \
      --duration 24h \
      --silence 60 \
-     --bots codex,bugbot,coderabbit,copilot
+     --bots aireview,bugbot,coderabbit,copilot
    ```
 
    Add `--no-webhook --interval 180` only when offline. Default webhook
@@ -95,7 +98,7 @@ Bootstrap `$ST_PLUGIN_ROOT` and `$ST_REVIEW*` per
 loop:
   Await(task_id, pattern: ">>> ACTION:", block_until_ms: 600000)
   → read pr-review-queue.json + acting.signal
-  → ci-fail: fix NOW (Steps 3–6, skip Codex wait)
+  → ci-fail: fix NOW (Steps 3–6, skip the AI review wait)
   → threads: Steps 2–6 full loop
   → touch pr-<n>-handoff.ack
   → continue loop (never end turn on GREEN alone)
@@ -110,7 +113,7 @@ On session resume: if `acting.signal` starts with `CI_FAIL` or
 | --- | --- |
 | `ci-fail` | Root-cause fix → gate fan-out → `pr-review-push` → ack |
 | `threads` | Triage → adversarial vet → fix fan-out → gate → push → reply+resolve → ack |
-| `GREEN` | Report status; **keep** `Await` — Codex may still comment |
+| `GREEN` | Report status; **keep** `Await` — the AI review may still post on a later head |
 
 After every push: **do not restart the daemon** — it keeps running.
 Write ack:
@@ -133,8 +136,8 @@ invocation if you follow Phase 1–2 inline.
 
 ## Phase 5 — Stop
 
-When `node "$ST_REVIEW_STATUS" -- --pr "$PR_NUM"` exits `0` **and** 60m
-Codex-quiet on HEAD, or user says stop, or PR merged:
+When `node "$ST_REVIEW_STATUS" -- --pr "$PR_NUM"` exits `0` **and** the AI
+review is settled on HEAD, or user says stop, or PR merged:
 
 ```bash
 bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" stop --pr "$PR_NUM"

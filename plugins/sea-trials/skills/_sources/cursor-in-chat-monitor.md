@@ -7,7 +7,7 @@
 When the user runs `/st-pr-review-loop-inplace`, `/st-pr-review-loop-worktree`,
 or `/st-pr-review-monitor` in **Cursor Agent chat**, the watch **must** run in
 **this chat's background terminal**. A detached `setsid` daemon or a shell
-outside the agent session **does not** wake the chat when Codex posts reviews.
+outside the agent session **does not** wake the chat when the AI review posts.
 
 Claude Code may still use `pr-review-daemonctl.sh start --daemon` when no
 Shell/Await tools exist.
@@ -53,21 +53,21 @@ ST_REPO_ROOT="$ACTIVE_ROOT" \
   --pr <n> \
   --duration 24h \
   --silence 60 \
-  --bots codex,bugbot,coderabbit,copilot
+  --bots aireview,bugbot,coderabbit,copilot
 ```
 
 | Flag | Purpose |
 | --- | --- |
-| `--silence 60` | Up to **60 minutes** waiting for bot activity after a push (Codex included) |
+| `--silence 60` | Up to **60 minutes** waiting for bot activity after a push (the AI review job has a 25-minute timeout) |
 | `--webhook` (default) | Wake on GitHub review/check/comment events — install `gh extension install cli/gh-webhook` |
 | `--no-webhook --interval 180` | Poll every **3 minutes** when webhook unavailable |
-| `--duration 24h` | Upper bound; parent may stop earlier when DONE + 60m Codex-quiet |
+| `--duration 24h` | Upper bound; parent may stop earlier when DONE and the AI review is settled on HEAD |
 
-## Codex / CI priority
+## AI review / CI priority
 
 | Sentinel | Parent action |
 | --- | --- |
-| `>>> ACTION: ci-fail` | Fix immediately — **do not** wait for Codex |
+| `>>> ACTION: ci-fail` | Fix immediately — **do not** wait for the AI review |
 | `>>> ACTION: threads` | Full review loop (triage → fix → gate → push → reply) |
 | `>>> WAIT:` | Keep `Await` — bots still working |
 | `>>> GREEN:` | Round complete — **keep watching** (do not stop monitor) |
@@ -79,8 +79,10 @@ After every fix push: `touch …/pr-<n>-handoff.ack` — do **not** restart the 
 Keep the in-chat monitor running until **all** hold:
 
 1. `node "$ST_REVIEW_STATUS" --pr <n>` → exit `0` (0 bot threads, CI green, settled `DONE`).
-2. **60 minutes** with no new Codex review activity on the current HEAD since the
-   last push (daemon `--silence 60` + settled machine; confirm with status JSON).
+2. The AI review is settled on the current HEAD: its `review` check run for HEAD
+   completed or was skipped, or the `<!-- st-ai-review:sha=… -->` summary equals
+   HEAD, and every thread it raised is resolved (confirm with status JSON).
+   It is advisory: never hold a merge-ready PR for its verdict.
 3. Or user says stop / PR merged.
 
 ## Session reconnect

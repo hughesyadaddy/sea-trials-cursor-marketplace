@@ -3,7 +3,8 @@ name: st-pr-merge
 description: >-
   Merge a Sea Trials PR safely and only when every standing rule holds:
   every CI check on the head commit complete and green (all workflows,
-  check runs and commit statuses), zero unresolved Codex review threads,
+  check runs and commit statuses; the advisory AI review check is never a
+  gate), zero unresolved review threads,
   new migrations ordered above the base and not colliding with other open
   PRs, merge pinned to the gated head SHA, never --admin. Use when the
   user says merge / land / ship-and-merge a PR, or when a merge
@@ -32,7 +33,8 @@ node "$ST_MERGE" --pr <n> --wait 30      # gate, wait ≤30m for pending CI, mer
 | --- | --- |
 | Every check on HEAD complete + green | GraphQL `statusCheckRollup` on the head commit — **all** workflows, check runs and commit statuses, paginated. Green = `SUCCESS`/`SKIPPED`/`NEUTRAL`. Zero checks = pending, never green. `CANCELLED`, `TIMED_OUT`, `ACTION_REQUIRED`, `STALE` = fail. |
 | Late-registering suites | After a green read, waits `--settle-sec` (default 60) and re-reads; head and check set must be identical. |
-| Zero unresolved Codex threads | Paginated `reviewThreads`; Codex = `chatgpt-codex-connector`. Outdated-but-unresolved still blocks. By default **any** unresolved thread blocks (`--allow-human-threads` relaxes non-Codex only). |
+| Advisory AI review is not a gate | The `AI Review (advisory)` workflow's `review` check is left out of the CI verdict: the gate never waits for it and never fails on it (JSON output lists it under `advisory`). Codex is not used. |
+| Zero unresolved review threads | Paginated `reviewThreads`; review bots = the AI review (`github-actions[bot]`) and Cursor Bugbot (`cursor`). Outdated-but-unresolved still blocks. By default **any** unresolved thread blocks (`--allow-human-threads` relaxes human threads only; bot threads always block). |
 | Migration numbers | Added `supabase/migrations/<ver>_*.sql` must be unique, `> max(base)`, and not claimed by another open PR into the same base. `--no-migration-check` only for repos without migrations. |
 | Renamed / deleted migrations | Blocked **iff the old version is applied** — present in `supabase_migrations.schema_migrations` on the base's environment: `feat/rich-content`, `dev` → Dev (`jchyjnxcnukbsmlsolha`); `stg` → Staging (`lbypalsqrvpwfxofqciz`); `main` → Prod (`oulpgrsifasfsvkrjnrn`). Read-only lookup via the Management API `database/query/read-only` endpoint using `SUPABASE_ACCESS_TOKEN` (env, else `.env.<flavor>` / `.env.base` in the repo — same order as `supabase_deploy.sh`; needs `database_read`). Never-applied renames are allowed and printed as `rename allowed:`; the new name must not collide with base or another open PR. Unmapped base, missing token or unreachable DB → blocked (fail closed, exit 4). |
 | Mergeability | `BEHIND`, `DIRTY`/conflict, `BLOCKED`, draft, closed → no merge (exit 5). `UNKNOWN` → treated as pending. |
@@ -66,5 +68,5 @@ rule). The gate is idempotent: re-running after a merge reports
 
 ## Report
 
-PR, head SHA gated, checks (green/total), unresolved threads (Codex),
+PR, head SHA gated, checks (green/total; advisory AI review shown apart), unresolved threads (review bot),
 migrations verdict, merge result / blocker, exit code.

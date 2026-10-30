@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Emit JSON lines for parallel adversarial subagent fan-out — 3 agents per
- * unresolved PR review thread (Codex, Bugbot, human reviewers).
+ * unresolved PR review thread (the advisory AI review, Bugbot, human reviewers).
  *
  * Parent agent: launch one Task per line in a single turn, then synthesize
  * verdicts before `pr-review-threads close`.

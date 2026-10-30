@@ -6,8 +6,8 @@ description: >-
   (.review-worktrees/). Use when the user asks for a PR review loop,
   "fix reviews in a worktree", wants isolation from the current
   checkout, or the working tree is dirty / on the wrong branch.
-  Runs the PR monitor in a Cursor in-chat background terminal until 60m
-  Codex-quiet after the last push. Project-local worktree
+  Runs the PR monitor in a Cursor in-chat background terminal until the
+  advisory AI review has settled on the last push. Project-local worktree
   (not bare /tmp), and pre-push-harden before every push. Leaves the
   user's original checkout untouched.
 disable-model-invocation: true
@@ -49,8 +49,8 @@ files, and IDE state stay untouched.
 | **Event round** | Cloud agent started by an Automation / API on a review, CI or push event | **No daemon.** Steps 0→6 once for the current HEAD, then exit `0` with state written. The next GitHub event starts the next round. |
 
 Event-round rules: finish within the cloud-agent budget (target ≤45
-min/round); never sleep waiting for Codex — the "PR review submitted" /
-"CI completed" trigger wakes the next round; write
+min/round); never sleep waiting for the AI review — the "PR review submitted" /
+"CI completed" / "AI Review (advisory)" workflow-run trigger wakes the next round; write
 `docs/code-review/<scope>/pr-review-state.json` before exiting; a failed
 or timed-out round is simply retried by the next trigger (idempotent,
 Step 0).
@@ -60,8 +60,9 @@ Step 0).
 Resolve `$ST_*` with the block in
 `references/shared/review-loop-contract.md` → "Sea Trials plugin CLI".
 Use only plugin paths. Do not use `pnpm pr-review-*`, `.husky/st-plugin-run.sh`,
-`scripts/overlay-st-plugin-review-hooks.mjs` or `scripts/hooks/codex-*`
-from the app repo even if present.
+or `scripts/overlay-st-plugin-review-hooks.mjs` from the app repo even if
+present. Never request Codex or post `@codex review`: the code review is the
+advisory AI review (contract → "Code review"), and it is never a merge gate.
 
 ## Mode: worktree
 

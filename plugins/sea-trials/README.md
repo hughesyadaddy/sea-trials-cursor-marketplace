@@ -122,7 +122,7 @@ gate fan-outs pin slugs the host actually accepts. See
 | Fine-grained fan-out | `pr-review-push --list-tasks --granularity fine` | One JSON line per worker; `run-gate-task` honours machine-wide analyzer slots |
 | Content-hash gate cache | automatic; `ST_GATE_CACHE=0` to disable | Dependency-aware `dart analyze` keys; shared across worktrees |
 | Worker telemetry | `st-run st-gate-stats` | p50/p95 per task kind, slowest packages, cache hit rate |
-| Adaptive PR review loop | `st-run pr-review-loop -- --pr N [--webhook]` | Settled-state machine on Codex/Bugbot/CI signals; ETag probes, rate-limit backoff |
+| Adaptive PR review loop | `st-run pr-review-loop -- --pr N [--webhook]` | Settled-state machine on AI review (advisory)/Bugbot/CI signals; ETag probes, rate-limit backoff |
 | Flaky-test quarantine | `/st-flake-quarantine`, `flake-quarantine.mjs` | Classifies, retries, quarantines with `skip:` + tracking issue |
 | Build sharding | `st-run st-build-shard-tasks`, `sprint-to-shards.mjs` | Disjoint file ownership; sprint folders become `shards.json` |
 | Host model probe | `st-run st-model-probe` | Detects host + accepted model slugs; `resolveModel()` picks worker tiers |

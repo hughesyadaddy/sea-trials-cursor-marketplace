@@ -96,7 +96,10 @@ one JSON list and run
 node "$CLI" lint "$DIR" --json > /tmp/vet-lint.json
 ```
 
-Map each problem to a row with `references/vet-rules.md`. Cards whose
+Map each problem to a row with `references/vet-rules.md`. Rules
+`viewer` and `viewer-jira-copy` are the sprint-plan-viewer format (see
+`references/shared/sprint-card-format.md`); report them as format rows
+and fix them in the folder (`folders --apply`, `pull`), never in Jira. Cards whose
 status category is Done are listed but never fixed. Add the field
 rules (F2 to F6) from the imported fields.
 
@@ -122,7 +125,8 @@ Fixes always go through the folder, never straight into Jira:
 1. One `st-sprint-critic` per story with errors, `MODE: fix`, in
    parallel. For a scratch folder, pass the app repo path so paths are
    checked.
-2. `node "$CLI" number "$DIR"` and `lint` (exit 0).
+2. `node "$CLI" number "$DIR"`, `node "$CLI" folders "$DIR" --apply`
+   and `lint` (exit 0).
 3. Status changes the user approved: set `status` in the local card.
 4. Run `/st-jira-upload` on `$DIR`: dry run, one approval, then the
    writes (it reads the live issue before each update and skips Done).

@@ -4,7 +4,8 @@ description: >-
   Promote a branch through an open promotion PR (e.g. Dev to STG) until
   merge-ready. Starts the 24h PR review monitor in a Cursor background
   terminal, then runs the autonomous review loop (worktree by default)
-  on every CI failure or Codex thread — fix immediately, never wait for
+  on every CI failure or review thread (advisory AI review, Bugbot) —
+  fix immediately, never wait for
   the next bot pass. Use when the user says promote, ship to staging,
   STG from Dev, merge-ready promotion PR, or shares a promotion PR link.
 disable-model-invocation: true
@@ -44,7 +45,7 @@ This skill composes:
 
 Default: **finish without asking**. Promotion PRs are high-stakes —
 CI failures are fixed **immediately** when the monitor fires
-`ci-fail`; do not wait for Codex.
+`ci-fail`; do not wait for the AI review (it is advisory, never a gate).
 
 ## Phase 1 — Identify promotion PR
 
@@ -105,7 +106,8 @@ next push.
 
 ## Forbidden
 
-- Waiting for Codex while CI is red
+- Waiting for the AI review while CI is red
+- Requesting Codex or posting `@codex review` (Codex is not used)
 - Stopping the monitor when `pr-review-loop` exits (loop is single-pass;
   daemon keeps watching)
 - Hand-rolled poll loops in chat

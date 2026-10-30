@@ -7,7 +7,7 @@ Merging is done by the dispatcher itself via `st-pr-merge/merge-gate.mjs`
 
 ```text
  GitHub events ─────────────┐   pull_request_review(submitted) · review_comment
- (Codex review, CI done,    │   workflow_run(PR Checks, completed) · check_suite
+ (AI review, CI done,       │   workflow_run(PR Checks | AI Review (advisory), completed) · check_suite
   push, label, 15-min cron) │   synchronize · labeled · schedule */15
                             ▼
               st-pr-dispatch.yml  (concurrency group st-pr-<n>, queue not cancel)
@@ -24,7 +24,7 @@ Merging is done by the dispatcher itself via `st-pr-merge/merge-gate.mjs`
                             ▼
               Steps 0–6 once → push via pr-review-push → reply/resolve → exit
                             │
-                            └──► the push / new Codex review fires the next event
+                            └──► the push / new AI review fires the next event
 ```
 
 ## Why this over the alternatives
