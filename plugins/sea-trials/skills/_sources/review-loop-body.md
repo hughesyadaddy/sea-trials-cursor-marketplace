@@ -192,8 +192,11 @@ node "$ST_REVIEW" close --pr <n> --thread <PRRT_…> \
 ```
 
 `close` refuses a body that does not cite the fix SHA (`--sha` appends
-it when the text omits it) and verifies the thread is resolved with a
-single-node query. Use `--verdict reject|stale` for classes (b)–(d)
+it when the text omits it). It resolves the thread with GraphQL
+`resolveReviewThread`, then confirms it with a single-node query. Every
+AI review and PR-Agent finding is an inline review thread with a
+**Resolve conversation** button (like Codex), so each one ends resolved
+once it is addressed; none stays open after its reply. Use `--verdict reject|stale` for classes (b)–(d)
 with concrete evidence (still cite `$PUSHED_SHA` so bots anchor the
 verdict to a head). Top-level review bodies without an inline thread
 cannot be resolved — post via

@@ -94,6 +94,11 @@ monitor AWAIT → ACTION → loop Steps 2–6 → ack → AWAIT → … → GREE
 Do **not** stop after one green poll if threads or CI regress on the
 next push.
 
+AI review and PR-Agent findings are inline review threads with a **Resolve
+conversation** button (like Codex). Loop Step 6 resolves each one once it
+is addressed (`node "$ST_REVIEW" close`, GraphQL `resolveReviewThread`);
+an addressed thread left open still blocks merge-ready.
+
 ## Phase 5 — Promotion-specific rules
 
 - **Sync recovery** before every push (promotion branches race often)

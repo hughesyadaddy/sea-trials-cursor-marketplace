@@ -115,6 +115,11 @@ On session resume: if `acting.signal` starts with `CI_FAIL` or
 | `threads` | Triage → adversarial vet → fix fan-out → gate → push → reply+resolve → ack |
 | `GREEN` | Report status; **keep** `Await` — the AI review may still post on a later head |
 
+Every AI review and PR-Agent finding is an inline review thread with a
+**Resolve conversation** button (like Codex). The `threads` route ends with
+each addressed thread resolved via `node "$ST_REVIEW" close` (GraphQL
+`resolveReviewThread`), so the monitor's unresolved count can reach 0.
+
 After every push: **do not restart the daemon** — it keeps running.
 Write ack:
 
