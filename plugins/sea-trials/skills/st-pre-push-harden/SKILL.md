@@ -245,6 +245,12 @@ skill's Phase 2. They MUST:
    must reach `DONE` before the loop completes. Harden does not replace
    that watch.
 
+5. After the push, reviewer findings (AI review and PR-Agent,
+   `github-actions[bot]`) arrive as inline review threads with a **Resolve
+   conversation** button. The loop resolves each one once it is addressed
+   (`node "$ST_REVIEW" close`, GraphQL `resolveReviewThread`). Harden never
+   resolves threads itself.
+
 ## Non-negotiable rules
 
 1. Stay inside `$ACTIVE_ROOT` for all edits and gates.

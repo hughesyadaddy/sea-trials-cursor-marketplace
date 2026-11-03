@@ -216,9 +216,10 @@ Rules:
    never starts (draft, no credential, no reviewable files), the loop
    moves on after the 3-minute ack window. Nothing posts a re-trigger
    comment.
-3. **Its inline findings are review threads.** Triage, adversarial vet,
-   fix, reply with the verdict format and resolve them exactly like any
-   other bot thread. Zero unresolved threads is still required.
+3. **Its inline findings are review threads.** Each one has a **Resolve
+   conversation** button, like Codex's did. Triage, adversarial vet,
+   fix, reply with the verdict format, then resolve it like any other bot
+   thread. Zero unresolved threads is still required.
 4. **Read the summary on the current head.** If its SHA is older than the
    head and the `review` run for the head is still running, wait for it;
    otherwise proceed. Carry "Still open from earlier reviews" items into
@@ -234,6 +235,38 @@ gh api "repos/$repo/commits/$head/check-runs?check_name=review" -q '.check_runs[
 gh api "repos/$repo/issues/<n>/comments" --paginate \
   -q '.[] | select(.user.login=="github-actions[bot]" and (.body|contains("<!-- st-ai-review -->"))) | .body' | tail -n 40
 ```
+
+### PR-Agent findings are review threads: resolve them once addressed
+
+While the Claude review is off (repo variable `ST_AI_REVIEW_CLAUDE_ENABLED`
+unset), the reviewer that runs is **PR-Agent** (`PR-Agent (advisory)`,
+`.github/workflows/pr-agent.yml`). It also posts as `github-actions[bot]`:
+
+- A summary issue comment. The first review is headed `## PR Reviewer Guide 🔍`
+  and each later push gets `## Incremental PR Reviewer Guide 🔍`. Incremental
+  reviews cover only the PR's own new commits; merge commits are skipped.
+- **Each finding as an inline review thread** on its file and line, all in one
+  `COMMENT` review, the way Codex posted them. So every finding has a
+  **Resolve conversation** button and shows in GraphQL `reviewThreads`
+  (with `isResolved`).
+
+Loop rules:
+
+1. Treat PR-Agent threads like any other bot thread: adversarial vet, fix,
+   then a verdict reply.
+2. **Resolve every thread once it is addressed**, whether fixed (cite the
+   pushed SHA), stale or rejected with evidence. Use
+   `node "$ST_REVIEW" close`, which posts the reply and then runs the
+   GraphQL `resolveReviewThread` mutation. Never leave an addressed thread
+   open, never resolve silently, and never hand-roll the mutation.
+3. The workflow's `threads` job (`scripts/ci/ai-review/threads.py`)
+   resolves bot threads on its own: outdated ones that a later push
+   fixed, duplicates, and claims it proved false. Re-list with
+   `node "$ST_REVIEW" list --pr <n>` before acting so you never reply on a
+   thread that is already resolved.
+4. Some findings can't be anchored to a diff line. They stay under
+   "Recommended focus areas" in the summary comment, which has no Resolve
+   button. Answer them with `node "$ST_REVIEW" comment --pr <n> --sha <sha>`.
 
 ## Adversarial vet (3 agents × every unresolved thread)
 

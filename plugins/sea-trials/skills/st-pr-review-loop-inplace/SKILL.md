@@ -42,6 +42,15 @@ checkout clean and fully pushed when done.
    — the loop itself. **Follow it exactly.** This file only adds the
    in-place mode rules below; it never overrides the body.
 
+**Review threads have a Resolve button.** Every AI review and PR-Agent
+finding (`github-actions[bot]`, including `Incremental PR Reviewer Guide`
+rounds) is posted as an inline review thread, the way Codex's were. Resolve
+each thread once it is addressed (fixed with the pushed SHA, stale, or
+rejected with evidence) via `node "$ST_REVIEW" close`, which runs GraphQL
+`resolveReviewThread`. Findings left only in a summary comment can't be
+resolved; answer them with `node "$ST_REVIEW" comment`. Details: the
+contract's "PR-Agent findings are review threads" section.
+
 ## Run modes (pick one, state it in the report)
 
 | Mode | When | Monitor |
