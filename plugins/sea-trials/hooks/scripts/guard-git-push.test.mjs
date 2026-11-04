@@ -46,7 +46,7 @@ function git(cwd, args) {
 /**
  * @param {{ gate?: 'husky' | 'package' | false }} [opts]
  */
-function makeRepo({ gate = false } = {}) {
+function makeRepo({ gate = false, targeted = false } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'st-guard-'));
   tmpDirs.push(dir);
   const root = fs.realpathSync(dir);
@@ -58,6 +58,12 @@ function makeRepo({ gate = false } = {}) {
   if (gate === 'husky') {
     fs.mkdirSync(path.join(root, '.husky'));
     fs.writeFileSync(path.join(root, '.husky', 'st-plugin-run.sh'), '#!/bin/sh\n');
+    if (targeted) {
+      fs.writeFileSync(
+        path.join(root, '.husky', 'pre-push'),
+        '#!/bin/sh\nexec node scripts/hooks/targeted-prepush.mjs --hook\n',
+      );
+    }
   } else if (gate === 'package') {
     fs.writeFileSync(
       path.join(root, 'package.json'),
@@ -248,19 +254,25 @@ describe('decide', () => {
     );
   });
 
-  test('--no-verify / -n / --dry-run deny regardless of env or repo', async () => {
+  test('--no-verify / -n / --dry-run allow (targeted pre-push rule)', async () => {
     for (const cmd of ['git push --no-verify', 'git push -n origin', 'git push --dry-run']) {
-      const d = await decide(cursor(cmd, os.tmpdir()), {
-        env: { ...CLEAN_ENV, ST_ALLOW_BARE_PUSH: '1', ST_ALLOW_FORCE_PUSH: '1' },
-      });
-      assert.equal(d.permission, 'deny', cmd);
-      assert.equal(d.message, MESSAGES.noVerify);
+      const d = await decide(cursor(cmd, os.tmpdir()), { env: CLEAN_ENV });
+      assert.equal(d.permission, 'allow', cmd);
     }
+    const root = makeRepo({ gate: 'husky', targeted: true });
+    const d = await decide(cursor('git push --no-verify origin HEAD:x', root), { env: CLEAN_ENV });
+    assert.equal(d.permission, 'allow');
   });
 
   test('force denies unless ST_ALLOW_FORCE_PUSH=1', async () => {
     const root = makeRepo();
-    for (const cmd of ['git push --force', 'git push -f', 'git push --force-with-lease origin x']) {
+    for (const cmd of [
+      'git push --force',
+      'git push -f',
+      'git push --force-with-lease origin x',
+      'git push origin +HEAD:main',
+      'git push --no-verify --force',
+    ]) {
       const d = await decide(cursor(cmd, root), { env: CLEAN_ENV });
       assert.equal(d.permission, 'deny', cmd);
       assert.equal(d.message, MESSAGES.force);
@@ -271,9 +283,16 @@ describe('decide', () => {
     assert.equal(allowed.permission, 'allow');
   });
 
-  test('no-verify wins over force', async () => {
+  test('force still denies when bundled with -n', async () => {
     const d = await decide(cursor('git push -nf'), { env: CLEAN_ENV });
-    assert.equal(d.message, MESSAGES.noVerify);
+    assert.equal(d.message, MESSAGES.force);
+  });
+
+  test('bare push in a repo whose pre-push runs the targeted gate allows', async () => {
+    const root = makeRepo({ gate: 'husky', targeted: true });
+    const d = await decide(cursor('git push', root), { env: CLEAN_ENV });
+    assert.equal(d.permission, 'allow');
+    assert.match(d.note ?? '', /targeted pre-push/);
   });
 
   test('bare push in a repo without the gate allows', async () => {
@@ -379,11 +398,9 @@ describe('decide', () => {
       { env: CLEAN_ENV },
     );
     assert.equal(partial.permission, 'deny');
-    // Nothing unlocks --no-verify.
-    const nv = await decide(cursor('ST_ALLOW_BARE_PUSH=1 ST_ALLOW_FORCE_PUSH=1 git push -n', root), {
-      env: CLEAN_ENV,
-    });
-    assert.equal(nv.permission, 'deny');
+    // --no-verify needs no hatch (targeted pre-push rule).
+    const nv = await decide(cursor('git push -n', makeRepo()), { env: CLEAN_ENV });
+    assert.equal(nv.permission, 'allow');
   });
 
   test('git -C resolves the gate relative to cwd; chained pushes each gated', async () => {
@@ -453,8 +470,9 @@ describe('render', () => {
 
 describe('fallbackFlagDeny', () => {
   test('denies bypass flags from raw text', () => {
-    assert.equal(fallbackFlagDeny('{"command":"git push --no-verify"}')?.message, MESSAGES.noVerify);
+    assert.equal(fallbackFlagDeny('{"command":"git push --no-verify"}'), null);
     assert.equal(fallbackFlagDeny('{"command":"git push -f"}')?.message, MESSAGES.force);
+    assert.equal(fallbackFlagDeny('{"command":"git push origin +HEAD:main"}')?.message, MESSAGES.force);
     assert.equal(fallbackFlagDeny('{"command":"git push"}'), null);
     assert.equal(fallbackFlagDeny('{"command":"ls -n"}'), null);
   });
@@ -466,10 +484,13 @@ describe('CLI end to end', () => {
     assert.equal(allow.status, 0);
     assert.deepEqual(JSON.parse(allow.stdout), { permission: 'allow' });
 
-    const deny = runGuard(cursor('git push --no-verify'));
+    const deny = runGuard(cursor('git push --force-with-lease'));
     assert.equal(deny.status, 0);
     assert.equal(JSON.parse(deny.stdout).permission, 'deny');
-    assert.equal(JSON.parse(deny.stdout).user_message, MESSAGES.noVerify);
+    assert.equal(JSON.parse(deny.stdout).user_message, MESSAGES.force);
+
+    const noVerify = runGuard(cursor('git push --no-verify'));
+    assert.equal(JSON.parse(noVerify.stdout).permission, 'allow');
   });
 
   test('Claude shape: allow is silent, deny exits 2', () => {
@@ -506,7 +527,7 @@ describe('CLI end to end', () => {
 
   test('bash shim delegates to the guard', { skip: isWindows }, () => {
     const r = spawnSync('bash', [path.join(here, 'deny-no-verify-push.sh')], {
-      input: JSON.stringify(cursor('git push -n')),
+      input: JSON.stringify(cursor('git push -f')),
       encoding: 'utf8',
       env: CLEAN_ENV,
     });
