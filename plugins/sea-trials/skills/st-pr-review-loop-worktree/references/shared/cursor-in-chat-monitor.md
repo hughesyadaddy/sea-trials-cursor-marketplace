@@ -1,12 +1,10 @@
 <!-- GENERATED from skills/_sources/cursor-in-chat-monitor.md — do not edit; run node scripts/sync-skill-sources.mjs -->
 # Cursor in-chat PR monitor (mandatory in Interactive mode)
 
-> **Cost policy (Oct 2026):** do **not** launch Cursor cloud agents,
-> background agents, or Cursor Automations to do the coding. Hand coding to
-> **`/st-code-via-subscriptions`** (Claude Code / Codex on the user's own
-> subscription) running locally first; fall back to a local Cursor
-> `composer-2.5` agent (Fast off). Spin up a cloud/background agent **only**
-> when the user explicitly asks for that cloud job.
+> **Coding rule (Nov 2026):** all coding goes to a not-busy Lokey bot
+> (rakazo/Lokey connectors, default) or a Cursor cloud agent on
+> `composer-2.5` (Fast off). Never use the user's own computers or local
+> Claude Code / Codex CLIs.
 
 > **Event-round mode** (cloud agent launched by a Cursor Automation or the
 > Cloud Agents API on a GitHub event) does **not** start this monitor: it

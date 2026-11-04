@@ -3,8 +3,8 @@
  * Cost-policy guard — keep coding on local subscriptions, off the cloud.
  *
  * Alex's cost policy (Oct 2026): no Cursor cloud agents, no *-fast models;
- * code locally via /st-code-via-subscriptions (Claude Code / Codex on the
- * user's own subscription), falling back to Cursor composer-2.5 standard.
+ * coding goes to a not-busy Lokey bot (default) or a Cursor cloud agent on
+ * composer-2.5 standard; never local Claude Code / Codex CLIs.
  *
  * Decisions, per command segment (quotes stripped; `sh -c "…"` re-scanned):
  *   cursor-agent/agent --model …-fast   DENY (use composer-2.5, Fast off)
@@ -31,8 +31,8 @@ import { pathToFileURL } from 'node:url';
 import { detectHost, extractCommand, render, splitSegments } from './guard-git-push.mjs';
 
 export const LOCAL_FALLBACK =
-  'Code locally via /st-code-via-subscriptions (Claude Code / Codex on '
-  + 'your subscription); fall back to Cursor composer-2.5 standard (Fast off).';
+  'Send coding to a not-busy Lokey bot (rakazo/Lokey connectors); '
+  + 'otherwise a Cursor agent on composer-2.5 standard (Fast off).';
 
 export const OVERRIDE_HINT =
   ' Override with ST_ALLOW_CLOUD=1 only if the user explicitly asked for '

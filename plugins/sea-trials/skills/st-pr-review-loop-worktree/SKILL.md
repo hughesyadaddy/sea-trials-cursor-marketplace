@@ -48,12 +48,10 @@ files, and IDE state stay untouched.
 | **Interactive** | Local Cursor chat, user present | In-chat daemon + `Await` (below) |
 | **Event round** | Cloud agent started by an Automation / API on a review, CI or push event | **No daemon.** Steps 0→6 once for the current HEAD, then exit `0` with state written. The next GitHub event starts the next round. |
 
-**Cost policy (Oct 2026):** default to **Interactive** mode and do the
-coding locally via **`/st-code-via-subscriptions`** (Claude Code / Codex
-on the user's own subscription), falling back to a local Cursor
-`composer-2.5` agent (Fast off). **Event round** runs on a Cursor cloud
-agent and is **paused for cost** — use it only when the user explicitly
-asks for the cloud job.
+**Coding rule (Nov 2026):** all coding goes to a not-busy Lokey bot
+(rakazo/Lokey connectors, default) or a Cursor cloud agent on
+`composer-2.5` (Fast off). Never use the user's own computers or local
+Claude Code / Codex CLIs.
 
 Event-round rules: finish within the cloud-agent budget (target ≤45
 min/round); never sleep waiting for Codex — the "PR review submitted" /

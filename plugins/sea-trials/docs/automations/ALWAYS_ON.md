@@ -1,10 +1,9 @@
 # Always-on, event-driven PR loops (Cursor)
 
 > **⚠️ PAUSED FOR COST (Oct 2026).** This always-on, cloud-agent design is
-> **on hold** under Alex's cost policy: coding runs locally on the user's
-> own machine via `/st-code-via-subscriptions` (Claude Code / Codex
-> subscription), falling back to a local Cursor `composer-2.5` agent (Fast
-> off). The dispatcher below spins up **Cursor cloud agents**, which this
+> **on hold** under Alex's cost policy: coding goes to a not-busy Lokey
+> bot (default) or a Cursor cloud agent on `composer-2.5` (Fast off), never
+> the user's own computers or local Claude Code / Codex CLIs. The dispatcher below spins up **Cursor cloud agents**, which this
 > policy forbids by default. **Do not install or enable any of this** (the
 > GitHub Actions dispatcher, `st-pr-dispatch.yml`, or the Cursor
 > Automation) **without Alex's explicit go-ahead.** The guard hook
@@ -76,5 +75,5 @@ to stop runaway loops and page Alex instead.
 
 Cloud Agents API launches must explicitly pass
 `model: {id: "composer-2.5", params: [{id: "fast", value: "false"}]}`;
-otherwise the user/team default applies, which may be Fast. Use
-`/st-code-via-subscriptions` first for interactive coding hand-offs.
+otherwise the user/team default applies, which may be Fast. Coding hand-offs go to
+a not-busy Lokey bot (rakazo/Lokey connectors) or a Cursor cloud agent on `composer-2.5` with Fast off; never the user's own computers or local Claude Code / Codex CLIs.
