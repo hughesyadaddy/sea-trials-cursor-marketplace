@@ -37,7 +37,9 @@ Compose Atlassian MCP + existing PR review skills.
 
 ## Phase 1 — Jira context
 
-Use **atlassian-seatrials** (or **allinpmprep**) MCP:
+Use the plugin's **`atlassian`** MCP server, on the Jira site of the
+ticket (the `jira.site` saved in the sprint folder's `compare/index.json`,
+or the site in the ticket URL the user gave):
 
 - Fetch issue summary, description, acceptance criteria
 - Note fix version / component labels for commit scope
@@ -60,7 +62,12 @@ Acceptance: <bullets from ticket>
 PR: <number>
 ```
 
-Thread replies should cite ticket ID when closing Codex/Bugbot items.
+Thread replies should cite ticket ID when closing AI review / Bugbot items.
+
+AI review and PR-Agent findings are inline review threads with a **Resolve
+conversation** button (like Codex). Close each one once it is addressed
+(reply, then resolve via `node "$ST_REVIEW" close`, which runs GraphQL
+`resolveReviewThread`). Never leave an answered thread open.
 
 ## Phase 4 — Commit hygiene
 

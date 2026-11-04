@@ -6,7 +6,9 @@ description: >-
   worktree using the repo's documented commands, post a first-person
   QA comment (pass or fail per AC, repro on fail), attach evidence,
   and transition the issue. One worker per card, up to three in
-  parallel. Use when cards sit in In Review or Ready for QA.
+  parallel. Use when cards sit in In Review or Ready for QA. Also when the user says
+  "test the review column", "QA the sprint", or "review the cards in
+  QA".
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -114,7 +116,9 @@ the return format. The worker:
    code and last lines), UI step (perform it on the listed platform,
    capture a screenshot to `/tmp/qa/<KEY>/<n>.png`), or code read
    (only when the AC is about structure; quote the file and line).
-3. Runs the card's Test plan commands verbatim.
+3. Runs the repo's standard checks from the conventions file
+   (`repoConventionsPath`) for the touched packages. Cards carry no
+   Test plan; legacy cards that still have one are run as written.
 4. Returns a table `AC | Check | Result | Evidence` plus a verdict.
 
 Worker never writes to Jira and never edits code. Verdicts:
@@ -142,13 +146,15 @@ node "$SPRINT/md-to-adf.mjs" /tmp/qa/<KEY>/comment.md \
 
 `addCommentToJiraIssue` with `contentFormat: "adf"` and the ADF
 object as `commentBody`. Mention the assignee on a fail with an ADF
-mention node (`@[Name](accountId:<id>)` in the markdown). Space
-comments 2-8 s apart.
+mention node (`@[Name](accountId:<id>)` in the markdown). The parent
+is the only writer (contract 10.6): one comment at a time, stale check
+first, read-back after, 2-8 s apart. Workers never write.
 
 Attach screenshots when there are any:
 `node "$SPRINT/jira-rest.mjs" attach <KEY> /tmp/qa/<KEY>/*.png`, or
-`uploadAttachmentToJiraIssue` if your MCP is v2, else
-`st-jira-browser-operator`. Skip attachments rather than block.
+`uploadAttachmentToJiraIssue` if your MCP is v2, else ask before
+using `st-jira-browser-operator`. List existing attachments first and
+skip duplicates. Skip attachments rather than block.
 
 ---
 
@@ -164,7 +170,8 @@ from `sprint.json`, never by hardcoded id.
 | `NEEDS DISCUSSION` | none; ask via structured question |
 
 `transitionJiraIssue` with `{cloudId, issueIdOrKey, transition:{id}}`
-and nothing else. No `historyMetadata`, no `fields`.
+and nothing else, one at a time, with the stale check before and a
+read-back of `status` after (contract 10.6). No `historyMetadata`, no `fields`.
 
 Subtasks: a story moves to done only when all its subtasks are done;
 never transition the parent ahead of its children.

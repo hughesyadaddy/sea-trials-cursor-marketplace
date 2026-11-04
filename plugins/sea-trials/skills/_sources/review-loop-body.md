@@ -45,7 +45,7 @@ ST_REPO_ROOT="$ACTIVE_ROOT" \
 ```
 
 Do **not** use `daemonctl --daemon` alone in Cursor Agent chat — it does
-not wake this conversation when Codex reviews arrive.
+not wake this conversation when the AI review posts.
 
 See `shared/review-loop-monitor.md` for sentinels and `Await` loop.
 Single-pass fallback (tests / no monitor skill):
@@ -63,14 +63,16 @@ HEAD sha and push time; signals from an older head never count:
 | State | What the loop is waiting for | Poll |
 | --- | --- | --- |
 | `PUSHED` | 20 s grace after the push | — |
-| `AWAITING_ACK` | Codex 👀 · Bugbot/CodeRabbit check queued · Copilot in `requested_reviewers` (≤3 min; re-post `@codex review` once on timeout) | 15 s |
+| `AWAITING_ACK` | AI review `review` check queued/in progress on the head · Bugbot/CodeRabbit check queued · Copilot in `requested_reviewers` (≤3 min; then move on, never re-trigger) | 15 s |
 | `REVIEWING` | New bot comments; ETag REST, GraphQL only on a 200; 60 s while CI pending; cap 25 min | 30 s |
 | `SETTLED_CHECK` | Two consecutive quiet polls, then a 3-min quiet window | 60 s |
 | `SETTLED` → `ACTING` / `DONE` | Unresolved bot threads > 0 → act; else done | — |
 
 `--silence <min>` stays an absolute cap (default 30) — nothing waits
 longer than before. `--interval <s>` overrides the `REVIEWING` poll.
-`--bots codex,bugbot,coderabbit,copilot` limits which acks are awaited.
+`--bots aireview,bugbot,coderabbit,copilot` limits which acks are awaited.
+The AI review is advisory (see the contract's "Code review" section):
+wait for it and act on its threads, but it never gates the merge.
 `--webhook` spawns `gh webhook forward` to a local receiver so any
 review/comment/check event polls immediately; polling remains the
 fallback and the flag degrades silently when the extension is missing.
@@ -190,8 +192,11 @@ node "$ST_REVIEW" close --pr <n> --thread <PRRT_…> \
 ```
 
 `close` refuses a body that does not cite the fix SHA (`--sha` appends
-it when the text omits it) and verifies the thread is resolved with a
-single-node query. Use `--verdict reject|stale` for classes (b)–(d)
+it when the text omits it). It resolves the thread with GraphQL
+`resolveReviewThread`, then confirms it with a single-node query. Every
+AI review and PR-Agent finding is an inline review thread with a
+**Resolve conversation** button (like Codex), so each one ends resolved
+once it is addressed; none stays open after its reply. Use `--verdict reject|stale` for classes (b)–(d)
 with concrete evidence (still cite `$PUSHED_SHA` so bots anchor the
 verdict to a head). Top-level review bodies without an inline thread
 cannot be resolved — post via

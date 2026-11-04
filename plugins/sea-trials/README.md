@@ -22,10 +22,18 @@ Shared components (loaded by both hosts):
 - **Scripts:** push gate, PR review, parallel fan-out under `scripts/hooks/`
 - **Entry:** `scripts/st-run.mjs <hook> [-- args]` (or `pnpm` shortcuts in
   app repos that delegate via `.husky/st-plugin-run.sh`)
-- **MCP:** Atlassian (`atlassian-seatrials`, `atlassian-allinpmprep`, HTTP
-  OAuth) and `chrome-devtools` (stdio)
+- **MCP:** Atlassian (`atlassian`, the official remote server at
+  `https://mcp.atlassian.com/v2/mcp`, Streamable HTTP, browser OAuth; the
+  sprint skills find the site at run time and save it in the sprint folder)
+  and `chrome-devtools` (stdio)
+- **Sprint cards:** `scripts/sprint-cards/cli.mjs` (card folders, lint,
+  MCP plans, Jira push and resync); the viewer is the
+  [sprint-plan-viewer](https://github.com/hughesyadaddy/sprint-plan-viewer)
+  submodule, whose push and resync the CLI uses when it is there; see
+  `skills/_sources/sprint-cards-cli.md`
 - **Hooks:** session-start model probe; block bare / `--no-verify` /
-  `--force` `git push` unless a fresh gate-pass token exists
+  `--force` `git push` unless a fresh gate-pass token exists (commits
+  touching only `sprint_planning/**` are exempt)
 
 `mcp.json` and `.mcp.json` must stay byte-identical; every remote server
 declares `"type": "http"` because Claude hard-errors on a bare `url`.
@@ -39,10 +47,11 @@ declares `"type": "http"` because Claude hard-errors on a bare `url`.
    `https://github.com/hughesyadaddy/sea-trials-cursor-marketplace`
 2. Enable **sea-trials**, **vgv-wingspan**, **vgv-ai-flutter-plugin**
 3. Cmd+Q → reopen Cursor
-4. Settings → MCP → **Connect** on `atlassian-seatrials` and
-   `atlassian-allinpmprep`
+4. Settings → MCP → **Connect** on `atlassian`
 
-Local smoke without the marketplace:
+Local smoke without the marketplace (temporary: delete
+`~/.cursor/plugins/local/sea-trials` afterwards, or Cursor loads a stale
+second copy of every st-* skill next to the marketplace install):
 
 ```bash
 rsync -a --delete plugins/sea-trials/ ~/.cursor/plugins/local/sea-trials/
@@ -113,7 +122,7 @@ gate fan-outs pin slugs the host actually accepts. See
 | Fine-grained fan-out | `pr-review-push --list-tasks --granularity fine` | One JSON line per worker; `run-gate-task` honours machine-wide analyzer slots |
 | Content-hash gate cache | automatic; `ST_GATE_CACHE=0` to disable | Dependency-aware `dart analyze` keys; shared across worktrees |
 | Worker telemetry | `st-run st-gate-stats` | p50/p95 per task kind, slowest packages, cache hit rate |
-| Adaptive PR review loop | `st-run pr-review-loop -- --pr N [--webhook]` | Settled-state machine on Codex/Bugbot/CI signals; ETag probes, rate-limit backoff |
+| Adaptive PR review loop | `st-run pr-review-loop -- --pr N [--webhook]` | Settled-state machine on AI review (advisory)/Bugbot/CI signals; ETag probes, rate-limit backoff |
 | Flaky-test quarantine | `/st-flake-quarantine`, `flake-quarantine.mjs` | Classifies, retries, quarantines with `skip:` + tracking issue |
 | Build sharding | `st-run st-build-shard-tasks`, `sprint-to-shards.mjs` | Disjoint file ownership; sprint folders become `shards.json` |
 | Host model probe | `st-run st-model-probe` | Detects host + accepted model slugs; `resolveModel()` picks worker tiers |
@@ -175,7 +184,10 @@ copy at `skills/st-*/references/shared/<name>.md` because both hosts resolve
 `references/` relative to the skill directory.
 
 - Edit `skills/_sources/<name>.md`, then run
-  `node scripts/sync-skill-sources.mjs` from the marketplace root.
+  `node scripts/sync-skill-sources.mjs` from the marketplace root, or the
+  plugin-local copy of the same script from `plugins/sea-trials/` (the
+  plugin is self-contained; `scripts/sync-skill-sources.test.mjs` fails on
+  drift).
 - Copies start with `<!-- GENERATED from skills/_sources/<name>.md … -->`.
   Never edit them; CI runs `--check` and fails on drift.
 

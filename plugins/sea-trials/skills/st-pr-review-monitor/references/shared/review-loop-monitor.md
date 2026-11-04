@@ -43,7 +43,7 @@ cd "$ACTIVE_ROOT" && \
   --pr <n> \
   --duration 24h \
   --silence 60 \
-  --bots codex,bugbot,coderabbit,copilot
+  --bots aireview,bugbot,coderabbit,copilot
 ```
 
 (`--webhook` is on by default; `gh extension install cli/gh-webhook`
@@ -53,8 +53,8 @@ Record the **terminal task id** — the parent uses `Await` on it.
 
 ### Optional — detached daemon (NOT for Cursor Agent chat)
 
-Survives chat close; **does not** signal Cursor Agent when Codex reviews
-land. Use only when the user explicitly wants an offline watch:
+Survives chat close; **does not** signal Cursor Agent when the AI review
+posts. Use only when the user explicitly wants an offline watch:
 
 ```bash
 bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" \
@@ -74,8 +74,8 @@ The daemon prints **only on state change** (deduped):
 
 | Line | Meaning | Parent must |
 | --- | --- | --- |
-| `>>> ACTION: ci-fail …` | CI red on HEAD | Fix **now** — do not wait for Codex |
-| `>>> ACTION: threads …` | Unresolved bot threads | Run review-loop Steps 2–6 |
+| `>>> ACTION: ci-fail …` | CI red on HEAD | Fix **now** — do not wait for the AI review |
+| `>>> ACTION: threads …` | Unresolved bot threads (AI review `github-actions[bot]`, Bugbot, humans) | Run review-loop Steps 2–6 |
 | `>>> WAIT: …` | CI pending or bots reviewing | Keep `Await` running |
 | `>>> GREEN: …` | 0 threads, CI green | Round complete; **keep watching** after push |
 
@@ -102,7 +102,7 @@ STOP detached (if any) → START in-chat daemon (once) → AWAIT → ACT → ACK
    read `pr-<n>-acting.signal` on resume; if it starts with `CI_FAIL` or
    `THREADS`, treat as ACTION.
 3. **Act** — on `ci-fail`: fix → gate → push → **do not wait for
-   Codex**. On `threads`: full review-loop Steps 2–6 (triage, fix
+   the AI review**. On `threads`: full review-loop Steps 2–6 (triage, fix
    fan-out, gate, push, reply+resolve).
 4. **Ack** — after each fix round:
 
@@ -113,20 +113,22 @@ STOP detached (if any) → START in-chat daemon (once) → AWAIT → ACT → ACK
 5. **Repeat** — go back to Await. Never end the turn on ACTION without
    fixing. Never ask "should I fix CI?" — **just fix it**.
 
-### CI vs Codex priority
+### CI vs AI review priority
 
-| Signal | Wait for Codex? | Action |
+| Signal | Wait for the AI review? | Action |
 | --- | --- | --- |
 | CI fail | **No** | Fix immediately; push; ack; resume watch |
 | Open threads | No (existing threads) | Triage + adversarial vet + fix |
-| CI pending, 0 threads | Yes (daemon stays WAIT) | Keep watching |
-| New Codex after push | Webhook or 3m poll | ACT when threads appear |
+| CI pending, 0 threads | Yes, while its `review` run on HEAD is queued or running (daemon stays WAIT) | Keep watching |
+| AI review after push | Webhook or 3m poll; its comments do not fire GitHub events, so the `review` check run completing is the wake | ACT when threads appear |
+| AI review skipped / never started | No (moves on after the 3-min ack window) | Continue; it is never a gate |
 
 ### When the watch may stop
 
-Merge-ready (`ST_REVIEW_STATUS` exit 0) **and** 60 minutes with no new Codex
-activity on current HEAD since last push (`--silence 60` + settled `DONE`), or
-user stop, or PR merged.
+Merge-ready (`ST_REVIEW_STATUS` exit 0) **and** the AI review is settled on
+the current HEAD (its `review` check run for HEAD completed or was skipped,
+or the summary SHA equals HEAD) with every thread it raised resolved
+(`--silence 60` cap + settled `DONE`), or user stop, or PR merged.
 
 ## Worktree vs in-place
 
@@ -158,6 +160,8 @@ Stop when: PR merged, user says stop, or replacing with a new PR number.
   project's own CI lane registry (`scripts/ci/pr-lane-registry.mjs`).
 - Stopping after 1–2 `WAIT` polls ("bots usually respond by now")
 - Ending the agent turn on `>>> GREEN:` without continuing `Await`
-- Waiting for Codex when CI is red
+- Waiting for the AI review when CI is red
+- Requesting Codex or posting `@codex review` (Codex is not used)
+- Treating the AI review verdict or its check as a merge gate
 - Multiple daemons for the same PR (PID lock)
 - Ending the agent turn on `>>> ACTION:` without fix + ack

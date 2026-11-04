@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Local parity for secrets-scripts-tests (mirrors pr-checks.yml).
+# Local parity for secrets-scripts-tests (mirrors pr-checks.yml + test:secrets).
 # Ships in the sea-trials plugin; runs against the checkout in cwd.
 set -euo pipefail
 
 ROOT="${ST_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
 cd "$ROOT"
 
-node --test scripts/setup-secrets.test.mjs \
+node --test scripts/pull-secrets.test.mjs \
+  scripts/setup-secrets.test.mjs \
   scripts/generate-firebase-configs.test.mjs \
   scripts/ci-workflows.test.mjs \
   scripts/setup-secrets-firebase-refresh.test.mjs \
@@ -23,6 +24,9 @@ node --test scripts/setup-secrets.test.mjs \
   scripts/register_android_debug_sha.test.mjs \
   scripts/lib/android-debug-keystore.test.mjs \
   scripts/lib/firebase-oauth-harvest.test.mjs \
+  scripts/lib/firebase-oauth-web-parity.test.mjs \
+  scripts/lib/oauth-client-fingerprint.test.mjs \
+  scripts/lib/published-oauth-verify.test.mjs \
   scripts/lib/google-access-token.test.mjs \
   scripts/verify_app_check_debug_token.test.mjs \
   scripts/sentry-tenant-routing.test.mjs
@@ -38,7 +42,12 @@ bash code_magic_whitelabel_builder/tests/test_writeback_post.sh
 node --test scripts/web_load_watchdog.test.mjs
 
 bash -n scripts/setup-secrets.sh
+bash -n scripts/pull-secrets.sh
+bash -n scripts/secrets-backend-neon.sh
+bash -n scripts/env-key-map.sh
 shellcheck --severity=warning --exclude=SC2178 scripts/setup-secrets.sh
+shellcheck --severity=warning scripts/pull-secrets.sh
+shellcheck --severity=warning scripts/secrets-backend-neon.sh
 bash -n code_magic_whitelabel_builder/utils/flutterfire_configure.sh
 shellcheck --severity=warning code_magic_whitelabel_builder/utils/flutterfire_configure.sh
 bash -n code_magic_whitelabel_builder/platform/marketing/assert_no_dotsecrets.sh

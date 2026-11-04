@@ -2,7 +2,7 @@
  * Bot login helpers for vendored pr-review-lib (plugin ships full settled poller).
  */
 export const BOTS = Object.freeze({
-  codex: Object.freeze({ login: 'chatgpt-codex-connector' }),
+  aireview: Object.freeze({ login: 'github-actions' }),
   bugbot: Object.freeze({ login: 'cursor' }),
   coderabbit: Object.freeze({ login: 'coderabbitai' }),
   copilot: Object.freeze({ login: 'copilot-pull-request-reviewer' }),

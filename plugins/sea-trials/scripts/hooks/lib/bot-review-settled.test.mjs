@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
-  BOTS,
+  AI_REVIEW_MARK,
   STATES,
   SETTLED_DEFAULTS,
+  aiReviewSummarySha,
   applyRateLimitBackoff,
   botKeyForLogin,
   createGhAdapter,
@@ -13,6 +14,7 @@ import {
   createWakeableSleep,
   deriveSignals,
   enabledBotsOf,
+  isAiReviewCheckRun,
   isBotLogin,
   isGraphqlRateLimited,
   machineSnapshot,
@@ -40,14 +42,15 @@ const MIN = 60_000;
 // ==========================================================================
 
 test('normalizeLogin strips [bot] suffix and case', () => {
-  assert.equal(normalizeLogin('chatgpt-codex-connector[bot]'), 'chatgpt-codex-connector');
+  assert.equal(normalizeLogin('github-actions[bot]'), 'github-actions');
   assert.equal(normalizeLogin('Cursor'), 'cursor');
   assert.equal(normalizeLogin(null), '');
 });
 
 test('botKeyForLogin matches GraphQL and REST spellings', () => {
-  assert.equal(botKeyForLogin('chatgpt-codex-connector'), 'codex');
-  assert.equal(botKeyForLogin('chatgpt-codex-connector[bot]'), 'codex');
+  assert.equal(botKeyForLogin('github-actions'), 'aireview');
+  assert.equal(botKeyForLogin('github-actions[bot]'), 'aireview');
+  assert.equal(botKeyForLogin('chatgpt-codex-connector[bot]'), null);
   assert.equal(botKeyForLogin('coderabbitai[bot]'), 'coderabbit');
   assert.equal(botKeyForLogin('copilot-pull-request-reviewer[bot]'), 'copilot');
   assert.equal(botKeyForLogin('alexhughes'), null);
@@ -94,7 +97,7 @@ test('normalizeRestComment unifies review comments and reviews', () => {
 
 test('selectNewBotComments drops humans, stale heads, and seen ids', () => {
   const comments = [
-    { id: 'a', login: 'chatgpt-codex-connector[bot]', createdAt: T0 + 5_000, commitId: HEAD },
+    { id: 'a', login: 'github-actions[bot]', createdAt: T0 + 5_000, commitId: HEAD },
     { id: 'b', login: 'alexhughes', createdAt: T0 + 5_000, commitId: HEAD },
     { id: 'c', login: 'cursor[bot]', createdAt: T0 - 5_000, commitId: OLD_HEAD },
     { id: 'd', login: 'cursor[bot]', createdAt: T0 - 5_000, commitId: HEAD },
@@ -108,63 +111,57 @@ test('selectNewBotComments drops humans, stale heads, and seen ids', () => {
 // SIGNALS
 // ==========================================================================
 
-test('deriveSignals: codex 👀 after t0 is ack, not complete', () => {
-  const s = deriveSignals({
-    head: HEAD,
-    t0: T0,
-    reactions: [
-      { content: 'eyes', user: { login: 'chatgpt-codex-connector[bot]' }, created_at: '2026-09-22T12:00:30Z' },
-    ],
-  });
-  assert.equal(s.ack.codex, true);
-  assert.equal(s.complete.codex, false);
-  assert.equal(s.present.codex, true);
+const aiSummary = (sha) => `${AI_REVIEW_MARK}\n### AI review (advisory, never blocks merge)\n\n**Verdict:** No new issues\n<!-- st-ai-review:sha=${sha} -->\n`;
+
+test('aiReviewSummarySha reads the reviewed head from the marked comment', () => {
+  assert.equal(aiReviewSummarySha(aiSummary(HEAD)), HEAD);
+  assert.equal(aiReviewSummarySha(`<!-- st-ai-review:sha=${HEAD} -->`), null, 'needs the summary marker');
+  assert.equal(aiReviewSummarySha('Codex Review: done'), null);
 });
 
-test('deriveSignals: codex 👀 from before t0 does not count', () => {
-  const s = deriveSignals({
-    head: HEAD,
-    t0: T0,
-    reactions: [
-      { content: 'eyes', user: { login: 'chatgpt-codex-connector[bot]' }, created_at: '2026-09-22T11:00:00Z' },
-    ],
-  });
-  assert.equal(s.ack.codex, false);
-  assert.equal(s.present.codex, true);
+test('isAiReviewCheckRun matches job `review` from GitHub Actions only', () => {
+  assert.equal(isAiReviewCheckRun({ name: 'review', app: { slug: 'github-actions' } }), true);
+  assert.equal(isAiReviewCheckRun({ name: 'review' }), true);
+  assert.equal(isAiReviewCheckRun({ name: 'AI Review (advisory) / review' }), true);
+  assert.equal(isAiReviewCheckRun({ name: 'review', app: { slug: 'some-app' } }), false);
+  assert.equal(isAiReviewCheckRun({ name: 'pr-review-lane' }), false);
 });
 
-test('deriveSignals: codex review on head or "Reviewed commit" completes', () => {
-  const byReview = deriveSignals({
+test('deriveSignals: AI review check run queued→ack, completed→complete', () => {
+  const running = deriveSignals({
     head: HEAD,
     t0: T0,
-    reviews: [
-      { user: { login: 'chatgpt-codex-connector[bot]' }, commit_id: HEAD, submitted_at: '2026-09-22T12:05:00Z', state: 'COMMENTED' },
-    ],
+    checkRuns: [{ name: 'review', status: 'in_progress', head_sha: HEAD, app: { slug: 'github-actions' } }],
   });
-  assert.equal(byReview.complete.codex, true);
-  assert.equal(byReview.ack.codex, true);
+  assert.equal(running.ack.aireview, true);
+  assert.equal(running.complete.aireview, false);
+  assert.equal(running.present.aireview, true);
 
-  const byComment = deriveSignals({
+  const skipped = deriveSignals({
     head: HEAD,
     t0: T0,
-    issueComments: [
-      { user: { login: 'chatgpt-codex-connector[bot]' }, created_at: '2026-09-22T12:05:00Z', body: `Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** ${HEAD}` },
-    ],
+    checkRuns: [{ name: 'review', status: 'completed', conclusion: 'skipped', head_sha: HEAD }],
   });
-  assert.equal(byComment.complete.codex, true);
+  assert.equal(skipped.complete.aireview, true, 'a skipped run (draft, no credential) is done, not waited on');
+});
+
+test('deriveSignals: AI review summary stamped with head completes; older head does not', () => {
+  const done = deriveSignals({
+    head: HEAD,
+    t0: T0,
+    issueComments: [{ user: { login: 'github-actions[bot]' }, created_at: '2026-09-22T11:00:00Z', body: aiSummary(HEAD) }],
+  });
+  assert.equal(done.complete.aireview, true);
+  assert.equal(done.ack.aireview, true);
 
   const stale = deriveSignals({
     head: HEAD,
     t0: T0,
-    reviews: [
-      { user: { login: 'chatgpt-codex-connector[bot]' }, commit_id: OLD_HEAD, submitted_at: '2026-09-22T11:00:00Z' },
-    ],
-    issueComments: [
-      { user: { login: 'chatgpt-codex-connector[bot]' }, created_at: '2026-09-22T11:00:00Z', body: `**Reviewed commit:** ${OLD_HEAD}` },
-    ],
+    issueComments: [{ user: { login: 'github-actions[bot]' }, created_at: '2026-09-22T11:00:00Z', body: aiSummary(OLD_HEAD) }],
+    checkRuns: [{ name: 'review', status: 'completed', head_sha: OLD_HEAD }],
   });
-  assert.equal(stale.complete.codex, false);
-  assert.equal(stale.present.codex, true);
+  assert.equal(stale.complete.aireview, false);
+  assert.equal(stale.present.aireview, true);
 });
 
 test('deriveSignals: Bugbot check run maps queued→ack, completed→complete', () => {
@@ -226,12 +223,12 @@ test('mergeSignals ORs and never forgets', () => {
   const a = deriveSignals({
     head: HEAD,
     t0: T0,
-    reactions: [{ content: 'eyes', user: { login: 'chatgpt-codex-connector' }, created_at: T0 + 1 }],
+    checkRuns: [{ name: 'review', status: 'queued', head_sha: HEAD }],
   });
   const merged = mergeSignals(a, { complete: { bugbot: true } });
-  assert.equal(merged.ack.codex, true);
+  assert.equal(merged.ack.aireview, true);
   assert.equal(merged.complete.bugbot, true);
-  assert.equal(merged.complete.codex, false);
+  assert.equal(merged.complete.aireview, false);
 });
 
 // ==========================================================================
@@ -265,26 +262,26 @@ test('applyRateLimitBackoff waits for reset and doubles under the floor', () => 
 // MACHINE
 // ==========================================================================
 
-function codexReview(at) {
+function aiReviewComment(at) {
   return {
-    id: `review:${at}`,
-    login: 'chatgpt-codex-connector[bot]',
+    id: `review-comment:${at}`,
+    login: 'github-actions[bot]',
     createdAt: at,
     commitId: HEAD,
-    body: 'Codex Review: found things',
-    kind: 'review',
+    body: '**The audit gate passes when the audit itself fails.**',
+    kind: 'review-comment',
   };
 }
 
-function codexAck() {
-  return { ack: { codex: true }, present: { codex: true } };
+function aiReviewAck() {
+  return { ack: { aireview: true }, present: { aireview: true } };
 }
 
-function codexDone() {
+function aiReviewDone() {
   return {
-    ack: { codex: true },
-    complete: { codex: true },
-    present: { codex: true },
+    ack: { aireview: true },
+    complete: { aireview: true },
+    present: { aireview: true },
   };
 }
 
@@ -298,21 +295,20 @@ test('machine: PUSHED waits 20s then AWAITING_ACK', () => {
   assert.equal(step.nextPollMs, SETTLED_DEFAULTS.ackPollMs);
 });
 
-test('machine: ack moves to REVIEWING; timeout retriggers Codex once', () => {
+test('machine: ack moves to REVIEWING; timeout moves on without a re-trigger', () => {
   let m = createMachine({ head: HEAD, t0: T0 });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  const acked = stepMachine(m, { now: T0 + 35_000, signals: codexAck() });
+  const acked = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() });
   assert.equal(acked.machine.state, STATES.REVIEWING);
 
-  let quiet = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let quiet = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   quiet = stepMachine(quiet, { now: T0 + 20_000 }).machine;
   const timedOut = stepMachine(quiet, { now: T0 + 20_000 + 3 * MIN });
   assert.equal(timedOut.machine.state, STATES.REVIEWING);
-  assert.deepEqual(timedOut.actions, ['post-codex-retrigger']);
-  assert.equal(timedOut.machine.codexRetriggered, true);
+  assert.deepEqual(timedOut.actions, []);
 });
 
-test('machine: ack timeout without Codex enabled posts nothing', () => {
+test('machine: ack timeout with only Bugbot enabled posts nothing', () => {
   let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['bugbot'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
   const timedOut = stepMachine(m, { now: T0 + 20_000 + 3 * MIN });
@@ -321,20 +317,20 @@ test('machine: ack timeout without Codex enabled posts nothing', () => {
 });
 
 test('machine: REVIEWING debounces two quiet polls before SETTLED_CHECK', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   assert.equal(m.state, STATES.REVIEWING);
 
   // Bot posts a review: activity resets the quiet counter.
   let s = stepMachine(m, {
     now: T0 + 65_000,
-    botComments: [codexReview(T0 + 60_000)],
-    signals: codexDone(),
+    botComments: [aiReviewComment(T0 + 60_000)],
+    signals: aiReviewDone(),
     unresolvedThreads: 0,
     unresolvedBotThreads: 0,
   });
-  // Codex is complete with zero threads → nothing to act on, settle.
+  // The AI review is complete with zero threads → nothing to act on, settle.
   assert.equal(s.machine.state, STATES.SETTLED_CHECK);
   assert.equal(s.machine.quietPolls, 0);
 });
@@ -352,13 +348,13 @@ test('machine: quiet polls with a bot still in flight keep REVIEWING', () => {
 });
 
 test('machine: all bots complete with unresolved threads → ACTING fast', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   const s = stepMachine(m, {
     now: T0 + 65_000,
-    botComments: [codexReview(T0 + 60_000)],
-    signals: codexDone(),
+    botComments: [aiReviewComment(T0 + 60_000)],
+    signals: aiReviewDone(),
     unresolvedThreads: 3,
     unresolvedBotThreads: 3,
   });
@@ -367,13 +363,13 @@ test('machine: all bots complete with unresolved threads → ACTING fast', () =>
 });
 
 test('machine: complete but stale thread count asks for refresh first', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   const s = stepMachine(m, {
     now: T0 + 65_000,
-    botComments: [codexReview(T0 + 60_000)],
-    signals: codexDone(),
+    botComments: [aiReviewComment(T0 + 60_000)],
+    signals: aiReviewDone(),
   });
   assert.equal(s.machine.state, STATES.REVIEWING);
   assert.deepEqual(s.actions, ['refresh-threads']);
@@ -386,13 +382,13 @@ test('machine: complete but stale thread count asks for refresh first', () => {
 });
 
 test('machine: SETTLED_CHECK needs 2 polls + 3 min then SETTLED → DONE', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   m = stepMachine(m, {
     now: T0 + 65_000,
-    botComments: [codexReview(T0 + 60_000)],
-    signals: codexDone(),
+    botComments: [aiReviewComment(T0 + 60_000)],
+    signals: aiReviewDone(),
     unresolvedThreads: 0,
     unresolvedBotThreads: 0,
   }).machine;
@@ -410,13 +406,13 @@ test('machine: SETTLED_CHECK needs 2 polls + 3 min then SETTLED → DONE', () =>
 });
 
 test('machine: bot activity during SETTLED_CHECK drops back to REVIEWING', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   m = stepMachine(m, {
     now: T0 + 65_000,
-    botComments: [codexReview(T0 + 60_000)],
-    signals: codexDone(),
+    botComments: [aiReviewComment(T0 + 60_000)],
+    signals: aiReviewDone(),
     unresolvedThreads: 0,
     unresolvedBotThreads: 0,
   }).machine;
@@ -432,13 +428,13 @@ test('machine: bot activity during SETTLED_CHECK drops back to REVIEWING', () =>
 });
 
 test('machine: SETTLED with CI pending waits instead of DONE', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   m = stepMachine(m, {
     now: T0 + 65_000,
-    botComments: [codexReview(T0 + 60_000)],
-    signals: codexDone(),
+    botComments: [aiReviewComment(T0 + 60_000)],
+    signals: aiReviewDone(),
     unresolvedThreads: 0,
     unresolvedBotThreads: 0,
     ciPending: true,
@@ -477,31 +473,31 @@ test('machine: --silence cap forces SETTLED regardless of state', () => {
 });
 
 test('machine: new head restarts at PUSHED with fresh t0 and no signals', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  m = stepMachine(m, { now: T0 + 35_000, signals: codexAck() }).machine;
+  m = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck() }).machine;
   const s = stepMachine(m, { now: T0 + 40_000, head: OLD_HEAD });
   assert.equal(s.machine.state, STATES.PUSHED);
   assert.equal(s.machine.head, OLD_HEAD);
   assert.equal(s.machine.t0, T0 + 40_000);
-  assert.equal(s.machine.signals.ack.codex, false);
-  assert.deepEqual(s.machine.enabledBots, ['codex']);
+  assert.equal(s.machine.signals.ack.aireview, false);
+  assert.deepEqual(s.machine.enabledBots, ['aireview']);
   assert.deepEqual(s.actions, ['head-changed']);
 });
 
 test('machine: CI pending stretches the REVIEWING poll to 60s', () => {
-  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  let m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   m = stepMachine(m, { now: T0 + 20_000 }).machine;
-  const s = stepMachine(m, { now: T0 + 35_000, signals: codexAck(), ciPending: true });
+  const s = stepMachine(m, { now: T0 + 35_000, signals: aiReviewAck(), ciPending: true });
   assert.equal(s.machine.state, STATES.REVIEWING);
   assert.equal(s.nextPollMs, SETTLED_DEFAULTS.ciPendingPollMs);
 });
 
 test('enabledBotsOf falls back to bots present on the PR', () => {
   const m = createMachine({ head: HEAD, t0: T0 });
-  m.signals.present.codex = true;
+  m.signals.present.aireview = true;
   m.signals.present.bugbot = true;
-  assert.deepEqual(enabledBotsOf(m), ['codex', 'bugbot']);
+  assert.deepEqual(enabledBotsOf(m), ['aireview', 'bugbot']);
   const explicit = createMachine({ head: HEAD, t0: T0, enabledBots: ['copilot'] });
   assert.deepEqual(enabledBotsOf(explicit), ['copilot']);
 });
@@ -519,14 +515,14 @@ test('threadsAreFresh requires a read after the last bot comment', () => {
 });
 
 test('machineSnapshot exposes state, head, threads, signals, nextPollMs', () => {
-  const m = createMachine({ head: HEAD, t0: T0, enabledBots: ['codex'] });
+  const m = createMachine({ head: HEAD, t0: T0, enabledBots: ['aireview'] });
   const snap = machineSnapshot(m, 1234);
   assert.equal(snap.state, STATES.PUSHED);
   assert.equal(snap.head, HEAD);
   assert.equal(snap.unresolvedBotThreads, null);
   assert.equal(snap.nextPollMs, 1234);
-  assert.deepEqual(snap.signals.enabled, ['codex']);
-  assert.equal(snap.signals.ack.codex, false);
+  assert.deepEqual(snap.signals.enabled, ['aireview']);
+  assert.equal(snap.signals.ack.aireview, false);
 });
 
 // ==========================================================================
@@ -595,9 +591,9 @@ test('createGhAdapter.post and graphql shape their gh args', () => {
     return { status: 0, stdout: '{"data":{}}', stderr: '' };
   };
   const adapter = createGhAdapter('/tmp', { spawn });
-  adapter.post('repos/o/r/issues/1/comments', { body: '@codex review' });
+  adapter.post('repos/o/r/issues/1/comments', { body: 'hello' });
   assert.deepEqual(calls[0].slice(0, 3), ['api', '--method', 'POST']);
-  assert.ok(calls[0].includes('body=@codex review'));
+  assert.ok(calls[0].includes('body=hello'));
   adapter.graphql('query($id:ID!){node(id:$id){id}}', { id: 'PRRT_1' });
   assert.equal(calls[1][1], 'graphql');
   assert.ok(calls[1].includes('id=PRRT_1'));
@@ -625,7 +621,6 @@ function fakeGithub() {
     reviewComments: [],
     reviews: [],
     issueComments: [],
-    reactions: [],
     checkRuns: { check_runs: [] },
     pull: { head: { sha: HEAD }, requested_reviewers: [] },
     posts: [],
@@ -636,7 +631,6 @@ function fakeGithub() {
     if (path.includes('/pulls/') && path.includes('/comments')) return 'reviewComments';
     if (path.includes('/reviews')) return 'reviews';
     if (path.includes('/issues/') && path.includes('/comments')) return 'issueComments';
-    if (path.includes('/reactions')) return 'reactions';
     if (path.includes('/check-runs')) return 'checkRuns';
     return 'pull';
   };
@@ -660,7 +654,7 @@ function fakeGithub() {
   return { world, adapter };
 }
 
-test('poller: Codex round trip — ack, review, ACTING with threads', () => {
+test('poller: AI review round trip — check run, inline findings, summary, ACTING', () => {
   const { world, adapter } = fakeGithub();
   let clock = T0;
   let threads = { unresolvedThreads: 0, unresolvedBotThreads: 0 };
@@ -672,7 +666,7 @@ test('poller: Codex round trip — ack, review, ACTING with threads', () => {
     head: HEAD,
     t0: T0,
     adapter,
-    enabledBots: ['codex'],
+    enabledBots: ['aireview'],
     now: () => clock,
     log: (line) => logs.push(line),
     refreshThreads: () => {
@@ -699,33 +693,28 @@ test('poller: Codex round trip — ack, review, ACTING with threads', () => {
   assert.equal(r.machine.state, STATES.AWAITING_ACK);
   assert.equal(refreshes, 1);
 
-  // Codex 👀 → ack.
-  world.reactions.push({
-    content: 'eyes',
-    user: { login: 'chatgpt-codex-connector[bot]' },
-    created_at: new Date(T0 + 40_000).toISOString(),
-  });
+  // AI Review (advisory) job `review` starts on the head → ack.
+  world.checkRuns = { check_runs: [{ name: 'review', status: 'in_progress', head_sha: HEAD, app: { slug: 'github-actions' } }] };
   clock = T0 + 50_000;
   r = poller.poll();
   assert.equal(r.machine.state, STATES.REVIEWING);
-  assert.equal(refreshes, 1, 'reactions alone do not trigger GraphQL');
+  assert.equal(refreshes, 1, 'a check run alone does not trigger GraphQL');
 
-  // Codex posts its review with inline threads.
-  world.reviews.push({
-    id: 900,
-    user: { login: 'chatgpt-codex-connector[bot]' },
-    commit_id: HEAD,
-    submitted_at: new Date(T0 + 70_000).toISOString(),
-    state: 'COMMENTED',
-    body: 'Codex Review: 2 findings',
-  });
+  // It posts inline findings and its summary, then the job completes.
   world.reviewComments.push({
     id: 901,
-    user: { login: 'chatgpt-codex-connector[bot]' },
+    user: { login: 'github-actions[bot]' },
     commit_id: HEAD,
     created_at: new Date(T0 + 70_000).toISOString(),
-    body: '[P1] bug',
+    body: '**Real bug.** fix it',
   });
+  world.issueComments.push({
+    id: 902,
+    user: { login: 'github-actions[bot]' },
+    created_at: new Date(T0 + 71_000).toISOString(),
+    body: aiSummary(HEAD),
+  });
+  world.checkRuns = { check_runs: [{ name: 'review', status: 'completed', conclusion: 'success', head_sha: HEAD, app: { slug: 'github-actions' } }] };
   threads = { unresolvedThreads: 2, unresolvedBotThreads: 2 };
   clock = T0 + 80_000;
   r = poller.poll();
@@ -738,10 +727,10 @@ test('poller: Codex round trip — ack, review, ACTING with threads', () => {
   const snap = poller.snapshot();
   assert.equal(snap.state, STATES.ACTING);
   assert.equal(snap.unresolvedBotThreads, 2);
-  assert.equal(snap.signals.complete.codex, true);
+  assert.equal(snap.signals.complete.aireview, true);
 });
 
-test('poller: no ack in 3 min posts "@codex review" exactly once', () => {
+test('poller: no ack in 3 min never posts a re-trigger comment', () => {
   const { world, adapter } = fakeGithub();
   let clock = T0;
   const poller = createSettledPoller({
@@ -750,7 +739,7 @@ test('poller: no ack in 3 min posts "@codex review" exactly once', () => {
     head: HEAD,
     t0: T0,
     adapter,
-    enabledBots: ['codex'],
+    enabledBots: ['aireview'],
     now: () => clock,
     refreshThreads: () => ({ unresolvedThreads: 0, unresolvedBotThreads: 0 }),
   });
@@ -759,12 +748,9 @@ test('poller: no ack in 3 min posts "@codex review" exactly once', () => {
   clock = T0 + 20_000 + 3 * MIN;
   const r = poller.poll();
   assert.equal(r.machine.state, STATES.REVIEWING);
-  assert.equal(world.posts.length, 1);
-  assert.equal(world.posts[0].fields.body, BOTS.codex.retrigger);
-  assert.equal(world.posts[0].path, 'repos/acme/widgets/issues/5/comments');
   clock += 30_000;
   poller.poll();
-  assert.equal(world.posts.length, 1);
+  assert.equal(world.posts.length, 0);
 });
 
 test('poller: remote head change restarts and clears ETags', () => {
@@ -776,7 +762,7 @@ test('poller: remote head change restarts and clears ETags', () => {
     head: HEAD,
     t0: T0,
     adapter,
-    enabledBots: ['codex'],
+    enabledBots: ['aireview'],
     now: () => clock,
     refreshThreads: () => ({ unresolvedThreads: 0, unresolvedBotThreads: 0 }),
   });

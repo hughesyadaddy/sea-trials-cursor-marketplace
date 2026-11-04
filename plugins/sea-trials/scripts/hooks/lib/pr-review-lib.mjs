@@ -65,7 +65,7 @@ export function getRepoRoot() {
  * `silenceExplicit` tell the loop whether the user set them).
  *
  * `--webhook [port]` opts into `gh webhook forward` (falls back to
- * polling when the extension is missing). `--bots codex,bugbot` pins
+ * polling when the extension is missing). `--bots aireview,bugbot` pins
  * which reviewers must settle; default is every bot seen on the PR.
  */
 export function parsePrArgs(argv, defaults = {}) {
@@ -446,7 +446,8 @@ export function fetchReviewThreads(repoRoot, prNumber) {
 }
 
 /**
- * Unresolved threads opened by a reviewer bot (Codex, Bugbot, …). Bot
+ * Unresolved threads opened by a reviewer bot (the advisory AI review as
+ * `github-actions`, Bugbot, …). Bot
  * logins arrive without `[bot]` from GraphQL and with it from REST.
  *
  * @param {Array<{ author?: string | null }>} unresolved mapped threads

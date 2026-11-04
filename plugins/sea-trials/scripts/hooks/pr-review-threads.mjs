@@ -45,8 +45,8 @@ const GH_MAX_BUFFER = 64 * 1024 * 1024;
 export const COMMENT_FETCH_CONCURRENCY = 6;
 
 /**
- * Machine-readable verdict prefix for bot reviewers (Codex, Bugbot, etc.).
- * Codex re-reads resolved threads on later pushes; explicit VALID/REJECT/STALE
+ * Machine-readable verdict prefix for bot reviewers (AI review, Bugbot, etc.).
+ * The AI review is handed every finding already raised on later pushes; explicit VALID/REJECT/STALE
  * labels reduce repeat false positives and document why no code changed.
  *
  * @typedef {'valid'|'reject'|'stale'|'defer'} BotReviewVerdict

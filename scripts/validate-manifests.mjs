@@ -37,7 +37,7 @@ const claudePathFields = [
   'lspServers',
 ];
 /** Cursor plugin.json fields that hold component paths. */
-const cursorPathFields = ['skills', 'agents', 'hooks', 'rules', 'mcp'];
+const cursorPathFields = ['skills', 'agents', 'hooks', 'rules', 'mcpServers', 'mcp'];
 /** Remote MCP transports that require `type` next to `url`. */
 const remoteMcpTypes = new Set(['http', 'sse', 'ws']);
 

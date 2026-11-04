@@ -159,12 +159,18 @@ Parent (or one `st-shard-integrator` subagent on `inherit`):
    `.arb` keys, route/DI registration).
 2. Dedupe helpers introduced twice by parallel workers.
 3. Regenerate l10n / codegen if shared inputs changed.
-4. Validate the whole changed set — fix at the boundary only:
+4. Validate the whole changed set **once** — fix at the boundary only.
+   Between integration edits use ReadLints / Dart MCP `analyze_files` on
+   the touched files; do not loop full validate:
 
    ```bash
    node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
    # or: node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs"
    ```
+
+   This runs one merged `dart analyze` and is serialised machine-wide, so
+   it stays light even while shard workers are still finishing. Pass
+   `--analyze-only` if no tests changed at the boundary.
 
 5. Commit (`integrate: …`). Still no push.
 

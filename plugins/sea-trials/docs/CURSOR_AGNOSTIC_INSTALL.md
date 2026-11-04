@@ -9,7 +9,7 @@ without copying plugin files into the app repo.
    `hughesyadaddy/sea-trials-cursor-marketplace`
 2. Enable **sea-trials** (and **vgv-wingspan** if you use `/plan` / `/build`)
 3. Cmd+Q → reopen
-4. MCP → Connect **atlassian-*** and **chrome-devtools** as needed
+4. MCP → Connect **atlassian** (https://mcp.atlassian.com/v2/mcp, browser OAuth) and **chrome-devtools** as needed
 
 Cursor caches the plugin under `~/.cursor/plugins/cache/…/sea-trials/<sha>/`.
 That tree is the **only** source for scripts, skills, agents, and hooks.

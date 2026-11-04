@@ -701,7 +701,7 @@ const PHRASES = Object.freeze({
     'Updated the AC after standup.',
     'Tweaked the wording on this one.',
     "Reworked the scope table, the old one didn't match what we agreed.",
-    'small edit to the test plan, nothing else changed.',
+    'small edit to the acceptance criteria, nothing else changed.',
     'Rewrote the description so it reads in one pass.',
     'Fixed the files list, two paths were stale.',
     'Split one AC line that was doing two things.',

@@ -18,7 +18,7 @@ import { detectHost, extractCommand, render, splitSegments } from './guard-git-p
 export const MERGE_GATE = 'node "$ST_PLUGIN_ROOT/skills/st-pr-merge/scripts/merge-gate.mjs" --pr <n>';
 export const MERGE_MESSAGES = {
   admin: 'Sea Trials: `--admin` merges are forbidden (standing rule). Fix the failing check / thread / protection instead.',
-  manual: `Sea Trials: merge only through the st-pr-merge gate (all checks green on head, zero unresolved Codex threads, migration order). Run: ${MERGE_GATE}`,
+  manual: `Sea Trials: merge only through the st-pr-merge gate (all checks green on head, zero unresolved review threads, migration order). Run: ${MERGE_GATE}`,
 };
 
 /** @param {string} command */

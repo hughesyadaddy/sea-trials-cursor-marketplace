@@ -69,6 +69,11 @@ fanned-out gate (`pr-review-push --list-tasks`), push
 (`pr-review-push`), reply+resolve citing the pushed SHA, repeat until
 `DONE`.
 
+Reviewer findings (AI review and PR-Agent, `github-actions[bot]`) are
+inline review threads with a **Resolve conversation** button, like Codex's.
+Ship means each one is resolved once it is addressed (`node "$ST_REVIEW"
+close` runs GraphQL `resolveReviewThread`), not just replied to.
+
 ## Phase 3 — If no review threads yet
 
 When the user only needs gates before first push:

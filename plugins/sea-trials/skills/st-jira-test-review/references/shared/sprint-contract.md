@@ -6,6 +6,12 @@ Shared by `st-sprint-plan`, `st-sprint-refine`, `st-jira-upload`,
 phase of any of those skills. It defines what a dev-ready card looks
 like, how the sprint folder is laid out, and how cards reach Jira.
 
+**Sea Trials defaults (override only in `sprint.json`):** Jira site
+`https://seatrials.atlassian.net`, reached only through the Atlassian
+connector whose name is `atlassian-seatrials` (plugin MCP) or ends in
+`--seatrials` (Cursor dashboard connector). Never use an `allinpmprep`
+connector without the `--seatrials` suffix for Sea Trials work.
+
 Opening principle: every card is the only document the developer will
 read for that piece of work. If they need another card, a markdown
 file, a plan doc, or a chat transcript to start, the card failed.
@@ -38,11 +44,13 @@ apply that file on every story.
 ## 2. `sprint.json`
 
 Every project-specific value lives here. Skill bodies never hardcode a
-project key, site, board, or account id.
+project key, board, or account id; the only built-in values are the
+Sea Trials default site and connector at the top of this file.
 
 ```json
 {
-  "site": "https://<site>.atlassian.net",
+  "site": "https://seatrials.atlassian.net",
+  "connector": "atlassian-seatrials",
   "cloudId": "<uuid, optional; discovered when absent>",
   "projectKey": "<PROJECT_KEY>",
   "boardId": 12,
@@ -52,7 +60,8 @@ project key, site, board, or account id.
   "subtaskIssueType": "Subtask",
   "storyPointsFieldId": "customfield_10016",
   "labels": ["sprint-12"],
-  "assigneeAccountId": "<accountId>",
+  "assigneeAccountId": "<fallback accountId, optional>",
+  "assigneesPath": "sprint_planning/assignees.json",
   "testerAccountId": "<accountId>",
   "repoConventionsPath": "AGENTS.md",
   "reviewStatuses": ["In Review", "Ready for QA"],
@@ -64,7 +73,10 @@ project key, site, board, or account id.
 }
 ```
 
-Only `projectKey` is required. `testProjectKeys` lists projects where
+Only `projectKey` is required. `site` defaults to
+`https://seatrials.atlassian.net` and `connector` to the `--seatrials`
+Atlassian connector (see the top of this file). `assigneesPath` points at
+the user-editable people map used by section 4.4. `testProjectKeys` lists projects where
 the uploader may run with `--fast` (no human cadence); `activityHours`
 and `timezone` feed the activity window in section 5.1. `epicKey` absent means the uploader
 creates the epic. `subtaskIssueType` is `Subtask` on team-managed
@@ -75,7 +87,7 @@ that repo; the test-review skill reads it instead of guessing commands.
 
 ## 3. Card anatomy
 
-The parser is `scripts/sprint/parse-sprint-folder.mjs`. The templates
+The parser is `$ST_PLUGIN_ROOT/scripts/sprint/parse-sprint-folder.mjs`. The templates
 below are the exact shapes it expects. Rules the parser enforces:
 
 - The first `# H1` is the summary. Epic H1 may start `Epic:`; the
@@ -150,12 +162,7 @@ Two to four sentences: what exists today, what changes, why now.
 ## Acceptance criteria
 
 - [ ] Given <state>, when <action>, then <observable result>.
-- [ ] Given `<command>` runs, when it finishes, then it exits 0.
-
-## Test plan
-
-- `<exact test command>`
-- Manual: <device or browser>, <steps>, <what to look for>
+- [ ] Given <other state>, when <action>, then <observable result>.
 
 ## Out of scope
 
@@ -176,7 +183,6 @@ Two to four sentences: what exists today, what changes, why now.
 **Acceptance criteria**
 
 - [ ] Given <state>, when <action>, then <observable result>.
-- [ ] `<exact command>` exits 0.
 
 ### Subtask N.2: <imperative title>
 
@@ -198,31 +204,38 @@ depends on another. The uploader turns it into a `Blocks` link. It is
 the only allowed cross-card reference.
 
 Story kinds may swap the middle sections while keeping the mandatory
-ones (Description, Scope, Files to touch, Acceptance criteria, Test
-plan, Out of scope, Subtasks):
+ones (Description, Scope, Files to touch, Acceptance criteria, Out of
+scope, Subtasks). There is no Test plan section and no testing story
+kind (section 4):
 
 | Kind | Extra sections |
 | --- | --- |
 | UI | `## What the user sees` (2-4 sentences) |
 | Ops / migration | `## Commands` (numbered, copy-paste), `## Expected results` |
-| Verification / QA | `## What to test`, `## Platforms` |
+| Config | `## Publish` (which config, which environment, published as a new revision via S3; section 4.3) |
 
 ## 4. Acceptance criteria quality bar
 
-Each AC line is one behaviour, observable, and verifiable by either a
-command that exits 0 or a UI step a tester can perform without asking.
+Each AC line is one behaviour, observable, written as **Given <state>,
+when <action>, then <observable result>.** on one line. AC describe
+what the product does, never how it is tested.
+
+**No testing work on cards.** No testing tasks or subtasks, no test
+plans, no "run the tests" or "command exits 0" AC, no checks, gates,
+QA passes, sign-offs, or soak periods. Testing happens in the normal
+PR flow and in `/st-jira-test-review`, not on the card. Lint rejects
+`## Test plan` sections and command-style AC.
 
 | Bad | Good |
 | --- | --- |
 | Works correctly | Given 3 items in cart, when I tap Pay, then total reads $42.00 |
 | Handles errors | Given the API returns 500, when I tap Save, then a snackbar reads "Could not save" and the form keeps my input |
-| Tests pass | `pnpm test -- billing` exits 0 |
+| Tests pass | Given an unpaid invoice, when I tap Download PDF, then a PDF named after the invoice number opens |
 | Looks good on mobile | Given a 375px viewport, when the page loads, then no horizontal scrollbar appears |
 
-Limits: story AC 3-10 lines, subtask AC 2-6 lines (verification
-subtasks up to 10). One build/test AC per story is enough; do not
-repeat it on every subtask unless that subtask owns tests. Never write
-an AC that references another card's completion.
+Limits: story AC 3-10 lines, subtask AC 2-6 lines. Never write an AC
+that references another card's completion, a command, a test run, or
+a waiting period.
 
 ### 4.1 UI and polish stories
 
@@ -237,9 +250,75 @@ for it in intake.
   unless contrast or an signed-off brand mismatch is the defect.
 - Dark mode: do not recolor surfaces the product already accepted; say
   so in Out of scope.
-- Attachments and screenshot proof are PM workflow (`_internal/`), not
-  dev subtasks.
+- Screenshot *proof* and audit captures are PM workflow (`_internal/`),
+  not dev subtasks. Mockups are different: see 4.2.
 
+### 4.2 Mockups
+
+UI subtasks that change what a user sees carry one mockup set.
+
+- Source: PROD screenshots of the affected screen from
+  `https://app.seatrials.net`, `https://admin.seatrials.net`, or
+  `https://seatrials.net/study`, at mobile (390 px), tablet (820 px)
+  and desktop (1440 px) widths.
+- Build: as code (HTML/CSS or a Flutter widget) or vector (SVG), then
+  export. Never generate raster images with OpenAI or any image model,
+  and never paint over a raster. This saves image-model tokens and keeps
+  the mockup editable.
+- Store: `<folder>/_internal/mockups/<story>.<subtask>/` with files
+  named `<subtask>-<mobile|tablet|desktop>.<svg|png>`.
+- Attach: to **that subtask only, exactly once**. Before attaching, list
+  the issue's existing attachments; skip any file whose name or sha256
+  is already there. Record attachment ids in `jira_state.json`
+  (`stories.<id>.subtasks.<subId>.attachments`). Never attach the same
+  set to the story or to sibling subtasks.
+- Card text stays self-contained: the subtask describes the change in
+  words; it does not say "see attachment".
+- Subtasks whose purpose is to attach or update mockup images are real
+  work and are **never culled** by refine or critics.
+
+### 4.3 Config delivery (S3 publish, Neon revisions)
+
+Config reaches apps by **publishing a new revision via the S3 publish
+path**. A published Neon config revision is immutable: never edit it in
+place, never `UPDATE` a published row. Cards that change config say
+"publish a new revision" and name the environment; critics rewrite or
+reject any card that edits a published revision in place.
+
+### 4.4 Assignment routing
+
+Assignment follows these rules, applied per story (subtasks inherit):
+
+| Work | Assignee | Label |
+| --- | --- | --- |
+| `st_white_label`, Neon config, Vercel for the white-label tool, Go Ham | Matej | `whitelabel` |
+| Flutter app code | Sachintha | (none extra) |
+| Admin app work and DB cleanup | best fit by files touched and current load | `admin` |
+| Anything else | best fit | (none extra) |
+
+After routing, even out story points so each person's sprint total is
+within about 10% of the mean; move only "best fit" stories to balance,
+never the fixed routes above.
+
+Account ids are never hardcoded in skills or cards. They live in the
+user-editable `assignees.json` (default `sprint_planning/assignees.json`,
+override with `sprint.json.assigneesPath`):
+
+```json
+{
+  "people": {
+    "matej": { "displayName": "Matej", "accountId": "<pick once>" },
+    "sachintha": { "displayName": "Sachintha", "accountId": "<pick once>" }
+  }
+}
+```
+
+When an id is missing, resolve it with `lookupJiraAccountId`. If more
+than one account matches (for example two Matej accounts), prefer the
+one with recent Jira activity in the project (assignee or reporter on
+an issue updated in the last 30 days, via JQL). If that does not leave
+exactly one, stop and ask the person with the structured question tool.
+Write the chosen id back to `assignees.json`.
 ## 5. Banned phrasing
 
 Lint (`st-run sprint-lint` / `parse-sprint-folder.mjs --lint`) fails on
@@ -261,6 +340,7 @@ Contract bans: `research`, `spike`, `explore`, `investigate`,
 `etc.`, `and so on`, `works correctly`, `looks good`, `user-friendly`,
 `handle edge cases`, `see subtask`, `see story`, `per the overview`,
 `once USx is merged`, `Phase 0`, `gate`, `checkpoint`, `rollback plan`,
+`soak`, `smoke test`, `QA pass`, `test plan`, `exits 0`,
 `AI`, `agent`, `generated`, `assistant`, `prompt`, `model output`, any
 `{{placeholder}}` or `<angle-bracket>` left from a template, and
 emojis.
@@ -279,7 +359,7 @@ authoring, then write the decision into the card.
 
 Applies to every write `st-jira-upload`, its uploaders, and its
 verifiers make. For those writes it replaces the 2-8 s spacing and
-4-writer cap in section 7; the tool is `scripts/sprint/human-cadence.mjs`
+spacing in section 7; the tool is `$ST_PLUGIN_ROOT/scripts/sprint/human-cadence.mjs`
 (detail in `st-jira-upload/references/human-cadence.md`).
 
 - Plan before the first write (`human-cadence.mjs plan payload.json`)
@@ -288,10 +368,10 @@ verifiers make. For those writes it replaces the 2-8 s spacing and
 - Gaps between cards follow the plan: median 12 s, never under 3 s or
   over 45 s, plus a 60-180 s pause after every 6-10 cards. A 30-card
   sprint takes 8-15 minutes. Never two writes in the same second.
-- One uploader per project or board at a time. Parallelism only
-  across different projects or sites, each with its own plan.
-- Roughly one create in ten deliberately leaves `labels` off and sets
-  them with a one-field edit 20-90 s later. Content never changes.
+- One Jira writer per site at a time (section 10.6). No parallel
+  writers, not even across boards.
+- Labels and story points ride on the same create or edit as the body.
+  No deliberate follow-up edits.
 - Writes happen 08:00-19:30 local, Monday to Friday; the run waits for
   the window instead of skipping. `--ignore-hours` only when the
   person says they are at the keyboard. `--fast` only for `--dry-run`
@@ -343,9 +423,8 @@ transitions must read as if that person typed them.
 - No sign-offs, no "Summary:" headers in comments, no bullet walls
   when two sentences do the job.
 - Never pass `historyMetadata` on a transition.
-- Space bulk writes per section 5.1: one writer per board, gaps from
-  `human-cadence plan`, writes only inside the activity window.
-  Parallel writers are allowed only across different boards.
+- Space bulk writes per section 5.1, one writer per site (section
+  10.6), writes only inside the activity window.
 
 ## 8. Sizing
 
@@ -367,11 +446,8 @@ after the replacement ships. Story SP is the sum of subtask SP.
 
 A card is done when all of these hold:
 
-- Every AC checkbox on the story and its subtasks is verifiable now.
-- The test plan commands were run by the tester and exit 0.
-- Manual steps were performed on the listed platform.
-- No new lint errors in the touched files.
-- The QA comment on the card records what was run and the result.
+- Every AC on the story and its subtasks is true in the product.
+- The code is merged through the repo's normal PR flow.
 - Status is the project's done status; nothing left in review.
 
 Write the DoD once in the epic if the project needs extra items (docs,
@@ -381,7 +457,7 @@ release notes, telemetry). Do not repeat it on every card.
 
 ### 10.1 Format
 
-Convert markdown with `scripts/sprint/md-to-adf.mjs` and pass the ADF
+Convert markdown with `$ST_PLUGIN_ROOT/scripts/sprint/md-to-adf.mjs` and pass the ADF
 object as `description` with `contentFormat: "adf"`. Never send
 `contentFormat: "markdown"` for card bodies: `- [ ]` becomes literal
 `[ ]` text inside a bullet. The converter validates with `validateAdf`
@@ -398,7 +474,8 @@ and exits 1 on an invalid document; do not upload if it fails.
 | Epic parent | `additional_fields: {"parent": {"key": "<epicKey>"}}` |
 | Subtask parent | `parent: "<STORY-KEY>"` with `issueTypeName` subtask |
 | `**Blocked by:** US2` | `createIssueLink` type `Blocks`, inward = blocker |
-| Assignee | `assignee_account_id` from `sprint.json` |
+| Assignee | `assignee_account_id` from section 4.4 routing (`assignees.json`), else `sprint.json.assigneeAccountId` |
+| Routing label | `whitelabel` / `admin` per section 4.4, merged into `labels` |
 
 Never use `customfield_10014` for the epic parent. Discover the story
 points field id with `jira-rest.mjs fields --name "Story point"` when
@@ -409,6 +486,15 @@ points field id with `jira-rest.mjs fields --name "Story point"` when
 After each create or edit, read the issue back with `getJiraIssue`
 (`responseContentFormat: "adf"`) and confirm:
 
+- The returned `key` equals the key you asked for (or the key the create
+  returned), the key's project equals `projectKey`, and the connector's
+  site is `sprint.json.site`. A mismatch is a hard stop: the connector
+  returned the wrong issue; write nothing more and report.
+- `parent.key` equals the expected epic or story.
+- `codeBlock` count equals the fenced code blocks in the source
+  (normally 0); no text node contains a literal `[ ]`, `[x]`, `\[` or a
+  leading `- ` (escaped or flattened checkboxes).
+- `labels` and story points equal what was sent.
 - `taskItem` count equals the `- [ ]` count in the source markdown.
 - `heading` count equals the heading count in the source body.
 - No text node contains `.md`, a banned tell, or `{{`.
@@ -421,13 +507,14 @@ card whose checkboxes rendered as text.
 
 ```json
 {
-  "epic": { "key": "<PROJECT_KEY>-100", "hash": "<sha256>" },
+  "epic": { "key": "<PROJECT_KEY>-100", "hash": "<sha256>", "updated": "<Jira updated>" },
   "stories": {
     "3": {
       "key": "<PROJECT_KEY>-131",
       "hash": "<sha256>",
+      "updated": "<Jira updated>",
       "subtasks": {
-        "3.1": { "key": "<PROJECT_KEY>-132", "hash": "<sha256>" }
+        "3.1": { "key": "<PROJECT_KEY>-132", "hash": "<sha256>", "updated": "<Jira updated>", "attachments": ["<attachment id>"] }
       }
     }
   }
@@ -446,12 +533,48 @@ state file before continuing.
 
 - Honour `Retry-After` on 429; retry 5xx up to three times.
 - MCP v1 cannot attach files, delete, move to a sprint, or rank. Use
-  `scripts/sprint/jira-rest.mjs` with `JIRA_SITE`, `JIRA_EMAIL`,
-  `JIRA_API_TOKEN`. Destructive subcommands require `--yes`.
+  `$ST_PLUGIN_ROOT/scripts/sprint/jira-rest.mjs` with `JIRA_SITE`,
+  `JIRA_EMAIL`, `JIRA_API_TOKEN`. Destructive subcommands require `--yes`
+  and one structured confirmation listing the keys.
 - If your MCP is v2 (`uploadAttachmentToJiraIssue`, `manageJiraSprint`
   present), prefer those over REST.
-- Without REST credentials, the browser operator agent performs the
-  same actions through the Chrome DevTools MCP as a last resort.
+- Without REST credentials, the browser operator agent may attach
+  files, move to a sprint, or rank through the Chrome DevTools MCP only
+  after the person approves that exact action list in a structured
+  question. It never deletes; deletes without the MCP or REST are
+  reported as manual steps.
+
+### 10.6 Single writer, stale check, read-back
+
+Every skill that writes to Jira (upload, board-vet fixes, test-review
+comments and transitions, verifier remarks) follows this protocol.
+
+1. **One writer per site.** Exactly one session writes at a time: the
+   parent, or the single worker it delegated writes to (one
+   `st-jira-uploader`, or one verifier holding remark entries) while
+   the parent waits. Read-only workers return proposed writes. Before the first write, create the lock file
+   `${TMPDIR:-/tmp}/st-jira-writer-<site host>.lock` holding pid, skill,
+   and start time. If it exists and its pid is alive, stop and report;
+   remove the lock when the run ends.
+2. **One write at a time.** Never issue a write while another is in
+   flight. Never two writes in the same second.
+3. **Read before write (stale check).** Before every edit, comment, or
+   transition, `getJiraIssue` the target and compare `fields.updated`
+   with the value recorded when the content was pulled or last written
+   (`jira_state.json` `updated`). If Jira is newer, stop for that card
+   and report it; never overwrite someone else's change. Save the
+   pre-edit ADF to `<scratch>/<KEY>.before.json`. If no `updated` was
+   recorded (legacy state file), list those cards and ask once with the
+   structured question tool before overwriting them.
+4. **Write**, sending only fields that changed. Body, labels, and story
+   points go in the same edit.
+5. **Read back** (10.3) and record the new `updated` in
+   `jira_state.json`. Only then move to the next write.
+6. **Never round-trip a body through markdown.** A description written
+   to Jira is always built by `md-to-adf.mjs` from the sprint folder
+   markdown, never from a markdown export of the live card
+   (`responseContentFormat: "markdown"` or `adf-to-md.mjs`). Markdown
+   reads are for humans and critics only.
 
 ## 11. Script location
 
@@ -465,7 +588,7 @@ Resolve **`ST_PLUGIN_ROOT`** in this order:
 1. Explicit `ST_PLUGIN_ROOT`
 2. `CURSOR_PLUGIN_ROOT` (Cursor plugin context)
 3. `CLAUDE_PLUGIN_ROOT` (Claude hooks/MCP)
-4. Node `scripts/lib/resolve-st-plugin-root.mjs` (newest cache wins)
+4. Node `$ST_PLUGIN_ROOT/scripts/lib/resolve-st-plugin-root.mjs` (newest cache wins)
 
 Bootstrap once per agent turn (any checkout directory):
 
@@ -501,23 +624,33 @@ Sprint toolkit under `$ST_PLUGIN_ROOT/scripts/sprint/`:
 | `md-to-adf.mjs` | Markdown → Jira ADF |
 | `jira-rest.mjs` | REST upload, attach, delete |
 
-Never add parallel upload or lint scripts in the app repo; use
-`/st-jira-upload` and `st-run sprint-lint`. PM evidence scripts may live
-under `sprint_planning/**/_internal/` only.
+Never add, run, or depend on upload, lint, capture, or Jira scripts in
+the app repo (for example `scripts/jira/` or `scripts/sprint/` in a
+consumer repo); everything these skills need lives under
+`$ST_PLUGIN_ROOT`. Use `/st-jira-upload` and `st-run sprint-lint`.
+
+**Sprint docs skip review loops.** Commits that touch only
+`sprint_planning/**` never go through PR review loops, adversarial
+vets, or `/st-pr-*` skills, and need no PR. The plugin's push guard
+allows a plain `git push` when every commit being pushed touches only
+`sprint_planning/**` (never with force or `--no-verify`).
 
 ## 12. Dispatch conventions
 
 | Role | Cursor | Claude Code | Model |
 | --- | --- | --- | --- |
 | Story author | `Task` `subagent_type: st-sprint-author` | `Agent` `st-sprint-author` | inherit |
-| Story critic | `Task` `subagent_type: st-sprint-critic` | `Agent` `st-sprint-critic` | inherit |
+| Story critic | `Task` `subagent_type: st-sprint-critic` | `Agent` `st-sprint-critic` | `composer-2.5` / `haiku`; escalate to inherit only for a disputed verdict |
 | Recon explorer | `Task` `subagent_type: explore` | `Agent` `Explore` | `composer-2.5` / `haiku` |
 | Jira uploader | `Task` `subagent_type: st-jira-uploader` | `Agent` `st-jira-uploader` | `composer-2.5` / `haiku` |
 | Jira verifier | `Task` `subagent_type: st-jira-verifier` | `Agent` `st-jira-verifier` | `composer-2.5` / `haiku` |
 | Browser operator | `Task` `subagent_type: st-jira-browser-operator` | `Agent` `st-jira-browser-operator` | `composer-2.5` / `sonnet` |
 
-Launch every worker in a wave in one parent turn. Cap Jira writers at
-4 concurrent per site. Subagent prompts are self-contained: repo path,
+Reviewers (critics, verifiers, explorers) default to the cheap model.
+Escalate one card to the parent's model only when two cheap verdicts
+disagree or the parent disputes a verdict. Launch every read-only worker
+in a wave in one parent turn. Jira writes follow 10.6: one writer per
+site, one write at a time. Subagent prompts are self-contained: repo path,
 sprint folder, `sprint.json` contents, the card text, and the exact
 return format. Subagents never ask the user questions; they return
 findings and the parent decides.

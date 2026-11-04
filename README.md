@@ -31,8 +31,9 @@ Never hand-edit `plugins/vgv-*`. Import model:
 2. Auto Refresh on; enable **sea-trials**, **vgv-wingspan**,
    **vgv-ai-flutter-plugin**
 3. Cmd+Q → reopen Cursor
-4. Settings → MCP → **Connect** on `atlassian-seatrials` and
-   `atlassian-allinpmprep` (URL-only OAuth)
+4. Settings → MCP → **Connect** on `atlassian` (the official Atlassian
+   remote MCP, `https://mcp.atlassian.com/v2/mcp`, browser OAuth sign-in
+   on first use)
 
 Import **only this aggregator**. If Dashboard also lists
 `vgv-cursor-marketplace`, remove it → Refresh → Cmd+Q, optionally

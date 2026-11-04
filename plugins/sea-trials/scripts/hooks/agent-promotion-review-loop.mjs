@@ -4,7 +4,8 @@
  *
  *   pnpm agent-promotion-review-loop -- [stg_pr]
  *
- * Runs until Codex quiet + CI green, merges, waits for merge completion,
+ * Runs until the review bots settle (advisory AI review included; it is
+ * never a merge gate) + threads clear + CI green, merges, waits for merge completion,
  * then advances to the next promotion phase.
  */
 import { spawnSync } from 'node:child_process';
@@ -200,7 +201,7 @@ function runPhase(phase, pr, base, head, nextPhase) {
       '--silence',
       String(silenceMin),
       '--bots',
-      'codex',
+      'aireview,bugbot',
     ]);
 
     let status = '';
@@ -263,7 +264,7 @@ function runPhase(phase, pr, base, head, nextPhase) {
         signal,
         `ACTING_THREADS ${new Date().toISOString()} ec=${ec}\n`,
       );
-      logLine(log, '>>> Agent action: unresolved Codex threads');
+      logLine(log, '>>> Agent action: unresolved review threads');
     } else if (ec === 3 || /fail=1|failed ci:/.test(status)) {
       fs.writeFileSync(
         signal,
@@ -316,7 +317,7 @@ function main() {
       '--title',
       'PROD <- STG',
       '--body',
-      `Promotion stg→main after ${silenceMin}m Codex quiet window on #${prStg}.`,
+      `Promotion stg→main after the review loop settled (cap ${silenceMin}m) on #${prStg}.`,
     ],
     { cwd: repoRoot, encoding: 'utf8' },
   );
