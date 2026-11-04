@@ -43,7 +43,8 @@ When all three fail, set `CLI` by hand: the skill you are reading is at `<plugin
 | `push <dir> [--keys K,..] [--only create,update,transition,upload,sprint,rank] [--backlog]` | Dry run: list every operation. | no |
 | `push <dir> --apply [--builtin]` | User key: run the operations. Refused while lint has errors. With the viewer present, updates, creates and images go through `spv.py push --apply --keys/--create/--images` (the dry run prints that command), then the CLI does transitions, sprint moves and rank. | **yes** |
 | `push <dir> --mcp-plan FILE` | MCP path: write the steps for the agent to run. | no |
-| `record <dir> <local_id> --key KEY [--id N]` | Save a key made through MCP into the card and its children. | no |
+| `record <dir> <local_id> --key KEY [--id N]` | Save a key made through MCP into the card and its children. Prints a reminder when the folder still says `LOCAL`. | no |
+| `folders <dir> [--apply]` | Dry run: list card folders that still say `LOCAL` although the card has a Jira key (the viewer hides those keys). `--apply` renames them, children first, and rebuilds `index.json`. Run it after `record` or `push --apply` creates cards, then `lint`. | no |
 | `doctor <dir>` | Node version, folder, saved Jira data, connection mode, viewer found or not. | no |
 
 Exit codes: 0 ok, 1 problems found (lint errors, failed operations), 2 bad input, 3 the user key or the viewer is needed. Viewer commands pass on the viewer's exit code.

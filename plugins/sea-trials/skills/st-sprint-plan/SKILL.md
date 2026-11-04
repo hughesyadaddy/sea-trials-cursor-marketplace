@@ -170,7 +170,8 @@ edit the other to point at it.
 
 ```bash
 node "$CLI" number "$DIR"
-node "$CLI" lint "$DIR"          # must exit 0
+node "$CLI" lint "$DIR"          # must exit 0 (card format + viewer format)
+node "$CLI" viewer check "$DIR" || true   # the viewer's parse check; 0 problems (skip when exit 3: no viewer)
 node "$CLI" push "$DIR"          # dry run: every card is a create
 node "$CLI" doctor "$DIR" || true   # saved Jira data and connection mode; exit 1 = FAIL lines to fix
 node "$CLI" serve "$DIR"         # starts the sprint-plan-viewer submodule
@@ -182,6 +183,13 @@ planning repo; exit 3 means it is missing: tell the user how to add it
 (see the folder format) and go on without the viewer. Fix lint
 errors before the handoff. Add one line to `SPRINT-CHANGES.md`, for
 example `- Planned <n> stories for <goal>.`
+
+Cards follow the viewer format in `references/shared/sprint-card-format.md`
+(folder names `NN-epic-<KEY>-<slug>` / `NN-story-<KEY>-<slug>` /
+`subtasks/NN-<KEY>-<slug>`, every front matter field in order, no `# Title`
+line, sections exactly as listed). Lint checks it (rule `viewer`); the
+viewer's own `spv.py check` must also report 0 problems. New cards sit in `LOCAL` folders until
+`/st-jira-upload` gives them keys and renames the folders.
 
 ---
 

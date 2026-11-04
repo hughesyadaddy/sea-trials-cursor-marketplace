@@ -102,6 +102,16 @@ moves and rank that the viewer does not do. Show the user that command
 in the dry run you ask them to approve. `--builtin` uses only this
 plugin's code.
 
+After the push, rename the folders of the cards that got keys (the
+viewer hides the key and sprint of a card whose path contains `LOCAL`),
+then pull the Jira copies so each keyed card has its `*.jira.md`:
+
+```bash
+node "$CLI" folders "$DIR" --apply
+node "$CLI" pull "$DIR"            # or the MCP search + import-jira
+node "$CLI" lint "$DIR"            # exit 0, and no viewer-jira-copy warnings
+```
+
 It creates parents first and searches before each create, so a rerun
 never makes duplicates. Updates read the live issue first, skip Done,
 and back up the old fields to `PUSH-BACKUP-*.jsonl`. Images are
@@ -123,7 +133,10 @@ MCP plan safely"): precheck search, create, `record` at once, the
 Done and stale checks before each update. When the plan reports
 `deferred_creates`, make a new plan and run it: the children of the
 new parents are next. Tell the user which steps need the user key and
-what to do by hand (attach in Jira, drag on the board).
+what to do by hand (attach in Jira, drag on the board). When every
+`record` is done, run `node "$CLI" folders "$DIR" --apply`, then
+`import-jira` with a fresh MCP search so every keyed card has its Jira
+copy.
 
 ---
 

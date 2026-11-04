@@ -164,7 +164,7 @@ test('mapUnresolvedThread flags bots and reply chains', () => {
     firstComment: {
       nodes: [{
         fullDatabaseId: '10',
-        author: { login: 'chatgpt-codex-connector' },
+        author: { login: 'github-actions' },
         body: '[P1] bug   here',
         createdAt: '2026-09-22T12:00:00Z',
         url: 'https://github.com/o/r/pull/1#discussion_r10',
@@ -191,7 +191,7 @@ test('mapUnresolvedThread flags bots and reply chains', () => {
 test('countBotThreads counts GraphQL and REST bot logins', () => {
   assert.equal(
     countBotThreads([
-      { author: 'chatgpt-codex-connector' },
+      { author: 'github-actions' },
       { author: 'cursor[bot]' },
       { author: 'alexhughes' },
       { author: null },
@@ -213,11 +213,11 @@ test('parsePrArgs uses explicit --pr flag', () => {
 
 test('parsePrArgs parses --webhook, --bots, and explicit overrides', () => {
   const parsed = parsePrArgs([
-    '--pr', '42', '--webhook', '--bots', 'codex, bugbot', '--silence', '20',
+    '--pr', '42', '--webhook', '--bots', 'aireview, bugbot', '--silence', '20',
   ]);
   assert.equal(parsed.webhook, true);
   assert.equal(parsed.webhookPort, 0);
-  assert.deepEqual(parsed.bots, ['codex', 'bugbot']);
+  assert.deepEqual(parsed.bots, ['aireview', 'bugbot']);
   assert.equal(parsed.silenceExplicit, true);
   assert.equal(parsed.silenceMin, 20);
   const withPort = parsePrArgs(['--pr', '1', '--webhook', '8787']);

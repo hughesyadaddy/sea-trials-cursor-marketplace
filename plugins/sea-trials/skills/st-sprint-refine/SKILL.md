@@ -151,13 +151,25 @@ One `st-sprint-critic` per story, `MODE: fix`, all in one message.
 
 ```bash
 node "$CLI" number "$DIR"
-node "$CLI" lint "$DIR"        # must exit 0
+node "$CLI" folders "$DIR" --apply   # cards with a Jira key never sit in a LOCAL folder
+node "$CLI" lint "$DIR"        # must exit 0 (card format + viewer format)
+node "$CLI" viewer check "$DIR" || true   # the viewer's parse check; 0 problems (exit 3: no viewer)
 node "$CLI" push "$DIR"        # dry run: the changes Jira would get
 node "$CLI" serve "$DIR"       # sprint-plan-viewer submodule; background; give the user the URL
 ```
 
 In the viewer the user can drag cards to change the order; run
-`number` again afterwards so the stories stay numbered 1..n. Add one line per change to `SPRINT-CHANGES.md`.
+`number` again afterwards so the stories stay numbered 1..n.
+
+Cards follow the viewer format in `references/shared/sprint-card-format.md`
+(folder names `NN-epic-<KEY>-<slug>` / `NN-story-<KEY>-<slug>` /
+`subtasks/NN-<KEY>-<slug>`, every front matter field in order, no `# Title`
+line, sections exactly as listed). Lint checks it (rule `viewer`); the
+viewer's own `spv.py check` must also report 0 problems. When refining an older folder, fix
+the format errors too: `**Bold**` pseudo-headings become the `##` sections,
+extra `##` headings (for example `## Scope`, `## Files to touch`) fold into
+Context, How or Where, and a keyed card in a `LOCAL` folder is renamed with
+`folders --apply`. Add one line per change to `SPRINT-CHANGES.md`.
 
 ---
 

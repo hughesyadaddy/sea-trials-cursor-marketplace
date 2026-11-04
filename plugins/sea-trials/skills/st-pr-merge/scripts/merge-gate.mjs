@@ -15,8 +15,14 @@
  *      commit statuses) is complete and green. Zero checks = not green.
  *      The verdict is re-read after --settle-sec (default 60) and must be
  *      identical for the same head, so late-registering suites count.
- *   2. Zero unresolved Codex review threads (and, by default, zero
- *      unresolved threads of any author).
+ *      The advisory AI review (workflow `AI Review (advisory)`, job
+ *      `review`) is never a gate: its check run is left out of the
+ *      verdict, so the gate never waits for it or fails on it.
+ *   2. Zero unresolved review-bot threads (the AI review posts as
+ *      `github-actions[bot]`; Cursor Bugbot as `cursor`), and, by default,
+ *      zero unresolved threads of any author. Triaging the AI review's
+ *      findings (fix, or reply with a reason, then resolve) is the
+ *      thread-resolution rule, not a review gate.
  *   3. Never `--admin`. The merge call is pinned with
  *      `--match-head-commit <sha>` so a push that lands mid-gate aborts.
  *   4. New migrations: unique version, strictly newer than every version on
@@ -39,10 +45,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const CODEX_LOGINS = new Set([
-  'chatgpt-codex-connector',
-  'chatgpt-codex-connector[bot]',
+/** Review bots whose unresolved threads block even with --allow-human-threads. */
+export const REVIEW_BOT_LOGINS = new Set([
+  'github-actions',
+  'github-actions[bot]',
+  'cursor',
+  'cursor[bot]',
 ]);
+/** Advisory workflows: reported, never part of the CI verdict. */
+export const ADVISORY_WORKFLOWS = new Set(['AI Review (advisory)']);
 const GREEN_CONCLUSIONS = new Set(['SUCCESS', 'SKIPPED', 'NEUTRAL']);
 const MIGRATION_RE = /^(\d+)_.+\.sql$/;
 
@@ -133,10 +144,16 @@ export function readHeadChecks(gh, repo, oid) {
   return out;
 }
 
-export function classifyChecks(checks, required = []) {
+export function isAdvisoryCheck(c) {
+  return Boolean(c?.workflow && ADVISORY_WORKFLOWS.has(c.workflow));
+}
+
+export function classifyChecks(allChecks, required = []) {
   const failed = [];
   const pending = [];
   const green = [];
+  const advisory = allChecks.filter(isAdvisoryCheck);
+  const checks = allChecks.filter((c) => !isAdvisoryCheck(c));
   for (const c of checks) {
     if (c.status !== 'COMPLETED') pending.push(c);
     else if (GREEN_CONCLUSIONS.has(String(c.conclusion).toUpperCase())) green.push(c);
@@ -147,7 +164,7 @@ export function classifyChecks(checks, required = []) {
   let verdict = 'green';
   if (failed.length) verdict = 'fail';
   else if (pending.length || missing.length || checks.length === 0) verdict = 'pending';
-  return { verdict, failed, pending, green, missing, total: checks.length };
+  return { verdict, failed, pending, green, missing, advisory, total: checks.length };
 }
 
 const THREADS_Q = `query($owner:String!,$name:String!,$pr:Int!,$cursor:String){
@@ -178,8 +195,8 @@ export function readThreads(gh, repo, pr) {
 
 export function classifyThreads(threads) {
   const unresolved = threads.filter((t) => !t.isResolved);
-  const codex = unresolved.filter((t) => CODEX_LOGINS.has(t.author ?? ''));
-  return { unresolved, codex, total: threads.length };
+  const bot = unresolved.filter((t) => REVIEW_BOT_LOGINS.has(t.author ?? ''));
+  return { unresolved, bot, total: threads.length };
 }
 
 // ---------------------------------------------------------------- migrations
@@ -397,7 +414,7 @@ function migrationReport(gh, repo, prMeta, dir, appliedFn = defaultAppliedVersio
 export function evaluate({ prMeta, checks, threads, migrations, opts }) {
   if (prMeta.state !== 'OPEN') return { exit: EXIT.NOT_MERGEABLE, reason: `PR is ${prMeta.state}` };
   if (prMeta.isDraft) return { exit: EXIT.NOT_MERGEABLE, reason: 'PR is draft' };
-  if (threads.codex.length) return { exit: EXIT.THREADS, reason: `${threads.codex.length} unresolved Codex thread(s)` };
+  if (threads.bot.length) return { exit: EXIT.THREADS, reason: `${threads.bot.length} unresolved review-bot thread(s)` };
   if (!opts.allowHumanThreads && threads.unresolved.length) return { exit: EXIT.THREADS, reason: `${threads.unresolved.length} unresolved thread(s)` };
   if (checks.verdict === 'fail') return { exit: EXIT.CI_FAIL, reason: `failed: ${checks.failed.map((c) => c.name).join(', ')}` };
   if (checks.verdict === 'pending') {
@@ -519,12 +536,12 @@ function main() {
   }
   const { prMeta, checks, threads, migrations, verdict } = res;
   if (opts.json) {
-    process.stdout.write(`${JSON.stringify({ pr: prMeta.number, head: prMeta.headRefOid, verdict, checks: { verdict: checks.verdict, total: checks.total, failed: checks.failed, pending: checks.pending, missing: checks.missing }, threads: { unresolved: threads.unresolved.length, codex: threads.codex.map((t) => t.id) }, migrations }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ pr: prMeta.number, head: prMeta.headRefOid, verdict, checks: { verdict: checks.verdict, total: checks.total, failed: checks.failed, pending: checks.pending, missing: checks.missing }, threads: { unresolved: threads.unresolved.length, bot: threads.bot.map((t) => t.id) }, advisory: checks.advisory.map((c) => ({ name: c.name, status: c.status, conclusion: c.conclusion })), migrations }, null, 2)}\n`);
   } else {
     process.stdout.write(
       `PR #${prMeta.number} @ ${prMeta.headRefOid.slice(0, 10)} → ${prMeta.baseRefName}\n`
       + `  checks: ${checks.verdict} (${checks.green.length}/${checks.total} green, ${checks.pending.length} pending, ${checks.failed.length} failed)\n`
-      + `  threads: ${threads.unresolved.length} unresolved (${threads.codex.length} Codex)\n`
+      + `  threads: ${threads.unresolved.length} unresolved (${threads.bot.length} review bot)\n`
       + `  migrations: ${migrations ? (migrations.ok ? `ok (${migrations.added.length} new)` : 'BLOCKED') : 'skipped'}\n`
       + (migrations?.renames ?? []).map((r) => `    rename allowed: ${r}\n`).join('')
       + (migrations && !migrations.ok ? migrations.problems.map((p) => `    problem: ${p}\n`).join('') : '')

@@ -62,7 +62,12 @@ Acceptance: <bullets from ticket>
 PR: <number>
 ```
 
-Thread replies should cite ticket ID when closing Codex/Bugbot items.
+Thread replies should cite ticket ID when closing AI review / Bugbot items.
+
+AI review and PR-Agent findings are inline review threads with a **Resolve
+conversation** button (like Codex). Close each one once it is addressed
+(reply, then resolve via `node "$ST_REVIEW" close`, which runs GraphQL
+`resolveReviewThread`). Never leave an answered thread open.
 
 ## Phase 4 — Commit hygiene
 

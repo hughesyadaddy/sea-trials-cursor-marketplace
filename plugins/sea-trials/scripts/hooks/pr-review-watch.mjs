@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Continuous PR review watcher — never exits on new Codex threads.
+ * Continuous PR review watcher — never exits on new review threads.
  *
  * Polls GitHub for unresolved review threads + CI on HEAD. On each new
  * thread (or count increase), writes pr-review-queue.json and pings the
@@ -10,10 +10,10 @@
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-watch.mjs --pr 1606 --interval 30 --notify
  *
  * Sentinel line (grep-friendly):
- *   [CODEX-ALERT] pr=1606 threads=N head=abcdef1
+ *   [REVIEW-ALERT] pr=1606 threads=N head=abcdef1
  *
  * Artifacts (under docs/code-review/<head-branch>/):
- *   pr-review-queue.json, pr-<n>-watch-log.txt, CODEX_ALERT.txt
+ *   pr-review-queue.json, pr-<n>-watch-log.txt, REVIEW_ALERT.txt
  *
  * Each interval first issues ETag-conditional REST GETs (comments,
  * reviews, issue comments, PR head). When every one answers 304 the
@@ -131,7 +131,7 @@ async function resolveWatcherPaths() {
         logPath: path.join(artifactDir, `pr-${prNumber}-watch-log.txt`),
         queuePath: path.join(repoRoot, artifactPaths.queue),
         statePath: path.join(repoRoot, artifactPaths.state),
-        alertPath: path.join(repoRoot, artifactDir, 'CODEX_ALERT.txt'),
+        alertPath: path.join(repoRoot, artifactDir, 'REVIEW_ALERT.txt'),
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -190,13 +190,13 @@ function emitAlert(snapshot) {
   fs.mkdirSync(path.dirname(alertPath), { recursive: true });
   fs.writeFileSync(alertPath, `${lines.join('\n')}\n`);
   writeQueueSnapshot(snapshot);
-  const sentinel = `[CODEX-ALERT] pr=${prNumber} threads=${count} head=${head}`;
+  const sentinel = `[REVIEW-ALERT] pr=${prNumber} threads=${count} head=${head}`;
   logLine(sentinel);
   logLine(`queue: ${queuePath}`);
   logLine(`alert: ${alertPath}`);
   macNotify(
-    `PR #${prNumber}: ${count} Codex thread(s)`,
-    `head ${head} — see CODEX_ALERT.txt`,
+    `PR #${prNumber}: ${count} review thread(s)`,
+    `head ${head} — see REVIEW_ALERT.txt`,
   );
 }
 

@@ -1,7 +1,12 @@
 # TEMPLATE — copy to <app repo>/.github/workflows/st-pr-dispatch.yml only
 # after review. Deterministic dispatcher for Sea Trials PR review loops.
 #
-#  * Wakes instantly on Codex reviews, review comments and CI completion.
+#  * Wakes instantly on review comments, CI completion and the end of the
+#    advisory AI review (workflow "AI Review (advisory)", job `review`).
+#    Its comments post as github-actions[bot] with GITHUB_TOKEN, which
+#    never fires pull_request_review / issue_comment events, so the
+#    workflow_run completion below is the wake for it. It is advisory:
+#    merge-gate ignores its check and never waits for it.
 #  * Serialises per PR (concurrency group) — no agent stampede when 40
 #    check runs finish at once.
 #  * Spends zero agent time when there is nothing to do (merge-gate
@@ -17,7 +22,7 @@ on:
   pull_request_review_comment:
     types: [created]
   workflow_run:
-    workflows: ["PR Checks"]
+    workflows: ["PR Checks", "AI Review (advisory)"]
     types: [completed]
   check_suite:
     types: [completed]

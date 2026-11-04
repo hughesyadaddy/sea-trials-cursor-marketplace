@@ -25,6 +25,8 @@
  *                                  (viewer present: --apply sends updates, creates and images through
  *                                  spv.py push, and only transitions, sprint moves and rank from here)
  *   node cli.mjs record <sprint-dir> <local_id> --key KEY [--id N]   write back a key made through MCP
+ *   node cli.mjs folders <sprint-dir> [--apply]      rename LOCAL folders of cards that have a Jira key
+ *                                  (the viewer hides the key of any card whose path contains LOCAL)
  *   node cli.mjs doctor <sprint-dir>
  *
  * Push is a dry run unless --apply is given. Pull never writes to Jira.
@@ -45,6 +47,7 @@ import { createClient } from './lib/jira.mjs';
 import { importIssues, pull } from './lib/pull.mjs';
 import { applyPush, describeOp, mcpPlan, planPush, recordKey } from './lib/push.mjs';
 import { connectFields, init, newCard } from './lib/scaffold.mjs';
+import { renameLocalFolders } from './lib/folders.mjs';
 import { VIEWER_SETUP, findViewer, runViewer, viewerDisplay } from './lib/viewer.mjs';
 
 const BOOL = new Set(['builtin', 'strict-port', 'apply', 'dry-run', 'json', 'adopt', 'no-images', 'backlog', 'skip-lint', 'help', 'open', 'yes']);
@@ -321,7 +324,17 @@ async function main(argv) {
       if (!a._[2] || !a.key) throw new Error('record <sprint-dir> <local_id> --key KEY [--id N]');
       const card = recordKey(dir, a._[2], a.key, a.id);
       assignIds(dir);
-      out(a, `Recorded ${a.key} on ${card.folder}`, { key: a.key, folder: card.folder });
+      const hint = /LOCAL/.test(card.folder) ? `\nThe folder still says LOCAL; run \`folders ${a._[1]} --apply\` so the viewer shows ${a.key}.` : '';
+      out(a, `Recorded ${a.key} on ${card.folder}${hint}`, { key: a.key, folder: card.folder });
+      return 0;
+    }
+    case 'folders': {
+      const dir = sprintDirArg(a._[1]);
+      const r = renameLocalFolders(dir, { apply: a.apply });
+      if (a.apply && r.renames.length) assignIds(dir);
+      const lines = r.renames.map((x) => `  compare/${x.from} -> ${path.posix.basename(x.to)}`);
+      const skip = r.skipped.map((x) => `  skipped compare/${x.folder}: ${x.reason}`);
+      out(a, `${a.apply ? 'Renamed' : 'Would rename'} ${r.renames.length} folder(s)${a.apply ? '' : ' (dry run; add --apply)'}.${lines.length ? `\n${lines.join('\n')}` : ''}${skip.length ? `\n${skip.join('\n')}` : ''}`, r);
       return 0;
     }
     case 'push': {

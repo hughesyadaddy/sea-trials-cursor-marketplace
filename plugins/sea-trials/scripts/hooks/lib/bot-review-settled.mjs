@@ -2,9 +2,19 @@
  * Bot-review "settled" detector — adaptive replacement for the fixed
  * 30-minute silence window.
  *
- * Bot reviewers (Codex, Cursor Bugbot, CodeRabbit, Copilot) each leave a
- * distinct trail: a 👀 reaction when they pick a push up, a check run
- * while they work, a review or issue comment when they finish. Watching
+ * Bot reviewers (the advisory AI review, Cursor Bugbot, CodeRabbit,
+ * Copilot) each leave a distinct trail: a check run while they work, a
+ * review, inline comments or an issue comment when they finish.
+ *
+ * The AI review is the repo's own GitHub Actions workflow
+ * `AI Review (advisory)` (`.github/workflows/ai-review.yml`, job `review`,
+ * Claude via an Anthropic API key on the self-hosted runners). It posts as
+ * `github-actions[bot]`: up to ~5 inline findings plus one summary issue
+ * comment marked `<!-- st-ai-review -->`, edited in place on every run,
+ * that records the reviewed head as `<!-- st-ai-review:sha=<sha> -->`.
+ * It runs on `opened`, `synchronize` and `ready_for_review` (never on
+ * drafts) and is re-run by pushing a new commit. It is advisory and never
+ * a merge gate. Nothing here posts a re-trigger comment for it. Watching
  * those signals lets the loop act within a minute of the last bot
  * comment instead of waiting a flat half hour, while still refusing to
  * act on a review that is only half posted.
@@ -44,9 +54,9 @@ export const TERMINAL_STATES = new Set([STATES.ACTING, STATES.DONE]);
  * here compares through `normalizeLogin`, so both spellings match.
  */
 export const BOTS = Object.freeze({
-  codex: Object.freeze({
-    login: 'chatgpt-codex-connector',
-    retrigger: '@codex review',
+  aireview: Object.freeze({
+    login: 'github-actions',
+    retrigger: null,
     checkRun: null,
   }),
   bugbot: Object.freeze({
@@ -253,6 +263,39 @@ function findCheckRun(checkRuns, nameNeedle, head) {
   });
 }
 
+/** Marker of the AI review's single summary comment. */
+export const AI_REVIEW_MARK = '<!-- st-ai-review -->';
+/** Workflow and job name of the advisory AI review. */
+export const AI_REVIEW_WORKFLOW = 'AI Review (advisory)';
+export const AI_REVIEW_JOB = 'review';
+
+/**
+ * Head sha the AI review summary says it reviewed, or null.
+ *
+ * @param {string | null | undefined} body
+ */
+export function aiReviewSummarySha(body) {
+  const text = String(body ?? '');
+  if (!text.includes(AI_REVIEW_MARK)) return null;
+  const m = /<!-- st-ai-review:sha=([0-9a-f]{7,40}) -->/.exec(text);
+  return m ? m[1] : null;
+}
+
+/**
+ * The AI review's check run: name `review` from the GitHub Actions app
+ * (REST check runs carry no workflow name), or a name that carries the
+ * workflow name.
+ *
+ * @param {Record<string, any>} run
+ */
+export function isAiReviewCheckRun(run) {
+  const name = String(run?.name ?? '').trim();
+  if (name.startsWith(AI_REVIEW_WORKFLOW)) return true;
+  if (name !== AI_REVIEW_JOB) return false;
+  const slug = run?.app?.slug;
+  return slug == null || slug === 'github-actions';
+}
+
 /**
  * Turn raw GitHub payloads into ack / complete / present flags anchored
  * to head `H` and push time `t0`. Stale signals from a previous head
@@ -262,7 +305,6 @@ function findCheckRun(checkRuns, nameNeedle, head) {
  * @param {{
  *   head: string,
  *   t0: number,
- *   reactions?: Array<Record<string, any>>,
  *   reviews?: Array<Record<string, any>>,
  *   reviewComments?: Array<Record<string, any>>,
  *   issueComments?: Array<Record<string, any>>,
@@ -276,7 +318,6 @@ export function deriveSignals(input) {
   const {
     head,
     t0,
-    reactions = [],
     reviews = [],
     reviewComments = [],
     issueComments = [],
@@ -298,28 +339,27 @@ export function deriveSignals(input) {
     markPresent(item.user?.login ?? item.author?.login);
   }
 
-  // Codex: 👀 = received, review / "Didn't find" comment / 👍 = done.
-  for (const reaction of reactions) {
-    if (botKeyForLogin(reaction.user?.login) !== 'codex') continue;
-    signals.present.codex = true;
-    if (!after(reaction.created_at)) continue;
-    if (reaction.content === 'eyes') signals.ack.codex = true;
-    if (reaction.content === '+1') signals.complete.codex = true;
-  }
-  for (const review of reviews) {
-    if (botKeyForLogin(review.user?.login) !== 'codex') continue;
-    const forHead = sameSha(review.commit_id, head);
-    if (forHead || after(review.submitted_at)) signals.complete.codex = true;
-  }
-  for (const comment of issueComments) {
-    if (botKeyForLogin(comment.user?.login) !== 'codex') continue;
-    const body = String(comment.body ?? '');
-    if (!/reviewed commit:/i.test(body)) continue;
-    if (body.includes(head.slice(0, 7)) || after(comment.created_at)) {
-      signals.complete.codex = true;
+  // AI review (advisory): job `review` of workflow `AI Review (advisory)`
+  // on H. queued/in_progress = ack; completed (any conclusion, including
+  // skipped) = done. The summary comment stamped with H is also done.
+  const aiRuns = checkRuns.filter(isAiReviewCheckRun);
+  if (aiRuns.length) signals.present.aireview = true;
+  const aiRun = aiRuns.find((run) => !run.head_sha || sameSha(run.head_sha, head));
+  if (aiRun) {
+    if (aiRun.status === 'completed') {
+      signals.complete.aireview = true;
+    } else if (aiRun.status === 'queued' || aiRun.status === 'in_progress') {
+      signals.ack.aireview = true;
     }
   }
-  if (signals.complete.codex) signals.ack.codex = true;
+  for (const comment of issueComments) {
+    if (botKeyForLogin(comment.user?.login) !== 'aireview') continue;
+    const reviewed = aiReviewSummarySha(comment.body);
+    if (!reviewed) continue;
+    signals.present.aireview = true;
+    if (sameSha(reviewed, head)) signals.complete.aireview = true;
+  }
+  if (signals.complete.aireview) signals.ack.aireview = true;
 
   // Bugbot + CodeRabbit: check run on H. queued/in_progress = ack,
   // completed = done (any conclusion — neutral means findings posted).
@@ -409,7 +449,6 @@ export function applyRateLimitBackoff(obs, basePollMs, now, cfg) {
  *   enteredAt: number,
  *   pollsInState: number,
  *   quietPolls: number,
- *   codexRetriggered: boolean,
  *   lastBotActivityAt: number | null,
  *   seenBotCommentIds: string[],
  *   signals: BotSignals,
@@ -453,7 +492,6 @@ export function createMachine({ head, t0, enabledBots = null }) {
     enteredAt: t0,
     pollsInState: 0,
     quietPolls: 0,
-    codexRetriggered: false,
     lastBotActivityAt: null,
     seenBotCommentIds: [],
     signals: emptySignals(),
@@ -515,7 +553,7 @@ function basePollMs(m, c, now) {
 
 /**
  * One transition. Pure: returns a new machine plus the actions the
- * caller must perform (`post-codex-retrigger`, `refresh-threads`,
+ * caller must perform (`refresh-threads`, `await-ci`,
  * `head-changed`).
  *
  * @param {SettledMachine} prev
@@ -595,10 +633,9 @@ export function stepMachine(prev, obs, cfgOverrides = {}) {
       if (acked || activity || allComplete) {
         go(STATES.REVIEWING);
       } else if (now - m.enteredAt >= c.ackTimeoutMs) {
-        if (enabled.includes('codex') && !m.codexRetriggered) {
-          actions.push('post-codex-retrigger');
-          m.codexRetriggered = true;
-        }
+        // No re-trigger comments: a bot that has not picked the push up
+        // (AI review skipped on a draft, no credential, no reviewable
+        // files) is simply not waited on past the ack window.
         go(STATES.REVIEWING);
       }
       break;
@@ -674,7 +711,6 @@ export function machineSnapshot(m, nextPollMs) {
       enabled: enabledBotsOf(m),
     },
     quietPolls: m.quietPolls,
-    codexRetriggered: m.codexRetriggered,
     ciPending: m.ciPending,
     ciFailed: m.ciFailed,
     nextPollMs,
@@ -834,7 +870,6 @@ export function pollEndpoints(repo, prNumber, head, t0) {
     reviews: `${base}/pulls/${prNumber}/reviews?per_page=100`,
     issueComments:
       `${base}/issues/${prNumber}/comments?per_page=100&since=${since}`,
-    reactions: `${base}/issues/${prNumber}/reactions?per_page=100`,
     checkRuns: `${base}/commits/${head}/check-runs?per_page=100`,
     pull: `${base}/pulls/${prNumber}`,
   };
@@ -919,11 +954,6 @@ export function createSettledPoller(opts) {
     const reviews = fetchConditional('reviews');
     const issues = fetchConditional('issueComments');
     const checks = fetchConditional('checkRuns');
-    const needAck =
-      state === STATES.AWAITING_ACK || !machine.signals.complete.codex;
-    const reactions = needAck
-      ? fetchConditional('reactions')
-      : { changed: false, body: cache.reactions ?? null };
     const pull = fetchConditional('pull');
 
     const reviewList = asArray(reviews.body);
@@ -943,7 +973,6 @@ export function createSettledPoller(opts) {
     obs.signals = deriveSignals({
       head: machine.head,
       t0: machine.t0,
-      reactions: asArray(reactions.body),
       reviews: reviewList,
       reviewComments: commentList,
       issueComments: issueList,
@@ -970,15 +999,7 @@ export function createSettledPoller(opts) {
 
   const applyActions = (actions) => {
     for (const action of actions) {
-      if (action === 'post-codex-retrigger') {
-        log(
-          `codex: no ack within window — posting "${BOTS.codex.retrigger}"`,
-        );
-        adapter.post(
-          `repos/${repo.owner}/${repo.name}/issues/${prNumber}/comments`,
-          { body: BOTS.codex.retrigger },
-        );
-      } else if (action === 'head-changed') {
+      if (action === 'head-changed') {
         etags = {};
         cache = {};
         lastRefreshAt = 0;

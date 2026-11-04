@@ -23,7 +23,7 @@
 #          [-- <extra pr-review-loop flags>]
 #
 # Extra flags (after `--`) go straight to pr-review-loop.mjs, e.g.
-# `-- --webhook --bots codex,bugbot`. `PR_REVIEW_LOOP_ARGS` does the
+# `-- --webhook --bots aireview,bugbot`. `PR_REVIEW_LOOP_ARGS` does the
 # same from the environment.
 
 set -uo pipefail

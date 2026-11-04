@@ -95,6 +95,8 @@ export function meta(over) {
     sprint: null,
     attachments: [],
     order: 1,
+    plan_number: null,
+    jira_order: null,
     ...over,
   };
 }

@@ -5,8 +5,16 @@
  * a code example in every subtask How section, the number of checks,
  * and rules 2, 4, 6, 7, 8, 9, 11, 16 and 17. Cards that are Done in Jira
  * keep their Jira text and are skipped (rule 15).
+ *
+ * Viewer format (sprint-plan-viewer FORMAT.md, checked on every card,
+ * Done included): folder names, a Jira key never sitting in a `LOCAL`
+ * folder (the viewer hides the key and sprint of any card whose path
+ * contains `LOCAL`), the alias keys `key`/`parent`, `plan_number`, no
+ * `# Title` first line, and the Jira copy next to a keyed card.
  */
+import path from 'node:path';
 import { auditNumbering } from './numbering.mjs';
+import { CARD_KEYS } from './frontmatter.mjs';
 
 export const SECTIONS = {
   epic: ['Goal', 'Scope', 'Stories'],
@@ -20,7 +28,54 @@ const CHECK_LIMITS = {
 };
 
 /** Heuristic rules: reported, but they do not fail the lint. */
-export const WARN_RULES = new Set(['rule-8', 'rule-16']);
+export const WARN_RULES = new Set(['rule-8', 'rule-16', 'viewer-order', 'viewer-jira-copy']);
+
+const KEY_RE = /^[A-Z][A-Z0-9_]*-\d+$/;
+/** Folder names the viewer expects; `KEY` is a Jira key or `LOCAL`/`LOCAL-NN`. */
+export const FOLDER_RE = {
+  epic: /^\d{2}-epic-(?:[A-Z][A-Z0-9_]*-\d+|LOCAL(?:-[0-9.]+)?)-[a-z0-9][a-z0-9-]*$/,
+  story: /^\d{2}-story-(?:[A-Z][A-Z0-9_]*-\d+|LOCAL(?:-[0-9.]+)?)-[a-z0-9][a-z0-9-]*$/,
+  subtask: /^\d{2}-(?:[A-Z][A-Z0-9_]*-\d+|LOCAL(?:-[0-9.]+)?)-[a-z0-9][a-z0-9-]*$/,
+};
+const PLAN_NUMBER_RE = { epic: /^[SE]\d+$/, story: /^\d+$/, subtask: /^\d+\.\d+$/ };
+const TYPES = { epic: /^Epic$/, story: /^(Story|Bug)$/, subtask: /^(Sub-task|Subtask)$/ };
+
+/**
+ * Viewer-format checks. They run on every card with a local file, Done
+ * cards included, because the viewer reads all of them.
+ */
+export function lintViewerFormat(card) {
+  const out = [];
+  const add = (rule, message) => out.push({ folder: card.folder, kind: card.kind, rule, severity: WARN_RULES.has(rule) ? 'warn' : 'error', message });
+  const m = card.meta;
+  const name = path.posix.basename(card.folder);
+  if (!FOLDER_RE[card.kind].test(name)) {
+    const want = card.kind === 'subtask' ? 'NN-<KEY>-<slug>' : `NN-${card.kind}-<KEY>-<slug>`;
+    add('viewer', `folder name "${name}" is not ${want} (KEY = Jira key or LOCAL, slug = lowercase letters, digits and -)`);
+  }
+  const jk = m.jira_key ?? null;
+  if (jk && /LOCAL/.test(card.folder)) {
+    add('viewer', `has jira_key ${jk} but its path contains LOCAL, so the viewer shows it as local-only; rename the folder to use ${jk} (and any LOCAL parent folder)`);
+  } else if (jk && KEY_RE.test(String(jk)) && !name.includes(String(jk))) {
+    add('viewer', `folder name does not carry its jira_key ${jk}`);
+  }
+  for (const k of ['key', 'type', 'parent', 'order', 'plan_number', 'jira_order']) {
+    if (!(k in m)) add('viewer', `missing field \`${k}\``);
+  }
+  if ('key' in m && (m.key ?? null) !== jk) add('viewer', `key must equal jira_key (${jk ?? 'null'})`);
+  if ('parent' in m && (m.parent ?? null) !== (m.parent_jira_key ?? null)) add('viewer', `parent must equal parent_jira_key (${m.parent_jira_key ?? 'null'})`);
+  if (m.type && !TYPES[card.kind].test(String(m.type))) add('viewer', `type "${m.type}" does not fit a ${card.kind} card`);
+  if (m.plan_number !== null && m.plan_number !== undefined && !PLAN_NUMBER_RE[card.kind].test(String(m.plan_number))) {
+    add('viewer', `plan_number "${m.plan_number}" is not ${card.kind === 'epic' ? 'S1 or E1' : card.kind === 'story' ? "'N'" : "'N.M'"}`);
+  }
+  if (m.order !== null && m.order !== undefined && !(Number.isInteger(m.order) && m.order >= 1)) add('viewer', 'order must be a whole number from 1');
+  if (/^\s*#\s/.test(card.body ?? '')) add('viewer', 'body must not start with a "# Title" line (the viewer drops it; the title is `summary`)');
+  if (jk && card.jiraMeta === null) add('viewer-jira-copy', `has jira_key ${jk} but no ${card.kind}.jira.md; run pull or import-jira so the viewer can compare`);
+  const known = Object.keys(m).filter((k) => CARD_KEYS.includes(k));
+  const sorted = [...known].sort((a, b) => CARD_KEYS.indexOf(a) - CARD_KEYS.indexOf(b));
+  if (known.join('|') !== sorted.join('|')) add('viewer-order', 'front matter keys are not in the card key order (ids and lint rewrite them)');
+  return out;
+}
 
 const STATUS_CATEGORIES = new Set(['new', 'indeterminate', 'done']);
 const TOOL_WORDS = /\b(seamless(?:ly)?|robust(?:ly)?|leverag(?:e|es|ed|ing)|ensur(?:e|es|ed|ing)|delv(?:e|es|ed|ing)|utiliz(?:e|es|ed|ing)|streamlin(?:e|ed|es|ing)|cutting-edge|game-changer)\b/i;
@@ -78,6 +133,7 @@ export function lintCard(card, o = {}) {
     add('files', `missing ${card.kind}.local.md`);
     return out;
   }
+  out.push(...lintViewerFormat(card));
   if (isDone(card)) return out; // rule 15
   const m = card.meta;
   const maxPoints = o.maxPoints ?? 8;

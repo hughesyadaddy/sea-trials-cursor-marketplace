@@ -33,7 +33,9 @@ sprint_planning/<sprint-slug>/
             subtask.jira.md
 ```
 
-`<KEY>` is the Jira key, or `LOCAL` for a card that is not in Jira yet. `NN` is a two digit position; it does not have to match `order`.
+`<KEY>` is the Jira key, or `LOCAL` (the viewer's converter writes `LOCAL-NN` and `LOCAL-N.M`) for a card that is not in Jira yet. `NN` is a two digit position; it does not have to match `order`. Folders that start with `_` or `.` (for example `_unmatched_local/`, `_unmatched_jira/`) are never cards.
+
+When a card gets its Jira key, its folder is renamed to carry the key: the viewer shows any card whose path contains `LOCAL` as local-only, with no key and no sprint, even when its front matter has a `jira_key`. `node <CLI> folders <dir>` lists the renames (children before parents) and `--apply` does them, then rebuilds `index.json`. Lint fails while a keyed card sits under a `LOCAL` folder.
 
 ## compare/index.json
 
@@ -64,6 +66,23 @@ sprint_planning/<sprint-slug>/
 - The `jira` block is written by `init` and `connect`. The skill finds the values at run time (see the Jira connection reference) and saves them here so the next run does not ask again.
 - `field_ids` is written by `pull` with the user key. On the MCP path the skill writes it with `connect --story-points-field customfield_N --sprint-field customfield_N` once it knows the ids (from `getJiraIssueTypeMetaWithFields`).
 - `items` is rebuilt by `ids` on every run. `sync_status` is one of `in_sync`, `local_edited`, `jira_edited`, `conflict` or `local_only`.
+- `spv.py build` (and the viewer's resync) rewrites this file as its own `version: 1` index (`items` only, sync status `in_sync`, `local_only`, `jira_only` or `local_edited`) and drops the `jira` block. That is why `plan.json` must always hold the Jira settings: the viewer reads them in this order, per field: environment (`JIRA_SITE`, `JIRA_PROJECT`, `JIRA_BOARD_ID`, `JIRA_SPRINT_ID`, `SPV_TITLE`), `plan.json`, `sprint.json`, the newest `jira-snapshot-*/raw/*.json`, `compare/manifest.json`, the card keys. The next `ids` or `connect` restores the `jira` block from `plan.json`.
+
+## plan.json
+
+```json
+{
+  "title": "<SPRINT_NAME>",
+  "read_only": false,
+  "jira": {
+    "site": "https://<JIRA_SITE>", "project": "<PROJECT_KEY>", "board_id": 12,
+    "sprint_id": 345, "sprint_name": "<SPRINT_NAME>",
+    "story_points_field": "customfield_10016", "sprint_field": "customfield_10020"
+  }
+}
+```
+
+`read_only: true` makes the viewer's `push --apply` refuse to run. `init`, `connect`, `pull` and `serve` write it; a folder without `plan.json` shows no Jira links in the viewer unless a snapshot or `sprint.json` is there.
 
 ## images/manifest.json
 
@@ -73,11 +92,11 @@ A JSON list. One record per file:
 [{ "filename": "screen.png", "sha256": "...", "status": "staged", "path": "images/staged/screen.png", "jira_attachment_id": null }]
 ```
 
-`status` is `in_jira` (attached), `staged` (attach on the next push), or `removed_in_jira`. A file dropped into `images/staged/` without a record is also staged. Push never attaches the same sha256 twice, and checks the issue's attachments for the same file name and size before and after an upload.
+`status` is `in_jira` (attached), `staged` (attach on the next push), `removed_in_jira`, or `removed_locally` (the viewer's name for a file taken off the card). A file dropped into `images/staged/` without a record is also staged. Push never attaches the same sha256 twice, and checks the issue's attachments for the same file name and size before and after an upload.
 
 ## The viewer (sprint-plan-viewer)
 
-The web viewer is its own project-agnostic repo, https://github.com/hughesyadaddy/sprint-plan-viewer (private). Each project adds it as a git submodule of its sprint planning repo, next to the sprint folders:
+The web viewer is its own project-agnostic repo, https://github.com/hughesyadaddy/sprint-plan-viewer. Its `FORMAT.md` is the source of truth for this layout. Each project adds it as a git submodule of its sprint planning repo, next to the sprint folders:
 
 ```
 <sprint planning folder>/        (often sprint_planning/ in the app repo)
@@ -94,7 +113,7 @@ git commit -m "Add sprint-plan-viewer"
 
 After a fresh clone: `git submodule update --init sprint-plan-viewer`. It needs Python 3.9+ and PyYAML (`python3 -m pip install pyyaml`).
 
-Its CLI is `python3 sprint-plan-viewer/spv.py <command> --plan <sprint folder>` (`--plan` takes a path, a folder name or part of one; without it the newest plan is used). Commands: `list`, `config`, `serve [--port N] [--strict-port]` (also `serve.py`), `resync [--dry] [--images]` (GET only), `import-jira FILE...`, `build`, `check`, `push` (dry run; writes only with `--apply` plus `--keys K1,K2`, `--create <local_ids>` or `--images`) and `convert SRC [--out DIR] [--jira-json FILE] [--allow-push]`. Its README is the guide to its options.
+Its CLI is `python3 sprint-plan-viewer/spv.py <command> --plan <sprint folder>` (`--plan` takes a path, a folder name or part of one; without it the newest plan is used). Commands: `list`, `config`, `serve [--port N] [--strict-port]` (also `serve.py`), `resync [--dry] [--images]` (GET only), `import-jira FILE...`, `build`, `check`, `push` (dry run; writes only with `--apply` plus `--keys K1,K2`, `--create <local_ids>` or `--images`), `convert SRC [--out DIR] [--jira-json FILE] [--allow-push]` and `export --out DIR [--plan P]`. Its README is the guide to its options.
 
 Start it either way:
 
@@ -104,6 +123,17 @@ node <CLI> serve <sprint-folder> [--port N] [--strict-port]       # same thing, 
 ```
 
 `node <CLI> serve` finds `sprint-plan-viewer/spv.py` in the sprint folder or any folder above it, up to the git root (or `--viewer DIR`, or `SPRINT_PLAN_VIEWER`), writes `plan.json` from the saved Jira data, and runs `spv.py serve --plan <sprint folder>` from the folder that holds the viewer. An empty `sprint-plan-viewer/` (submodule not initialised) does not count. Without the viewer it exits 3 and prints the submodule command. `node <CLI> viewer <command> <sprint-folder> [spv args]` runs any other `spv.py` command the same way. This plugin does not ship a viewer of its own.
+
+### Static site (read only)
+
+To publish a plan as a static site (no server, no `/api`, no Jira key), use the viewer's export, never a copy of `index.html` plus the card folders:
+
+```bash
+python3 sprint-plan-viewer/spv.py export --plan <sprint-slug> --out <site-dir>   # one plan
+python3 sprint-plan-viewer/spv.py export --out <site-dir>                       # every plan
+```
+
+It writes `data/*.json` and `compare/` and points the page's `/api/file/...` reads at `compare/...`. A site built any other way asks for `api/file/<path>/subtask.local.md`, which a static host does not have, and every card opens as a 404.
 
 Which tool does what when the viewer is there (one implementation each):
 
@@ -116,5 +146,7 @@ Which tool does what when the viewer is there (one implementation each):
 | Transitions, sprint moves, rank | `node <CLI> push --apply` (the viewer does not do these) | `node <CLI> push --apply` |
 | Writes on the MCP path | `node <CLI> push --mcp-plan` + `record` | same |
 | Card ids, numbering, lint | `node <CLI> ids / number / lint` (`spv.py check` also parses) | same |
+| Rename `LOCAL` folders after keys exist | `node <CLI> folders --apply` | same |
+| Static site | `spv.py export --out DIR` | not available |
 
 `--builtin` on `pull`, `import-jira` or `push` uses this plugin's code even when the viewer is there. `pull --epic` / `--adopt` and `import-jira --adopt` always use the built-in code (the viewer has no such options).

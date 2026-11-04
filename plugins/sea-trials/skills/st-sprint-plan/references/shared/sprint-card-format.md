@@ -8,9 +8,11 @@ Placeholders: `<PROJECT_KEY>` is the Jira project key (for example `PROJ`), `<SP
 ## 1. Files
 
 - Each card is a folder. The local card is `epic.local.md`, `story.local.md` or `subtask.local.md`. The Jira copy next to it (`*.jira.md`) is written by `pull` or `import-jira`, is read only and is never edited by hand.
-- A card has YAML front matter between two `---` lines, a blank line, then the body. The body is the Jira description. It does not start with a `## Description` heading.
-- Stories live in the epic folder. Subtasks live in `subtasks/` inside the story folder.
-- Folder names are labels for people. A card is known by its `local_id`, never by its folder name. Keys are never read from folder names.
+- A card has YAML front matter between two `---` lines, a blank line, then the body. The body is the Jira description. It does not start with a `# Title` line (the viewer drops it; the title is `summary`) or a `## Description` heading. (checked)
+- Stories live in the epic folder. Subtasks live in `subtasks/` inside the story folder. Folders that start with `_` or `.` are never cards.
+- Folder names (checked): `NN-epic-<KEY>-<slug>`, `NN-story-<KEY>-<slug>`, and `subtasks/NN-<KEY>-<slug>` for a subtask. `NN` is a two digit position, `<KEY>` is the card's Jira key, or `LOCAL` (also `LOCAL-NN` or `LOCAL-N.M`) while it has none, and `<slug>` is lowercase letters, digits and `-`.
+- A card is known by its `local_id`, never by its folder name, and the CLI never reads keys from folder names. **But the sprint-plan-viewer hides the Jira key and sprint of every card whose path contains `LOCAL`** (its own folder or a parent folder). So a card that has a `jira_key` never sits in a `LOCAL` folder: after `record` or a create, run `node <CLI> folders <dir> --apply` (checked: error).
+- A card with a `jira_key` has its Jira copy (`*.jira.md`) next to it, written by `pull` or `import-jira`, so the viewer can show the diff (checked: warning).
 
 ## 2. Front matter (checked)
 
@@ -23,9 +25,9 @@ Every card has these fields, in this order.
 | `jira_id` | The Jira id as a string, or `null`. |
 | `parent_local_id` | The `local_id` of the parent epic (for a story) or the parent story (for a subtask). An epic has `null`. |
 | `parent_jira_key` | The parent's Jira key, or `null` when the parent is not in Jira yet. |
-| `key` | Same as `jira_key`. |
-| `type` | `Epic`, `Story`, `Bug` or `Sub-task` (the project's own subtask type name also works). |
-| `parent` | Same as `parent_jira_key`. |
+| `key` | Same as `jira_key` (the viewer's older alias; checked). |
+| `type` | `Epic` for an epic, `Story` or `Bug` for a story, `Sub-task` or `Subtask` for a subtask (the Jira issue type name; checked). |
+| `parent` | Same as `parent_jira_key` (checked). |
 | `summary` | The title. A story title starts with `User Story N: `. Epic and subtask titles have no number. |
 | `status` | A status name from the board, for example `To Do`, `In Progress` or `Done`. |
 | `status_category` | `new`, `indeterminate` or `done`, matching `status`. |
@@ -34,10 +36,14 @@ Every card has these fields, in this order.
 | `sprint` | `<SPRINT_NAME>` for work in this sprint, `null` otherwise. |
 | `attachments` | A YAML list of `filename` and `sha256`. A file is listed once. The same image is never attached twice. |
 | `order` | The position under the parent, starting at 1. |
-| `plan_number` | `'N'` for a story, `'N.M'` for a subtask, where N is the story number and M is the subtask position. |
+| `plan_number` | The label the viewer shows: `E1` (or `S1`) for an epic, `'N'` for a story, `'N.M'` for a subtask, where N is the story number and M is the subtask position. Quoted string. (checked) |
 | `jira_order` | The position Jira had at the last pull. When `order` and `jira_order` differ, push ranks the cards. |
 
+Every field above is present on every card, `null` when it has no value, and in this order (a wrong order is a lint warning; `ids` and `number` rewrite the file in order). Other keys the viewer writes are kept after them: `code_status`, `code_evidence`, `done_sources`, `local_done`, `_order_custom` (set when someone drags a card in the viewer).
+
 `cli.mjs ids` fills `local_id`, `parent_local_id` and the parent keys from the folder nesting. `cli.mjs number` fills `order`, `plan_number` and the `User Story N:` prefix. Never type these by hand.
+
+The viewer normalizes every card on read and write: LF line ends, `-` bullets, `[ ]`/`[x]` checkboxes, no trailing spaces, no blank lines between list items, at most one blank line in a row. Write cards that way so a save in the viewer changes nothing. The viewer's change hash covers `summary`, `type`, `parent`, `story_points`, `labels` and the body.
 
 ## 3. Body sections (checked)
 
@@ -149,4 +155,6 @@ The change itself in plain steps, with a short code example.
 
 ## 5. How a card is checked
 
-`node <CLI> lint <sprint-folder>` checks the front matter, the section headings and their order, the code example in each subtask's How, the number of checks, template text left from `new` (`[[FILL: ...]]`), and rules 2, 3, 4, 6, 7, 9, 11 and 17. Rules 8 and 16 are warnings. A card is ready when lint reports 0 errors. `push --apply` refuses to run while lint has errors.
+`node <CLI> lint <sprint-folder>` checks the front matter, the section headings and their order, the code example in each subtask's How, the number of checks, template text left from `new` (`[[FILL: ...]]`), and rules 2, 3, 4, 6, 7, 9, 11 and 17. Rules 8 and 16 are warnings.
+
+It also checks the viewer format on every card, Done cards included (rule `viewer`, errors): the folder name, a `jira_key` in a path that contains `LOCAL`, the fields `key`, `type`, `parent`, `order`, `plan_number` and `jira_order`, `key` equal to `jira_key` and `parent` equal to `parent_jira_key`, the `type` for the card's level, the `plan_number` shape, and a body that starts with `# `. Warnings: `viewer-jira-copy` (a keyed card with no `*.jira.md`) and `viewer-order` (front matter keys out of order). `python3 sprint-plan-viewer/spv.py check --plan <dir>` is the viewer's own parse check; run both. A card is ready when lint reports 0 errors. `push --apply` refuses to run while lint has errors.
