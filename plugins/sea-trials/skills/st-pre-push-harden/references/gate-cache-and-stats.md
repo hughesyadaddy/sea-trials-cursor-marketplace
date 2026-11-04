@@ -78,9 +78,9 @@ Tables:
   wall time per `gate/format`, `gate/analyze`, `shard/<tier>`, etc.
   A rising `gate/analyze` p95 with a flat cache rate means the
   analyzer, not the plan, is the bottleneck.
-- **by model** — success rate and median time per worker model. This
-  is the "does `composer-2.5-fast` actually fix lints" view: compare
-  its success rate against `composer-2.5` on the same task kinds.
+- **by model** — success rate and median time per worker model. This is the
+  "which worker model actually fixes lints" view: compare success rates
+  across models on the same task kinds.
 - **slowest 10** — task labels to split or scope down.
 - **total gate minutes** — wall time spent in `gate` runs in the window.
 
