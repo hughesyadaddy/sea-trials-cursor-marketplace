@@ -65,5 +65,5 @@ to stop runaway loops and page Alex instead.
 
 Cloud Agents API launches must explicitly pass
 `model: {id: "composer-2.5", params: [{id: "fast", value: "false"}]}`;
-otherwise the user/team default applies, which may be Fast. Use
-`/st-code-via-subscriptions` first for interactive coding hand-offs.
+otherwise the user/team default applies, which may be Fast. Coding hand-offs go to
+a not-busy Lokey bot (rakazo/Lokey connectors) or a Cursor cloud agent on `composer-2.5` with Fast off; never the user's own computers or local Claude Code / Codex CLIs.

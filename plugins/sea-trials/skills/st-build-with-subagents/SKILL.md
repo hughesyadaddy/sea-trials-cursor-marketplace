@@ -211,10 +211,7 @@ Do **not** use the shell subagent type — unvalidated in this repo.
 
 ## Compatibility
 
-- **Coding hand-off:** Before launching a Cursor cloud agent for coding,
-  try `/st-code-via-subscriptions` (Claude Code / Codex on your own
-  subscription); fall back to a Cursor agent on `composer-2.5` with
-  Fast off.
+- **Coding hand-off:** send coding work to a not-busy Lokey bot (rakazo/Lokey connectors) or a Cursor cloud agent on `composer-2.5` with Fast off; never the user's own computers or local Claude Code / Codex CLIs.
 - **Cloud Agents:** stdio MCP may be limited; run gates locally when
   cloud lacks the toolchain.
 - **Claude Code:** scripts live under `${CLAUDE_PLUGIN_ROOT}`; set
