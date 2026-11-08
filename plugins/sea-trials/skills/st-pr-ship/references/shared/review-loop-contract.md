@@ -27,10 +27,12 @@ temporary fast mode.
    ```
 
    That hook merges `dart analyze --fatal-infos` on those files and runs
-   only `*_test.dart` paths **you list** (lib-only → analyze, **no**
-   auto-discovered package tests). Each changed `lib/` file must have a
-   direct covering `test/*_test.dart` on disk (convention mapping); tests
-   run only when also listed. Non-Dart paths use scoped checks in
+   `flutter test` on direct covering tests: unchanged on-disk paths from
+   the `lib/` → `test/*_test.dart` convention or explicit
+   `ST_AGENT_VALIDATE_COVERS` mappings (**lib-only** still schedules and
+   runs those tests, not analyze-only). Each changed `lib/` file must have
+   a covering test on disk; listed `test/*_test.dart` paths must map to a
+   changed `lib/` file. Non-Dart paths use scoped checks in
    `scoped-per-commit-validate` — never pass them to `agent-validate-changed`.
 
 2. **Non-Dart** (`functions/`, `web/`, `supabase/`, scripts, …): run only
