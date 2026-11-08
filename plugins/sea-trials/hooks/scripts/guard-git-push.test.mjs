@@ -73,7 +73,7 @@ function writeFreshToken(root) {
   const headOid = git(root, ['rev-parse', 'HEAD']);
   return writeGatePassToken(root, {
     headOid,
-    phases: ['dirty', 'prepush', 'ci'],
+    phases: ['scoped'],
     prNumber: 1,
   });
 }
@@ -339,7 +339,7 @@ describe('decide', () => {
     assert.match(d.message, /stale/);
   });
 
-  test('token lacking the prepush phase denies', async () => {
+  test('token lacking the scoped phase denies', async () => {
     const root = makeRepo({ gate: 'husky' });
     writeGatePassToken(root, {
       headOid: git(root, ['rev-parse', 'HEAD']),
@@ -347,7 +347,7 @@ describe('decide', () => {
     });
     const d = await decide(cursor('git push', root), { env: CLEAN_ENV });
     assert.equal(d.permission, 'deny');
-    assert.match(d.message, /lacks phase prepush/);
+    assert.match(d.message, /lacks phase scoped/);
   });
 
   test('ST_ALLOW_BARE_PUSH=1 allows with a warning note', async () => {

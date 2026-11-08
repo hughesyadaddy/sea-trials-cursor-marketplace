@@ -88,7 +88,7 @@ proceed:
 | `3` | CI failed on HEAD | Attributable to the diff → fix → Step 4; else flake routing below |
 | `8` | CI still pending at the silence cap | Keep watching |
 
-**Flake routing (exit `3` only).** When the local gate passed and the
+**Flake routing (exit `3` only).** When scoped validation passed and the
 red job's failing tests are not in the PR diff, invoke
 `/st-flake-quarantine` (Cursor) / `/sea-trials:st-flake-quarantine`
 (Claude Code) with the PR number. It returns one of two verdicts:
@@ -131,38 +131,23 @@ Dispatch one worker per JSON line in a single parent turn (batch by
 push, commit, or reply. Parent integrates conflicts and re-reads the
 diff. Minimal fixes only; no drive-bys; architecture rules preserved.
 
-## Step 4 — Parallel local gate, then commit
+## Step 4 — Scoped validation, then commit
+
+Run the **per-commit standard** (contract → "Per-commit validation") on
+every file this round touches before staging:
 
 ```bash
-node "$ST_REVIEW_PUSH" --pr <n> --list-tasks
+node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs" \
+  <paths from this round's edits>
 ```
 
-Each JSON line is one gate lane (dirty tree, committed diff, PR CI
-parity). Dispatch one worker per line in one parent turn; each worker
-runs exactly:
+Non-Dart paths: run only the scoped analyzer/tests that apply to those
+files. Fix failures at the root cause; re-run on the same paths until
+green.
 
-```bash
-node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs" '<json-line>'
-```
-
-Every line carries worker hints — honour them:
-
-| Hint | Cursor (`Task`) | Claude Code (`Agent`) |
-| --- | --- | --- |
-| `subagent_type` | pass through | pick the matching subagent |
-| `model` / `claudeModel` | `model: composer-2.5` | `model: haiku` |
-
-Workers return pass/fail plus a log excerpt only. Any red lane → fix
-the root cause → re-run **that lane** (or the whole emitter) until all
-lanes are green.
-
-**Commit only after the gate is green.** Stage per the skill's Mode
-section, write one review-round commit, then continue. The gate is
-never skipped after a push: when a push produced new work, the next
-round runs Step 4 again in full. The gate-pass token
-(`scripts/hooks/lib/gate-pass-token.mjs`) lets the husky pre-push skip
-redundant work when the tree is unchanged — it is not a reason to skip
-this step.
+**Commit only after scoped validation passes.** Stage per the skill's
+Mode section, write one review-round commit, then continue. Every new
+round repeats Step 4 — never skip because a previous push was green.
 
 ## Step 5 — Push (the only path)
 
@@ -170,9 +155,10 @@ this step.
 node "$ST_REVIEW_PUSH" --pr <n>
 ```
 
-This is the **only** push path: it re-checks the gate plan and runs
-`git push` with hooks. Never bare `git push`, never `--force`, never
-`--no-verify`. Exit `8` after the push means CI pending — continue.
+This is the **only** push path: one scoped validation pass, gate-pass
+token for husky, then `git push` with hooks. Never bare `git push`,
+never `--force`, never `--no-verify`. Do **not** fan out `--list-tasks`
+before this step. Exit `8` after the push means CI pending — continue.
 Non-fast-forward → Sync recovery from the contract, then push again
 (≤5 retries). Record the pushed SHA:
 
@@ -224,7 +210,7 @@ One owner per PR. Before starting:
    re-run (`close` skips resolved threads; push is a no-op when
    `origin/<branch>` already has HEAD).
 3. If the agent was interrupted mid-round (uncommitted fix edits,
-   unpushed commits): finish that round first — gate → push → reply.
+   unpushed commits): finish that round first — validate → commit → push → reply.
 
 ## Step 4b — Migration preflight (any PR touching `supabase/migrations/`)
 
@@ -238,7 +224,7 @@ Problems (`not newer than base max`, `already exists on base`,
 `also added by open PR #m`) → renumber the **new** file with
 `git mv` to a timestamp above the reported max (and above any sibling
 PR's claim), regenerate any project migration contract the project CI
-requires, re-gate, push. Never renumber a migration already merged to
+requires, re-validate, push. Never renumber a migration already merged to
 the base or applied to a hosted DB.
 
 ## Stacked PRs and rebases
@@ -250,7 +236,8 @@ the base or applied to a hosted DB.
 - Remote branch was rewritten by someone else (`git merge-base
   --is-ancestor origin/<b> HEAD` fails and local has no unique work):
   `git reset --keep origin/<b>` in the **worktree**; with unique local
-  work, merge `origin/<b>` in. Record both SHAs in the report.
+  work, merge `origin/<b>` in, scoped-validate, commit. Record both SHAs
+  in the report.
 
 ## Step 7 — Merge (only when asked to merge, or run by the merge automation)
 
@@ -275,12 +262,12 @@ Stop and report (do not keep looping) when any of these hold:
    (`--silence 60` → ~3h) with no runner progress — report CI as the
    blocker. A single exit `8` is never a stop: keep watching.
 3. Push rejected 5 times in a row after Sync recovery.
-4. A gate lane stays red after a root-cause fix attempt and the
+4. Scoped validation stays red after a root-cause fix attempt and the
    remaining failure needs a product/API decision — ask once via the
    host structured-question tool.
 5. Mode-specific preflight failed (wrong branch in-place; worktree
    creation failed).
-6. Remote CI red on HEAD, local gate green, and `/st-flake-quarantine`
+6. Remote CI red on HEAD, scoped validation green, and `/st-flake-quarantine`
    returned `real` (or refused: attributable, protected, or the
    two-per-PR cap) with no fix in hand — report the failing check and
    the flake verdict.

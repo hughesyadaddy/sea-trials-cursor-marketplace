@@ -64,10 +64,9 @@ Infer PR from message or `gh pr view`. Record `PR_NUM` and base ref.
 Start **`/st-pr-review-monitor`** for the PR (once), then **invoke the
 chosen review-loop skill** — it follows the shared
 `review-loop-body.md`: daemon `Await` + settled machine,
-adversarial vet, parallel fix (`pr-review-fix-tasks`), the single
-fanned-out gate (`pr-review-push --list-tasks`), push
-(`pr-review-push`), reply+resolve citing the pushed SHA, repeat until
-`DONE`.
+adversarial vet, parallel fix (`pr-review-fix-tasks`), per-commit
+scoped validate, push (`pr-review-push`), reply+resolve citing the pushed
+SHA, repeat until `DONE`.
 
 Reviewer findings (AI review and PR-Agent, `github-actions[bot]`) are
 inline review threads with a **Resolve conversation** button, like Codex's.
@@ -78,11 +77,11 @@ close` runs GraphQL `resolveReviewThread`), not just replied to.
 
 When the user only needs gates before first push:
 
-1. Invoke `/st-pre-push-harden` through READY (single gate,
-   `--check-only`)
-2. `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>` (or `$ST_REVIEW_PUSH` from the
-   contract) — the gate-pass token keeps this from re-running lanes
-   already proven on the unchanged tree
+1. Run `agent-validate-changed` on the pending diff (per-commit standard).
+2. Optionally `/st-pre-push-harden` when the user wants extra sweep.
+3. `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>` (or
+   `$ST_REVIEW_PUSH` from the contract) — scoped validate + push; never bare
+   `git push`.
 
 ## Forbidden
 

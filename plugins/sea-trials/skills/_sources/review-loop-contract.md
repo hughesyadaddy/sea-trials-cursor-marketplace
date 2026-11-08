@@ -10,6 +10,40 @@ relies on.
 docs). Never start a review loop, adversarial vet, or push gate run for
 them; the push guard allows their plain `git push`.
 
+## Per-commit validation (permanent standard — all bots)
+
+This is the **standing** local gate for Sea Trials coding agents — not a
+temporary fast mode.
+
+**Before every commit** that touches code:
+
+1. **Dart / Flutter:** one scoped run on explicit changed paths plus
+   tests that directly cover the behavior you changed:
+
+   ```bash
+   node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs" \
+     <changed-lib.dart> …   # paths from git diff, or omit for dirty tree
+   ```
+
+   That hook merges `dart analyze --fatal-infos` on those files and runs
+   only the `test/` files the planner ties to the diff (same exits as
+   before — failures block the commit).
+
+2. **Non-Dart** (`functions/`, `web/`, `supabase/`, scripts, …): run only
+   the analyzer or test command that **directly applies** to each touched
+   path (scoped eslint/tsc, `deno test` on changed modules, migration
+   linters on changed SQL, …). No whole-repo or CI-parity replay.
+
+3. **Visual / feature validation** (manual QA, screenshots, E2E demos) is
+   separate — run when the user asks; it does not replace per-commit
+   analyzers/tests.
+
+**What agents must not do locally:** fan out `pr-review-push --list-tasks`,
+replay `prepush.mjs` / `pnpm prepush` / PR Checks lanes, stack
+`st-parallel-tasks` + `prepush` + `pr-review-push`, or treat a gate-pass
+token as a workflow prerequisite (`--check-only` is not required for
+READY). Remote **PR Checks** on GitHub stay the broad gate after push.
+
 ## Maximum parallel fan-out (`st-*` default)
 
 Sea Trials **`st-*`** skills default to **as many parallel workers as
@@ -17,11 +51,10 @@ the host allows** — never serialize work the parent can fan out.
 
 | Workflow | Emitter | Parent action |
 | --- | --- | --- |
-| Push gate lanes | `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks` | One worker per JSON line |
 | PR adversarial vet | `node "$ST_ADVERSARIAL" --pr <n>` | 3 × thread count |
 | PR code fixes | `node "$ST_FIX" --pr <n>` | 1 × path (path-scoped) |
 | Build shards | `node "$ST_BUILD_SHARD" --manifest shards.json` | 1 × ready shard |
-| Pre-push review | Harden Phase 3 agents (4 types) | One worker each, same turn |
+| Optional harden review | `/st-pre-push-harden` Phase 3 (4 agents) | One worker each when user asks |
 
 **Rules:**
 
@@ -30,21 +63,19 @@ the host allows** — never serialize work the parent can fan out.
    of 16 — still never one-at-a-time unless only one task exists.
 2. Subagents run gates/fixes/reviews only — **never `git push`**, never
    commit, never reply to threads.
-3. Parent synthesizes, integrates conflicts, then **one gate + one
-   push** per round.
-4. Gate workers run `node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs"
-   '<json-line>'` and honour the line's `subagent_type`, `model`
-   (Cursor: `composer-2.5`) and `claudeModel` (Claude: `haiku`) hints.
+3. Parent synthesizes, integrates conflicts, then **scoped validate on
+   each commit + one `pr-review-push` per round** (never bare push).
+4. Legacy CI-parity fan-out (`run-gate-task.mjs`) is **opt-in only** via
+   `--phases dirty,prepush,ci --list-tasks` — agents never use it.
 
 ```bash
-node "$ST_REVIEW_PUSH" --pr <n> --list-tasks
 node "$ST_FIX" --pr <n>
 node "$ST_ADVERSARIAL" --pr <n>
 node "$ST_BUILD_SHARD" --manifest shards.json --root "$ACTIVE_ROOT"
 ```
 
-`node "$ST_PARALLEL" --pr <n>` still exists as a convenience that
-merges the review emitters with the gate lanes into one list.
+`node "$ST_PARALLEL" --pr <n>` still merges review fix/vet emitters; it
+does **not** add push-gate lanes unless you pass legacy phases.
 
 `/st-build-with-subagents`, `/st-pre-push-harden`, `/st-pr-review-loop-*`,
 `/st-vgv-chain`, and `/st-pr-ship` all inherit this section.
@@ -63,7 +94,7 @@ Launch all workers in **one parent turn** per wave (batch by 16 on
 Cursor when needed). Subagents never push; parent merges then one
 harden + one push.
 
-Full host-specific walkthrough (shards, gate lanes, prepush order):
+Full host-specific walkthrough (shards, per-commit validate, push path):
 
 `plugins/sea-trials/skills/st-build-with-subagents/references/
 dual-host-dispatch.md`
@@ -151,9 +182,9 @@ node "$ST_FIX" --pr <n>
 node "$ST_REVIEW_STATUS" --pr <n>
 node "$ST_REVIEW_DAEMON" --pr <n> [--duration 24h]
 node "$ST_REVIEW_LOOP" --pr <n> [--webhook] [--json]
-node "$ST_REVIEW_PUSH" --pr <n> --list-tasks
-node "$ST_REVIEW_PUSH" --pr <n> --check-only
-node "$ST_REVIEW_PUSH" --pr <n>
+node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs [paths…]
+node "$ST_REVIEW_PUSH" --pr <n>              # scoped validate + push
+node "$ST_REVIEW_PUSH" --pr <n> --check-only # validate without push (optional)
 node "$ST_MERGE" --pr <n> --dry-run        # merge readiness, never merges
 node "$ST_MERGE" --pr <n> --wait 30        # the only merge path
 ```
@@ -299,29 +330,23 @@ self-contained `prompt`. Default agents (fixed order):
 Then build the reply with `node "$ST_REVIEW" format` and close
 with `node "$ST_REVIEW" close`. Silent resolve is forbidden.
 
-## Single gate, then push (before every push)
+## Scoped validate per commit, then push (every round)
 
-The local push gate runs **once per round**, fanned out, and the push
-command re-uses that result. Never run the same lanes three times
-(`st-parallel-tasks` + `prepush` + `pr-review-push`).
+1. **Per commit:** run `agent-validate-changed` (or the applicable scoped
+   analyzer/tests for non-Dart) on the exact paths in that commit — see
+   **Per-commit validation** above.
+2. **Commit only after scoped validation is green.**
+3. Push **only** through `node "$ST_REVIEW_PUSH" --pr <n>`. It re-runs a
+   single scoped pass on the pending diff, records a fresh gate-pass token
+   (`phase: scoped` in `gate-pass-token.mjs` so husky does not duplicate
+   work), then runs `git push` with hooks. Exit `8` after push means CI
+   still pending — the push succeeded.
+4. **Never** fan out legacy `--list-tasks` lanes, run `prepush` / `pnpm
+   prepush` for agents, or require `--check-only` before declaring push-ready.
 
-1. Emit lanes: `node "$ST_REVIEW_PUSH" --pr <n> --list-tasks`.
-2. Dispatch one worker per JSON line (Cursor: `Task`; Claude: `Agent`),
-   all in one parent turn (batch by 16). Each worker runs
-   `node "$ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs" '<json>'`.
-   A single line → the parent may run it inline.
-3. Red lane → root-cause fix → re-run that lane until green.
-4. **Commit only after every lane is green.**
-5. Push **only** through `node "$ST_REVIEW_PUSH" --pr <n>`. It replays
-   the gate plan (the gate-pass token in
-   `scripts/hooks/lib/gate-pass-token.mjs` lets the husky pre-push skip
-   lanes already proven on an unchanged tree) and then runs `git push`
-   with hooks. `--check-only` runs the gate without pushing (used by
-   `st-pre-push-harden` to reach READY).
-
-**The gate is never skipped after a push.** Each new round of bot
-findings goes through steps 1–5 again in full. Bare `git push`,
-`--force`, and `--no-verify` are forbidden on branches with an open PR.
+Each new bot round repeats steps 1–3. Bare `git push`, `--force`, and
+`--no-verify` are forbidden on branches with an open PR. **PR Checks on
+HEAD** remain the broad gate — local work stays scoped to the diff.
 
 ## Bot review settled machine (replaces the flat 30-minute wait)
 
@@ -378,7 +403,7 @@ Watcher commands:
 | `node "$ST_REVIEW_DAEMON" --pr <n> [--duration 24h]` | **24h monitor** — never exits on handoff; `>>> ACTION:` sentinels |
 | `bash "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-daemonctl.sh" start --pr <n> --daemon` | Detached daemon (setsid; survives chat close) |
 | `node "$ST_REVIEW_LOOP" --pr <n> [--webhook] [--json]` | Single-pass detect (exits on handoff; fallback/tests) |
-| `node "$ST_REVIEW_PUSH" --pr <n>` | Single gate → `git push` (hooks on) |
+| `node "$ST_REVIEW_PUSH" --pr <n>` | Scoped validate → `git push` (hooks on) |
 
 Full monitor protocol (Cursor background terminal, `Await`, ack files):
 `shared/review-loop-monitor.md`. Slash command: `/st-pr-review-monitor`.
@@ -408,18 +433,18 @@ proceed:
 | Exit | Meaning | Parent agent action |
 | --- | --- | --- |
 | `0` | `DONE`: settled, threads clear, CI green | Final verify |
-| `2` | `ACTING`: unresolved bot threads | Read `pr-review-queue.json`; fix **all**; single gate; push; reply+resolve; restart watcher |
-| `3` | CI failure on HEAD | Attributable to the diff → fix; else `/st-flake-quarantine` (Cursor) / `/sea-trials:st-flake-quarantine` (Claude Code) — it quarantines (skip + issue committed; loop continues) or returns `real` (loop fixes); single gate; push; restart watcher |
+| `2` | `ACTING`: unresolved bot threads | Read `pr-review-queue.json`; fix **all**; scoped validate; commit; push; reply+resolve; restart watcher |
+| `3` | CI failure on HEAD | Attributable to the diff → fix; else `/st-flake-quarantine` — quarantine or `real`; scoped validate; push; restart watcher |
 | `8` | CI pending at the silence cap | Restart watcher; report CI as the blocker if it persists |
 
 The flake skill never runs on a red **local** gate lane, never
 quarantines a test in a file the PR touched, refuses protected tests
 (`integration_test/`, `scenario_`, `golden`, `security`, `auth`,
 `payment`, `billing`), and caps at two quarantines per PR without a
-human. Its commit rejoins this contract: single gate, then
+human. Its commit rejoins this contract: scoped validate, then
 `pr-review-push`, never bare `git push`.
 
-After every fix round: gate → `node "$ST_REVIEW_PUSH" --pr <n>` →
+After every fix round: validate → commit → `node "$ST_REVIEW_PUSH" --pr <n>` →
 reply+resolve every addressed thread citing the pushed SHA → restart
 `node "$ST_REVIEW_LOOP" --pr <n>` in the background. Do not end the
 turn with open threads or before the machine reaches `DONE` unless the
@@ -444,8 +469,8 @@ Forbidden early exits:
 - Ending the turn and asking the user to "check back later" instead of
   continuing the loop
 
-On any new unresolved work: fix → single gate → push → the machine
-restarts from `PUSHED` for the new head.
+On any new unresolved work: fix → scoped validate → commit → push → the
+machine restarts from `PUSHED` for the new head.
 
 ## One push per bot round
 
@@ -529,22 +554,21 @@ existing test, contract doc). Rejections without evidence read as dismissals
 and the AI review will raise the same finding again (it is handed every
 earlier finding and its replies on the next run).
 
-## Pre-push harden (before every push)
+## Pre-push harden (optional, user-invoked)
 
-Before any push that carries code (including merge-recovery pushes):
+`/st-pre-push-harden` is for proactive regression sweeps and optional
+review-agent fan-out when the **user** asks. It does **not** replace
+per-commit `agent-validate-changed` and does **not** run CI-parity lanes.
 
-1. Run the **single gate** above (fan-out `--list-tasks` → fix → green)
-   in the active root (`$REPO_ROOT` or `$WORKTREE_DIR`). The
-   `st-pre-push-harden` skill wraps this with a regression sweep and
-   review fan-out and ends with `pr-review-push --check-only` → READY.
-2. Push with **`node "$ST_REVIEW_PUSH" --pr <n>`** — never bare
-   `git push`.
-3. Do not push until the gate is green / harden reports **READY**.
-4. Never `--force`, never `--no-verify`.
+Default push path for review loops and ship:
 
-Goal: catch analyze/lint/test/architecture regressions **before** bots
-open a new review round (fix-one / break-many loops). Tests must never
-fail after a push.
+1. Per-commit scoped validation (mandatory).
+2. **`node "$ST_REVIEW_PUSH" --pr <n>`** — never bare `git push`.
+3. Never `--force`, never `--no-verify`.
+
+Harden **READY** means the pending diff passed scoped validation plus any
+optional harden checks the user requested — not a gate-pass token or
+`--check-only` prerequisite.
 
 ## Sync recovery
 

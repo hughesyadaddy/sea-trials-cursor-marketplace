@@ -2,13 +2,11 @@
  * Push-gate pass token — lets the pre-push hook skip a gate that
  * `pr-review-push` just ran on the very same tree.
  *
- * `pr-review-push` runs dirty + committed-diff + CI lanes, then calls
- * `git push`, which fires the husky pre-push hook, which re-ran the
- * committed-diff gate from scratch: the same `dart analyze` twice in a
- * row, minutes apart, on an unchanged tree. The token records what was
- * verified; the hook honours it only when HEAD, the working-tree
- * fingerprint and `ST_REVIEW_PUSH` all still match and the token is
- * fresh. Anything else falls through to the full gate.
+ * `pr-review-push` runs scoped validation (`agent-validate-changed`), then
+ * `git push`, which fires the husky pre-push hook. The token lets the hook
+ * skip a duplicate scoped run on the same tree. The hook honours it only
+ * when HEAD, the working-tree fingerprint and `ST_REVIEW_PUSH` all still
+ * match and the token is fresh. Anything else re-runs scoped validation.
  */
 import crypto from 'node:crypto';
 import fs from 'node:fs';

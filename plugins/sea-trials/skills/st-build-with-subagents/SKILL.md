@@ -188,10 +188,10 @@ cluster), re-run `agent-validate`, commit.
 
 ---
 
-## Phase 4 — ONE harden and push
+## Phase 4 — Scoped validate and push
 
-**Stop and invoke `/st-pre-push-harden`.** Run it through READY; it
-fans out `st-parallel-tasks` gate lanes itself. Then push exactly once:
+Ensure every shard commit already passed `agent-validate-changed`. Optional
+`/st-pre-push-harden` only when the user asked. Push exactly once:
 
 ```bash
 node "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs" --pr <n>

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * Fast validation for agent sessions — changed Dart files only.
+ * Permanent per-commit validation — changed Dart (and covering tests) only.
  *
- * Use during /build, /hotfix, and iteration. Full-package gates stay on
- * prepush (format, analyze, custom lint) and CI (tests).
+ * Required before every agent commit on Dart surfaces. Non-Dart changes use
+ * the same idea: only analyzers/tests that directly apply to touched paths.
+ * Remote PR Checks remain the broad gate; do not replay them locally.
  *
  * Built to stay light on the machine, because many agents (shard
  * fan-outs, iteration loops) run it at once on one laptop:
