@@ -5,10 +5,7 @@ import { verifyHooksWiring } from './lib/git-hooks-wiring.mjs';
 import * as prepushTasks from './lib/prepush-tasks.mjs';
 import { PHASE_SCOPED } from './lib/push-gate-tasks.mjs';
 import { runScopedPerCommitValidate } from './lib/scoped-per-commit-validate.mjs';
-import {
-  commitValidateIsTrusted,
-  commitValidateRecordPath,
-} from './lib/commit-validate-record.mjs';
+import { commitValidateIsTrusted } from './lib/commit-validate-record.mjs';
 import { getRepoRoot } from './lib/pr-review-lib.mjs';
 import { checkGatePassToken } from './lib/gate-pass-token.mjs';
 
@@ -153,16 +150,8 @@ async function main() {
     process.exit(0);
   }
 
-  let recordFp = '';
-  try {
-    const raw = fs.readFileSync(commitValidateRecordPath(repoRoot), 'utf8');
-    recordFp = JSON.parse(raw).validateFingerprint ?? '';
-  } catch {
-    // no record
-  }
   const trust = commitValidateIsTrusted(repoRoot, {
     scopePaths: ctx.changed,
-    validateFingerprint: recordFp,
     requireMode: 'full',
   });
   if (trust.ok) {

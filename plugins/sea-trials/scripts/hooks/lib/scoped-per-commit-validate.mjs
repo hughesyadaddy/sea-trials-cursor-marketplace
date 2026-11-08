@@ -9,13 +9,14 @@ import {
   commitValidateIsTrusted,
   writeCommitValidateRecord,
 } from './commit-validate-record.mjs';
+import { computeExpectedValidateTrust } from './validate-requirements-identity.mjs';
 import {
   isDocsOnlySet,
   partitionRepoPaths,
 } from './per-commit-paths.mjs';
 import { runScopedNonDartChecks } from './scoped-non-dart-checks.mjs';
 import fs from 'node:fs';
-import { commitValidateRecordPath } from './commit-validate-record.mjs';
+import { assertNoPartialStaging } from './scope-tree-fingerprint.mjs';
 
 const isWindows = process.platform === 'win32';
 const hooksDir = path.dirname(fileURLToPath(import.meta.url));
@@ -36,6 +37,19 @@ export function runScopedPerCommitValidate(
   const reuse = opts.reuseCommitRecord !== false;
   const writeRecord = opts.writeRecord !== false;
 
+  const staging = assertNoPartialStaging(repoRoot, unique);
+  if (!staging.ok) {
+    return {
+      ok: false,
+      steps: [{
+        name: 'scoped-validate',
+        ok: false,
+        stderr: staging.message,
+      }],
+      skipped: false,
+    };
+  }
+
   if (unique.length === 0) {
     return {
       ok: true,
@@ -45,17 +59,10 @@ export function runScopedPerCommitValidate(
   }
 
   if (reuse) {
-    let recordFp = '';
-    try {
-      const raw = fs.readFileSync(commitValidateRecordPath(repoRoot), 'utf8');
-      recordFp = JSON.parse(raw).validateFingerprint ?? '';
-    } catch {
-      // no record
-    }
     const trust = commitValidateIsTrusted(repoRoot, {
       scopePaths: unique,
-      validateFingerprint: recordFp,
       requireMode: 'full',
+      env: process.env,
     });
     if (trust.ok) {
       return {
@@ -140,16 +147,18 @@ export function runScopedPerCommitValidate(
     return { ok: true, steps, skipped: false };
   }
 
-  if (writeRecord) {
-    const hadLibChanges = dart.some((p) => p.includes('/lib/'));
+  if (writeRecord && dart.length === 0) {
+    const { requirementsIdentity, validateFingerprint: expectedFp } =
+      computeExpectedValidateTrust(repoRoot, unique, { requireMode: 'full' });
     writeCommitValidateRecord(repoRoot, {
       ok: true,
-      validateFingerprint,
+      validateFingerprint: expectedFp,
+      requirementsIdentity,
       scopePaths: unique,
       mode: 'full',
-      testsExecuted: dart.length > 0 && Boolean(validateFingerprint),
-      analyzeExecuted: dart.length > 0,
-      hadLibChanges,
+      testsExecuted: false,
+      analyzeExecuted: false,
+      hadLibChanges: false,
     });
   }
 

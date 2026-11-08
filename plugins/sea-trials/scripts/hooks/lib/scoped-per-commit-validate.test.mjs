@@ -8,6 +8,7 @@ import test from 'node:test';
 import { runScopedPerCommitValidate } from './scoped-per-commit-validate.mjs';
 import { partitionRepoPaths, isDocsOnlySet } from './per-commit-paths.mjs';
 import { writeCommitValidateRecord } from './commit-validate-record.mjs';
+import { computeExpectedValidateTrust } from './validate-requirements-identity.mjs';
 
 function git(repo, ...args) {
   return spawnSync('git', args, { cwd: repo, encoding: 'utf8' }).stdout?.trim();
@@ -81,9 +82,11 @@ test('push reuses commit validation record on clean tree', () => {
   spawnSync('git', ['add', '-A'], { cwd: repo });
   spawnSync('git', ['commit', '-m', 'c'], { cwd: repo });
   const paths = ['docs/note.md'];
+  const expected = computeExpectedValidateTrust(repo, paths, { requireMode: 'full' });
   writeCommitValidateRecord(repo, {
     ok: true,
-    validateFingerprint: 'abc',
+    validateFingerprint: expected.validateFingerprint,
+    requirementsIdentity: expected.requirementsIdentity,
     scopePaths: paths,
     mode: 'full',
     testsExecuted: false,
@@ -95,4 +98,23 @@ test('push reuses commit validation record on clean tree', () => {
   });
   assert.equal(r.ok, true);
   assert.equal(r.skipped, true);
+});
+
+test('non-Dart partial staging (MM) blocks scoped validate before checks', () => {
+  const repo = initRepo();
+  const rel = 'plugins/sea-trials/scripts/hooks/lib/partial-staging.test-target.mjs';
+  const abs = path.join(repo, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, 'export const a = 1;\n');
+  spawnSync('git', ['add', '-A'], { cwd: repo });
+  spawnSync('git', ['commit', '-m', 'init'], { cwd: repo });
+  fs.writeFileSync(abs, 'export const a = 2;\n');
+  spawnSync('git', ['add', rel], { cwd: repo });
+  fs.writeFileSync(abs, 'export const a = 3;\n');
+  const r = runScopedPerCommitValidate(repo, [rel], {
+    reuseCommitRecord: false,
+    writeRecord: false,
+  });
+  assert.equal(r.ok, false);
+  assert.match(String(r.steps[0].stderr), /Partial staging/);
 });

@@ -9,6 +9,7 @@ import {
   commitValidateIsTrusted,
   writeCommitValidateRecord,
 } from './commit-validate-record.mjs';
+import { computeExpectedValidateTrust } from './validate-requirements-identity.mjs';
 
 function initRepo() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'st-record-'));
@@ -33,40 +34,49 @@ test('analyze-only record never authorizes full reuse', () => {
     testsExecuted: false,
     hadLibChanges: true,
   });
-  const trust = commitValidateIsTrusted(repo, {
-    scopePaths: scope,
-    validateFingerprint: 'fp-analyze-only',
-    requireMode: 'full',
-  });
+  const trust = commitValidateIsTrusted(repo, { scopePaths: scope, requireMode: 'full' });
   assert.equal(trust.ok, false);
   assert.match(trust.reason, /mode/);
 });
 
-test('full record requires matching validateFingerprint', () => {
+test('full record requires independently computed validateFingerprint', () => {
   const repo = initRepo();
   fs.writeFileSync(path.join(repo, 'f.txt'), 'z\n');
   spawnSync('git', ['add', '-A'], { cwd: repo });
   spawnSync('git', ['commit', '-m', 'c'], { cwd: repo });
   const scope = ['f.txt'];
+  const expected = computeExpectedValidateTrust(repo, scope, { requireMode: 'full' });
   writeCommitValidateRecord(repo, {
     ok: true,
-    validateFingerprint: 'correct-fp',
+    validateFingerprint: expected.validateFingerprint,
+    requirementsIdentity: expected.requirementsIdentity,
     scopePaths: scope,
     mode: 'full',
     testsExecuted: false,
     hadLibChanges: false,
   });
-  const bad = commitValidateIsTrusted(repo, {
+  writeCommitValidateRecord(repo, {
+    ok: true,
+    validateFingerprint: 'stale-fp',
+    requirementsIdentity: expected.requirementsIdentity,
     scopePaths: scope,
-    validateFingerprint: 'wrong-fp',
-    requireMode: 'full',
+    mode: 'full',
+    testsExecuted: false,
+    hadLibChanges: false,
   });
+  const bad = commitValidateIsTrusted(repo, { scopePaths: scope, requireMode: 'full' });
   assert.equal(bad.ok, false);
-  const good = commitValidateIsTrusted(repo, {
+  assert.match(bad.reason, /fingerprint/);
+  writeCommitValidateRecord(repo, {
+    ok: true,
+    validateFingerprint: expected.validateFingerprint,
+    requirementsIdentity: expected.requirementsIdentity,
     scopePaths: scope,
-    validateFingerprint: 'correct-fp',
-    requireMode: 'full',
+    mode: 'full',
+    testsExecuted: false,
+    hadLibChanges: false,
   });
+  const good = commitValidateIsTrusted(repo, { scopePaths: scope, requireMode: 'full' });
   assert.equal(good.ok, true);
 });
 
@@ -84,11 +94,7 @@ test('lib changes without testsExecuted blocks reuse', () => {
     testsExecuted: false,
     hadLibChanges: true,
   });
-  const trust = commitValidateIsTrusted(repo, {
-    scopePaths: scope,
-    validateFingerprint: 'fp',
-    requireMode: 'full',
-  });
+  const trust = commitValidateIsTrusted(repo, { scopePaths: scope, requireMode: 'full' });
   assert.equal(trust.ok, false);
   assert.match(trust.reason, /tests were not executed/);
 });

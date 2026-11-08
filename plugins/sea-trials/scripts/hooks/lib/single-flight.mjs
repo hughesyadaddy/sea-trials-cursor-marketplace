@@ -125,12 +125,20 @@ export const defaultIo = {
  * is content-based, a newer edit can never be coalesced away.
  *
  * @param {{ files: string[], flags?: string[], heads?: string[],
- *   io?: typeof defaultIo }} opts
+ *   identity?: string, io?: typeof defaultIo }} opts
  * @returns {string} hex digest
  */
-export function computeFingerprint({ files, flags = [], heads = [], io = defaultIo }) {
+export function computeFingerprint({
+  files,
+  flags = [],
+  heads = [],
+  identity = '',
+  io = defaultIo,
+}) {
   const hash = crypto.createHash('sha256');
   hash.update(JSON.stringify({ flags: [...flags].sort(), heads: [...heads].sort() }));
+  hash.update('\0identity\0');
+  hash.update(identity);
   for (const abs of [...files].sort()) {
     let digest;
     try {

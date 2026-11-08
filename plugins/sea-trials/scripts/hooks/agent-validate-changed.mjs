@@ -58,13 +58,17 @@ import {
 import {
   acquireLock,
   canCoalesce,
-  computeFingerprint,
   LOCK_TIMEOUT_EXIT,
   lockWaitMs,
   readLastResult,
   singleFlightEnabled,
   writeLastResult,
 } from './lib/single-flight.mjs';
+import { computeValidateFingerprint } from './lib/agent-validate-fingerprint.mjs';
+import {
+  buildRequirementsIdentity,
+  scheduledTestRepoPathsFromGroups,
+} from './lib/validate-requirements-identity.mjs';
 import { stateDir } from '../lib/st-state-dir.mjs';
 import {
   enforceDirectTestContract,
@@ -487,55 +491,6 @@ async function runPhases(plan, { failFast, env, activeReleases }) {
   return { failed };
 }
 
-/** Absolute paths of every file in the change set, for fingerprinting. */
-function changeSetFiles(resolvedFiles) {
-  return resolvedFiles.map((f) => path.join(f.repoRoot, f.repoRel));
-}
-
-/**
- * Fingerprint inputs for the current change set. Analyze/test verdicts
- * depend on files OUTSIDE the listed set (imports, a moved HEAD, an edit
- * to a non-listed file when explicit paths are passed), so for every repo
- * the change set touches we fold in that repo's HEAD and every dirty file
- * (unstaged + staged + untracked, all file types; deleted files hash as
- * 'missing' via the content reader).
- *
- * @param {{ repoRoot: string, repoRel: string }[]} resolvedFiles
- * @returns {{ files: string[], heads: string[] }}
- */
-function collectFingerprintInputs(resolvedFiles) {
-  const repoRoots = [
-    ...new Set(resolvedFiles.map((f) => f.repoRoot)),
-  ].sort();
-  const heads = [];
-  const dirty = new Set();
-  for (const root of repoRoots) {
-    const head = capture('git', ['-C', root, 'rev-parse', 'HEAD']) ?? '';
-    heads.push(`${root}=${head}`);
-    const listings = [
-      capture('git', ['-C', root, 'diff', '--name-only']) ?? '',
-      capture('git', ['-C', root, 'diff', '--name-only', '--cached']) ?? '',
-      capture('git', [
-        '-C',
-        root,
-        'ls-files',
-        '--others',
-        '--exclude-standard',
-      ]) ?? '',
-    ];
-    for (const out of listings) {
-      for (const rel of out
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean)) {
-        dirty.add(path.join(root, rel));
-      }
-    }
-  }
-  const files = [...new Set([...changeSetFiles(resolvedFiles), ...dirty])];
-  return { files, heads };
-}
-
 async function main() {
   const { flags, paths: explicitPaths } = parseArgs(process.argv.slice(2));
 
@@ -692,11 +647,16 @@ async function main() {
         releaseLock();
         process.exit(0);
       }
-      const fpInputs = collectFingerprintInputs(current.resolvedFiles);
-      const fingerprint = computeFingerprint({
-        files: fpInputs.files,
-        heads: fpInputs.heads,
+      const scheduledForCoalesce = scheduledTestRepoPathsFromGroups(current.groups);
+      const requirementsIdentity = buildRequirementsIdentity({
+        explicitCoveringMap: explicitCovering,
+        scheduledTestRepoPaths: scheduledForCoalesce,
+        mode: analyzeOnly ? 'analyze-only' : testsOnly ? 'tests-only' : 'full',
+      });
+      const fingerprint = computeValidateFingerprint({
+        resolvedFiles: current.resolvedFiles,
         flags: fingerprintFlags,
+        requirementsIdentity,
       });
       const last = readLastResult(lastPath);
       if (canCoalesce(last, { fingerprint, waitStartedAt: lock.waitStartedAt })) {
@@ -710,11 +670,21 @@ async function main() {
     }
   }
 
-  const fpInputs = collectFingerprintInputs(current.resolvedFiles);
-  const fingerprint = computeFingerprint({
-    files: fpInputs.files,
-    heads: fpInputs.heads,
+  const validationMode = analyzeOnly
+    ? 'analyze-only'
+    : testsOnly
+      ? 'tests-only'
+      : 'full';
+  const scheduledTestRepoPaths = scheduledTestRepoPathsFromGroups(current.groups);
+  const requirementsIdentity = buildRequirementsIdentity({
+    explicitCoveringMap: explicitCovering,
+    scheduledTestRepoPaths,
+    mode: validationMode,
+  });
+  const fingerprint = computeValidateFingerprint({
+    resolvedFiles: current.resolvedFiles,
     flags: fingerprintFlags,
+    requirementsIdentity,
   });
 
   process.stdout.write(
@@ -735,12 +705,6 @@ async function main() {
   const hadLibChanges = [...current.groups.values()].some(
     (g) => g.lib.length > 0,
   );
-  const validationMode = analyzeOnly
-    ? 'analyze-only'
-    : testsOnly
-      ? 'tests-only'
-      : 'full';
-
   const hasWork = plan.phases.some((phase) => phase.tasks.length > 0);
   if (!hasWork) {
     if (testsOnly) {
@@ -789,7 +753,11 @@ async function main() {
 
   process.stdout.write(
     '✅ Agent validation passed (scoped Dart paths only).\n' +
-      `validate-fingerprint=${fingerprint}\n`,
+      `validate-fingerprint=${fingerprint}\n` +
+      `validate-requirements-identity=${requirementsIdentity}\n` +
+      `validate-metadata testsExecuted=${testTasks.length > 0 ? 1 : 0} ` +
+      `hadLibChanges=${hadLibChanges ? 1 : 0} ` +
+      `analyzeExecuted=${analyzeTasks.length > 0 ? 1 : 0}\n`,
   );
   if (
     validationMode === 'full'
@@ -798,6 +766,7 @@ async function main() {
     writeCommitValidateRecord(repoRoot, {
       ok: true,
       validateFingerprint: fingerprint,
+      requirementsIdentity,
       scopePaths: collectScopeRepoPaths({
         groups: current.groups,
         resolvedFiles: current.resolvedFiles,

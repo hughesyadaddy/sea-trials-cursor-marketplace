@@ -9,6 +9,7 @@ import {
   scopePathsByteFingerprint,
   workingTreeByteFingerprint,
 } from './scope-tree-fingerprint.mjs';
+import { computeExpectedValidateTrust } from './validate-requirements-identity.mjs';
 
 const isWindows = process.platform === 'win32';
 const RECORD_FILE = 'st-commit-validate.json';
@@ -49,6 +50,7 @@ export function scopeFingerprint(repoRelPaths) {
  *   testsExecuted?: boolean,
  *   analyzeExecuted?: boolean,
  *   hadLibChanges?: boolean,
+ *   requirementsIdentity?: string,
  * }} payload
  */
 export function writeCommitValidateRecord(repoRoot, payload) {
@@ -64,6 +66,7 @@ export function writeCommitValidateRecord(repoRoot, payload) {
     analyzeExecuted: payload.analyzeExecuted !== false,
     hadLibChanges: Boolean(payload.hadLibChanges),
     validateFingerprint: payload.validateFingerprint ?? '',
+    requirementsIdentity: payload.requirementsIdentity ?? '',
     scopePaths,
     scopeFingerprint: scopeFingerprint(scopePaths),
     at: new Date().toISOString(),
@@ -78,17 +81,18 @@ export function writeCommitValidateRecord(repoRoot, payload) {
  * @param {string} repoRoot
  * @param {{
  *   scopePaths: string[],
- *   validateFingerprint: string,
  *   requireMode?: ValidateMode,
+ *   env?: NodeJS.ProcessEnv,
  * }} expected
  */
 export function commitValidateIsTrusted(
   repoRoot,
-  { scopePaths, validateFingerprint, requireMode = 'full' },
+  { scopePaths, requireMode = 'full', env = process.env },
 ) {
-  if (!validateFingerprint?.trim()) {
-    return { ok: false, reason: 'validateFingerprint required' };
-  }
+  const want = computeExpectedValidateTrust(repoRoot, scopePaths, {
+    requireMode,
+    env,
+  });
   const file = commitValidateRecordPath(repoRoot);
   let record;
   try {
@@ -128,7 +132,11 @@ export function commitValidateIsTrusted(
   if (record.scopeFingerprint !== wantScope) {
     return { ok: false, reason: 'scope paths differ from commit validation' };
   }
-  if (record.validateFingerprint !== validateFingerprint) {
+  const storedRequirements = record.requirementsIdentity ?? '';
+  if (storedRequirements !== want.requirementsIdentity) {
+    return { ok: false, reason: 'validation requirements identity mismatch' };
+  }
+  if (record.validateFingerprint !== want.validateFingerprint) {
     return { ok: false, reason: 'validate fingerprint mismatch' };
   }
   return { ok: true, reason: 'reusing commit validation', record };

@@ -3,6 +3,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { runnableExplicitCoveringTests } from './validate-requirements-identity.mjs';
 
 /**
  * @param {string} inPkgLibPath e.g. `lib/src/foo.dart` (package-relative)
@@ -144,10 +145,12 @@ export function enforceDirectTestContract({
       const libRepo = `${prefix}${inPkgLib}`;
       const explicit = explicitCoveringByLibRepoRel.get(libRepo) ?? [];
       const conventional = existingDirectTestsForLib(pkgCwd, inPkgLib);
-      const explicitOnDisk = explicit.filter((t) =>
-        fs.existsSync(path.join(group.resolved.repoRoot, t)),
+      const explicitRunnable = runnableExplicitCoveringTests(
+        group.resolved.repoRoot,
+        libRepo,
+        explicit,
       );
-      if (conventional.length === 0 && explicitOnDisk.length === 0) {
+      if (conventional.length === 0 && explicitRunnable.length === 0) {
         return {
           ok: false,
           message:
