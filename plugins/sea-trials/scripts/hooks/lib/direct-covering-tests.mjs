@@ -1,7 +1,5 @@
 /**
- * Explicit direct covering-test mapping for per-commit validation.
- * No package-wide or "related" test discovery — only convention-based
- * lib → test pairs and paths the caller supplied.
+ * Direct covering-test mapping and scheduling for per-commit validation.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,29 +44,58 @@ export function existingDirectTestsForLib(pkgCwd, inPkgLibPath) {
 }
 
 /**
- * Whether `inPkgTestPath` directly covers `inPkgLibPath` per convention.
- *
- * @param {string} inPkgLibPath
- * @param {string} inPkgTestPath e.g. `test/foo_test.dart`
+ * @param {string} repoRelPrefix e.g. flutter/packages/pkg/
+ * @param {string} inPkgLib
+ * @param {Map<string, string[]>} explicitCoveringByLibRepoRel
+ * @param {string} pkgCwd
  */
-export function testDirectlyCoversLib(inPkgLibPath, inPkgTestPath) {
+function explicitTestsForLib(
+  repoRelPrefix,
+  inPkgLib,
+  explicitCoveringByLibRepoRel,
+  pkgCwd,
+) {
+  const libRepo = `${repoRelPrefix}${inPkgLib}`.replace(/\/+/g, '/');
+  const mapped = explicitCoveringByLibRepoRel.get(libRepo) ?? [];
+  /** @type {string[]} */
+  const inPkg = [];
+  for (const testRepo of mapped) {
+    if (!testRepo.startsWith(repoRelPrefix)) continue;
+    const rel = testRepo.slice(repoRelPrefix.length);
+    if (rel.startsWith('test/') && rel.endsWith('_test.dart')) {
+      if (fs.existsSync(path.join(pkgCwd, rel))) inPkg.push(rel);
+    }
+  }
+  return inPkg;
+}
+
+/**
+ * Whether `inPkgTestPath` directly covers `inPkgLibPath`.
+ */
+export function testDirectlyCoversLib(
+  inPkgLibPath,
+  inPkgTestPath,
+  { repoRelPrefix = '', inPkgLibRepoRel = '', explicitCoveringByLibRepoRel = new Map() } = {},
+) {
   if (!inPkgTestPath.startsWith('test/') || !inPkgTestPath.endsWith('_test.dart')) {
     return false;
   }
+  const libRepo =
+    inPkgLibRepoRel || `${repoRelPrefix}${inPkgLibPath}`.replace(/\/+/g, '/');
+  const mapped = explicitCoveringByLibRepoRel.get(libRepo) ?? [];
+  const testRepo = `${repoRelPrefix}${inPkgTestPath}`.replace(/\/+/g, '/');
+  if (mapped.includes(testRepo)) return true;
   return candidateDirectTestRels(inPkgLibPath).includes(inPkgTestPath);
 }
 
 /**
- * Enforce explicit direct-test contract before analyze/test phases run.
+ * Schedule unchanged on-disk direct covering tests for changed lib files.
  *
- * @param {{
- *   groups: Map<string, { pkgRel: string, lib: string[], test: string[],
- *     resolved: { repoRoot: string, flutterRoot: string } }>,
- *   explicitRepoRelPaths: Set<string>,
- * }} input
- * @returns {{ ok: true } | { ok: false, message: string }}
+ * @param {Map<string, { pkgRel: string, lib: string[], test: string[],
+ *   resolved: { repoRoot: string, flutterRoot: string } }>} groups
+ * @param {Map<string, string[]>} explicitCoveringByLibRepoRel
  */
-export function enforceDirectTestContract({ groups, explicitRepoRelPaths }) {
+export function scheduleDirectCoveringTests(groups, explicitCoveringByLibRepoRel = new Map()) {
   for (const [, group] of groups) {
     const pkgCwd =
       group.pkgRel === '.'
@@ -78,38 +105,72 @@ export function enforceDirectTestContract({ groups, explicitRepoRelPaths }) {
       group.pkgRel === '.' ? 'flutter/' : `flutter/${group.pkgRel}/`;
 
     for (const inPkgLib of group.lib) {
-      const existing = existingDirectTestsForLib(pkgCwd, inPkgLib);
-      if (existing.length === 0) {
+      const fromExplicit = explicitTestsForLib(
+        prefix,
+        inPkgLib,
+        explicitCoveringByLibRepoRel,
+        pkgCwd,
+      );
+      const fromConvention = existingDirectTestsForLib(pkgCwd, inPkgLib);
+      for (const rel of [...fromExplicit, ...fromConvention]) {
+        if (!group.test.includes(rel)) group.test.push(rel);
+      }
+    }
+  }
+}
+
+/**
+ * @param {{
+ *   groups: Map<string, { pkgRel: string, lib: string[], test: string[],
+ *     resolved: { repoRoot: string, flutterRoot: string } }>,
+ *   explicitRepoRelPaths: Set<string>,
+ *   explicitCoveringByLibRepoRel?: Map<string, string[]>,
+ * }} input
+ */
+export function enforceDirectTestContract({
+  groups,
+  explicitRepoRelPaths,
+  explicitCoveringByLibRepoRel = new Map(),
+}) {
+  for (const [, group] of groups) {
+    const pkgCwd =
+      group.pkgRel === '.'
+        ? group.resolved.flutterRoot
+        : path.join(group.resolved.flutterRoot, group.pkgRel);
+    const prefix =
+      group.pkgRel === '.' ? 'flutter/' : `flutter/${group.pkgRel}/`;
+
+    for (const inPkgLib of group.lib) {
+      const libRepo = `${prefix}${inPkgLib}`;
+      const explicit = explicitCoveringByLibRepoRel.get(libRepo) ?? [];
+      const conventional = existingDirectTestsForLib(pkgCwd, inPkgLib);
+      const explicitOnDisk = explicit.filter((t) =>
+        fs.existsSync(path.join(group.resolved.repoRoot, t)),
+      );
+      if (conventional.length === 0 && explicitOnDisk.length === 0) {
         return {
           ok: false,
           message:
-            `No direct covering test file on disk for ${prefix}${inPkgLib}. `
-            + 'Add test/*_test.dart (convention: lib/foo.dart → test/foo_test.dart) '
-            + 'and include it in this commit validation path list.',
+            `No direct covering test file on disk for ${libRepo}. `
+            + 'Add test/*_test.dart or ST_AGENT_VALIDATE_COVERS=lib=test mapping.',
         };
       }
     }
 
     for (const inPkgTest of group.test) {
       const coversAny = group.lib.some((inPkgLib) =>
-        testDirectlyCoversLib(inPkgLib, inPkgTest),
+        testDirectlyCoversLib(inPkgLib, inPkgTest, {
+          repoRelPrefix: prefix,
+          explicitCoveringByLibRepoRel,
+        }),
       );
       if (group.lib.length > 0 && !coversAny) {
         return {
           ok: false,
           message:
-            `Supplied test ${prefix}${inPkgTest} is not a direct cover for any `
-            + 'changed lib file in this validation set.',
+            `Supplied test ${prefix}${inPkgTest} is not a registered direct `
+            + 'cover for any changed lib file (convention or explicit map).',
         };
-      }
-      if (group.lib.length === 0) {
-        const repoRel = `${prefix}${inPkgTest}`;
-        if (!explicitRepoRelPaths.has(repoRel)) {
-          return {
-            ok: false,
-            message: `Test-only path ${repoRel} must be listed explicitly.`,
-          };
-        }
       }
     }
   }

@@ -1,15 +1,19 @@
 /**
- * Persist the last successful per-commit scoped validation so push can
- * reuse it when HEAD and tree are unchanged (not only husky dedupe).
+ * Persist scoped validation so push can reuse commit-time results.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import crypto from 'node:crypto';
-import { workingTreeFingerprint } from './gate-pass-token.mjs';
+import {
+  scopePathsByteFingerprint,
+  workingTreeByteFingerprint,
+} from './scope-tree-fingerprint.mjs';
 
 const isWindows = process.platform === 'win32';
 const RECORD_FILE = 'st-commit-validate.json';
+
+/** @typedef {'full' | 'analyze-only' | 'tests-only'} ValidateMode */
 
 function git(repoRoot, args) {
   const result = spawnSync('git', args, {
@@ -29,9 +33,6 @@ export function commitValidateRecordPath(repoRoot) {
     : path.join(repoRoot, '.git', RECORD_FILE);
 }
 
-/**
- * @param {string[]} repoRelPaths sorted unique
- */
 export function scopeFingerprint(repoRelPaths) {
   const sorted = [...repoRelPaths].map((p) => p.replace(/\\/g, '/')).sort();
   return crypto.createHash('sha256').update(sorted.join('\n')).digest('hex');
@@ -44,17 +45,27 @@ export function scopeFingerprint(repoRelPaths) {
  *   validateFingerprint: string,
  *   scopePaths: string[],
  *   headOid?: string,
+ *   mode?: ValidateMode,
+ *   testsExecuted?: boolean,
+ *   analyzeExecuted?: boolean,
+ *   hadLibChanges?: boolean,
  * }} payload
  */
 export function writeCommitValidateRecord(repoRoot, payload) {
   const headOid = payload.headOid ?? git(repoRoot, ['rev-parse', 'HEAD']) ?? '';
+  const scopePaths = [...payload.scopePaths].sort();
   const record = {
     headOid,
-    tree: workingTreeFingerprint(repoRoot),
+    tree: workingTreeByteFingerprint(repoRoot),
+    scopeBytes: scopePathsByteFingerprint(repoRoot, scopePaths),
     ok: payload.ok,
-    validateFingerprint: payload.validateFingerprint,
-    scopePaths: [...payload.scopePaths].sort(),
-    scopeFingerprint: scopeFingerprint(payload.scopePaths),
+    mode: payload.mode ?? 'full',
+    testsExecuted: Boolean(payload.testsExecuted),
+    analyzeExecuted: payload.analyzeExecuted !== false,
+    hadLibChanges: Boolean(payload.hadLibChanges),
+    validateFingerprint: payload.validateFingerprint ?? '',
+    scopePaths,
+    scopeFingerprint: scopeFingerprint(scopePaths),
     at: new Date().toISOString(),
   };
   const file = commitValidateRecordPath(repoRoot);
@@ -67,10 +78,17 @@ export function writeCommitValidateRecord(repoRoot, payload) {
  * @param {string} repoRoot
  * @param {{
  *   scopePaths: string[],
- *   validateFingerprint?: string,
+ *   validateFingerprint: string,
+ *   requireMode?: ValidateMode,
  * }} expected
  */
-export function commitValidateIsTrusted(repoRoot, { scopePaths, validateFingerprint }) {
+export function commitValidateIsTrusted(
+  repoRoot,
+  { scopePaths, validateFingerprint, requireMode = 'full' },
+) {
+  if (!validateFingerprint?.trim()) {
+    return { ok: false, reason: 'validateFingerprint required' };
+  }
   const file = commitValidateRecordPath(repoRoot);
   let record;
   try {
@@ -82,21 +100,35 @@ export function commitValidateIsTrusted(repoRoot, { scopePaths, validateFingerpr
   if (record.headOid !== headOid) {
     return { ok: false, reason: 'HEAD changed since commit validation' };
   }
-  if (record.tree !== workingTreeFingerprint(repoRoot)) {
+  if (record.tree !== workingTreeByteFingerprint(repoRoot)) {
     return { ok: false, reason: 'working tree changed since commit validation' };
+  }
+  const scopePathsNorm = [...scopePaths].map((p) => p.replace(/\\/g, '/')).sort();
+  const bytesNow = scopePathsByteFingerprint(repoRoot, scopePathsNorm);
+  const bytesStored = record.scopeBytes
+    ?? scopePathsByteFingerprint(repoRoot, record.scopePaths ?? []);
+  if (bytesNow !== bytesStored) {
+    return { ok: false, reason: 'scope file bytes/index changed' };
   }
   if (!record.ok) {
     return { ok: false, reason: 'last commit validation failed' };
+  }
+  if (record.mode !== requireMode) {
+    return { ok: false, reason: `record mode ${record.mode} !== ${requireMode}` };
+  }
+  if (requireMode === 'full') {
+    if (record.mode === 'analyze-only' || record.mode === 'tests-only') {
+      return { ok: false, reason: 'partial validation cannot authorize full reuse' };
+    }
+    if (record.hadLibChanges && !record.testsExecuted) {
+      return { ok: false, reason: 'tests were not executed at commit time' };
+    }
   }
   const wantScope = scopeFingerprint(scopePaths);
   if (record.scopeFingerprint !== wantScope) {
     return { ok: false, reason: 'scope paths differ from commit validation' };
   }
-  if (
-    validateFingerprint
-    && record.validateFingerprint
-    && record.validateFingerprint !== validateFingerprint
-  ) {
+  if (record.validateFingerprint !== validateFingerprint) {
     return { ok: false, reason: 'validate fingerprint mismatch' };
   }
   return { ok: true, reason: 'reusing commit validation', record };

@@ -14,6 +14,8 @@ import {
   partitionRepoPaths,
 } from './per-commit-paths.mjs';
 import { runScopedNonDartChecks } from './scoped-non-dart-checks.mjs';
+import fs from 'node:fs';
+import { commitValidateRecordPath } from './commit-validate-record.mjs';
 
 const isWindows = process.platform === 'win32';
 const hooksDir = path.dirname(fileURLToPath(import.meta.url));
@@ -43,7 +45,18 @@ export function runScopedPerCommitValidate(
   }
 
   if (reuse) {
-    const trust = commitValidateIsTrusted(repoRoot, { scopePaths: unique });
+    let recordFp = '';
+    try {
+      const raw = fs.readFileSync(commitValidateRecordPath(repoRoot), 'utf8');
+      recordFp = JSON.parse(raw).validateFingerprint ?? '';
+    } catch {
+      // no record
+    }
+    const trust = commitValidateIsTrusted(repoRoot, {
+      scopePaths: unique,
+      validateFingerprint: recordFp,
+      requireMode: 'full',
+    });
     if (trust.ok) {
       return {
         ok: true,
@@ -128,10 +141,15 @@ export function runScopedPerCommitValidate(
   }
 
   if (writeRecord) {
+    const hadLibChanges = dart.some((p) => p.includes('/lib/'));
     writeCommitValidateRecord(repoRoot, {
       ok: true,
       validateFingerprint,
       scopePaths: unique,
+      mode: 'full',
+      testsExecuted: dart.length > 0 && Boolean(validateFingerprint),
+      analyzeExecuted: dart.length > 0,
+      hadLibChanges,
     });
   }
 

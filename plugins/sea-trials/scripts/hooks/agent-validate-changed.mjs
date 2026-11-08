@@ -66,9 +66,14 @@ import {
   writeLastResult,
 } from './lib/single-flight.mjs';
 import { stateDir } from '../lib/st-state-dir.mjs';
-import { enforceDirectTestContract } from './lib/direct-covering-tests.mjs';
+import {
+  enforceDirectTestContract,
+  scheduleDirectCoveringTests,
+} from './lib/direct-covering-tests.mjs';
+import { parseExplicitCoveringMap } from './lib/explicit-covering-map.mjs';
 import { partitionRepoPaths } from './lib/per-commit-paths.mjs';
 import { writeCommitValidateRecord } from './lib/commit-validate-record.mjs';
+import { assertNoPartialStaging } from './lib/scope-tree-fingerprint.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -289,8 +294,8 @@ Per-commit Dart validation (explicit changed lib/test paths).
   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs flutter/packages/foo/lib/a.dart flutter/packages/foo/test/a_test.dart
 
-Tests run only for *_test.dart paths you supply (lib-only → analyze, no tests).
-Non-Dart paths: use scoped-per-commit-validate (prepush / pr-review-push).
+Lib-only also runs unchanged on-disk direct covering tests (convention or
+ST_AGENT_VALIDATE_COVERS). Non-Dart: scoped-per-commit-validate.
 
 Remote PR Checks on GitHub are the broad gate after push.
 `);
@@ -306,6 +311,18 @@ Remote PR Checks on GitHub are the broad gate after push.
  * @returns {{ resolvedFiles: { repoRoot: string, repoRel: string,
  *   flutterRoot: string }[], groups: Map<string, object> }}
  */
+function collectScopeRepoPaths({ groups, resolvedFiles }) {
+  /** @type {Set<string>} */
+  const paths = new Set(resolvedFiles.map((f) => f.repoRel));
+  for (const [, group] of groups) {
+    const prefix =
+      group.pkgRel === '.' ? 'flutter/' : `flutter/${group.pkgRel}/`;
+    for (const lib of group.lib) paths.add(`${prefix}${lib}`);
+    for (const t of group.test) paths.add(`${prefix}${t}`);
+  }
+  return [...paths];
+}
+
 function collectChangeSet(explicitPaths) {
   /** @type {{ repoRoot: string, repoRel: string, flutterRoot: string }[]} */
   let resolvedFiles = [];
@@ -552,7 +569,13 @@ async function main() {
     }
   }
 
+  const explicitCovering = parseExplicitCoveringMap(
+    process.env.ST_AGENT_VALIDATE_COVERS,
+  );
+
   const initial = collectChangeSet(explicitPaths);
+  scheduleDirectCoveringTests(initial.groups, explicitCovering);
+
   if (explicitPaths.length > 0 && initial.resolvedFiles.length === 0) {
     process.stderr.write(
       '❌ No valid flutter/*.dart paths in explicit file list.\n',
@@ -563,9 +586,21 @@ async function main() {
   const explicitRepoRelPaths = new Set(
     explicitPaths.map((p) => p.replace(/\\/g, '/')),
   );
+  const scopeRepoPaths = collectScopeRepoPaths({
+    groups: initial.groups,
+    resolvedFiles: initial.resolvedFiles,
+  });
+
+  const staging = assertNoPartialStaging(repoRoot, scopeRepoPaths);
+  if (!staging.ok) {
+    process.stderr.write(`❌ ${staging.message}\n`);
+    process.exit(2);
+  }
+
   const directCheck = enforceDirectTestContract({
     groups: initial.groups,
     explicitRepoRelPaths,
+    explicitCoveringByLibRepoRel: explicitCovering,
   });
   if (!directCheck.ok) {
     process.stderr.write(`❌ ${directCheck.message}\n`);
@@ -648,6 +683,7 @@ async function main() {
       // Files may have changed while we blocked: re-collect so both the
       // coalesce check and the run reflect the current tree.
       current = collectChangeSet(explicitPaths);
+      scheduleDirectCoveringTests(current.groups, explicitCovering);
       if (current.resolvedFiles.length === 0 || current.groups.size === 0) {
         process.stdout.write(
           '✅ No changed Flutter Dart files to validate (change set ' +
@@ -691,6 +727,19 @@ async function main() {
     flags: planFlags,
     env,
   });
+
+  const testTasks =
+    plan.phases.find((p) => p.name === 'flutter test')?.tasks ?? [];
+  const analyzeTasks =
+    plan.phases.find((p) => p.name === 'dart analyze')?.tasks ?? [];
+  const hadLibChanges = [...current.groups.values()].some(
+    (g) => g.lib.length > 0,
+  );
+  const validationMode = analyzeOnly
+    ? 'analyze-only'
+    : testsOnly
+      ? 'tests-only'
+      : 'full';
 
   const hasWork = plan.phases.some((phase) => phase.tasks.length > 0);
   if (!hasWork) {
@@ -742,16 +791,21 @@ async function main() {
     '✅ Agent validation passed (scoped Dart paths only).\n' +
       `validate-fingerprint=${fingerprint}\n`,
   );
-  if ((process.env.ST_AGENT_VALIDATE_WRITE_RECORD ?? '1').trim() !== '0') {
-    const scopePaths = [
-      ...new Set(
-        current.resolvedFiles.map((f) => f.repoRel),
-      ),
-    ];
+  if (
+    validationMode === 'full'
+    && (process.env.ST_AGENT_VALIDATE_WRITE_RECORD ?? '1').trim() !== '0'
+  ) {
     writeCommitValidateRecord(repoRoot, {
       ok: true,
       validateFingerprint: fingerprint,
-      scopePaths,
+      scopePaths: collectScopeRepoPaths({
+        groups: current.groups,
+        resolvedFiles: current.resolvedFiles,
+      }),
+      mode: 'full',
+      testsExecuted: testTasks.length > 0,
+      analyzeExecuted: analyzeTasks.length > 0,
+      hadLibChanges,
     });
   }
   releaseLock();

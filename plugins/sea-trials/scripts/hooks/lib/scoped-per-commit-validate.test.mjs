@@ -85,6 +85,9 @@ test('push reuses commit validation record on clean tree', () => {
     ok: true,
     validateFingerprint: 'abc',
     scopePaths: paths,
+    mode: 'full',
+    testsExecuted: false,
+    hadLibChanges: false,
   });
   const r = runScopedPerCommitValidate(repo, paths, {
     reuseCommitRecord: true,
