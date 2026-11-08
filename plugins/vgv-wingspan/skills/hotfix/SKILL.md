@@ -125,9 +125,12 @@ rm -rf docs/hotfix-review/
 
 ## Phase 5 — Ship
 
-### Drive to green
+### Scoped ship validation
 
-A hotfix has no plan, so there is no `success-criteria` block. Follow the [drive to green procedure](references/drive-to-green.md) with the detected project suite (formatter, linter, test runner) as both the gate set and the authoritative command run once. It loops until green by real output, delegates to a matching installed verification skill when one exists, and escalates only on un-runnable or self-contradictory failures — never on an ordinary, fixable one. Do not proceed until it is green.
+Follow [ship validation (scoped)](references/drive-to-green.md): run
+[scoped commit validation](../shared/references/scoped-commit-validation.md)
+on the hotfix diff once before push. Do not run whole-package format,
+lint, or test suites as a gate.
 
 ### Ship
 

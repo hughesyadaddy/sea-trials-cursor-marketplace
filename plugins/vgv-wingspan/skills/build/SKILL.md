@@ -24,7 +24,7 @@ Build Progress:
 - [ ] Phase 2: Loop implementation phases (implement → validate → commit or hand off → checkpoint → clear)
 - [ ] Parallel build (when the plan has a Parallel execution map): fan out shards, then integrate — replaces Phase 2
 - [ ] Phase 3: Run review agents (5 in parallel), consolidate into one report
-- [ ] Phase 4: Drive to green, cleanup, and ship
+- [ ] Phase 4: Scoped ship validation, cleanup, and ship
 ```
 
 ## Plan Input
@@ -170,7 +170,7 @@ Parallel Build Progress:
 - [ ] P1: Rolling-window fan-out (launch ready shards up to maxParallel)
 - [ ] P2: Integrate (apply needsIntegration + shared files, validate)
 - [ ] P3: Quality review fan-out (existing Phase 3)
-- [ ] P4: Drive to green and ship (existing Phase 4)
+- [ ] P4: Scoped ship validation and ship (existing Phase 4)
 ```
 
 ### Phase 0 — Read the map
@@ -300,8 +300,8 @@ When every shard is `done`:
    manifests, lockfiles, l10n, DI and route registration. The integrator
    is the only writer of these files.
 2. Regenerate generated artifacts (codegen, mocks, l10n output) once.
-3. Run the project's full validate command (`<TEST_COMMAND>` unscoped, or
-   the plan's `VERIFICATION COMMAND`). Fix cross-shard breakage here; if a
+3. Run [scoped commit validation](../shared/references/scoped-commit-validation.md)
+   on integration-touching paths. Fix cross-shard breakage here; if a
    fix belongs inside one shard's paths, either make it directly (small)
    or relaunch that shard with the failure pasted in.
 4. Commit the integration per the commit-autonomy choice:
@@ -354,18 +354,17 @@ Follow the [review consolidation procedure](references/review-consolidation.md):
 
 ## Phase 4 — Ship
 
-### Drive to green
+### Scoped ship validation
 
-The plan's `success-criteria` block is the ship gate. Parse it, then handle these cases before looping:
+Follow [ship validation (scoped)](references/drive-to-green.md). Run
+[scoped commit validation](../shared/references/scoped-commit-validation.md)
+on the branch diff before cleanup.
 
-| Case | Action |
-| ---- | ------ |
-| Block present with a `VERIFICATION COMMAND` | Gate set = the non-manual `verify:` commands; authoritative command = the `VERIFICATION COMMAND`. |
-| Block present, `VERIFICATION COMMAND` missing but non-manual `verify:` lines exist | Synthesize the authoritative command by joining those `verify:` commands with `&&`. |
-| Only `verify: manual` criteria, no runnable command | Skip the loop; go straight to the manual-criteria checklist. Never treat an empty runnable set as green. |
-| No `success-criteria` block (plan predates it) | Fall back to the detected project suite (formatter, linter, test runner) as the gate, and warn the user the plan has no machine-checkable criteria. Never treat an absent block as green. |
-
-Then follow the [drive to green procedure](references/drive-to-green.md) with that gate set and authoritative command. It loops until every gate is green by real output, delegates to a matching installed verification skill when one exists, runs the authoritative command as the final check, and escalates only on un-runnable or self-contradictory criteria. Do not proceed to cleanup until the authoritative gate is green and any manual criteria are confirmed.
+The plan's `success-criteria` block documents **CI and human acceptance**,
+not agent pre-push gates. Handle only `verify: manual` lines with
+**AskUserQuestion**; do **not** run non-manual `verify:` commands or
+`VERIFICATION COMMAND` locally. If the block is missing, scoped validation
+still runs — never fall back to whole-repo format/lint/test suites.
 
 ### Cleanup
 
@@ -377,7 +376,7 @@ rm -rf docs/reviews/
 
 ### Commit
 
-Handle the outstanding changes — the drive-to-green loop, the surgical-diff gate, and the Phase 3 review fixes — per the **commit autonomy** chosen in Phase 0:
+Handle the outstanding changes — scoped ship validation, the surgical-diff gate, and the Phase 3 review fixes — per the **commit autonomy** chosen in Phase 0:
 
 - **Auto-commit mode** → the phases are already committed from Phase 2; stage and commit whatever is still outstanding, using the format below. If nothing is outstanding, skip this commit.
 - **I'll-commit-myself mode** → do not commit. Summarize everything still uncommitted and leave it staged for the user.
@@ -402,13 +401,13 @@ Whatever commits this build produced are local. Pushing and opening a PR is outw
   2. **Push and open the PR now**: proceed this once.
   3. **Always push automatically**: proceed, and save the preference to Claude memory (the user's own preference, never the project's CLAUDE.md) so future builds skip this prompt.
 
-**Repos with their own push gate** (a `pr-review-push` / `push-gate`
-script, a push-gate section in `CLAUDE.md`/`AGENTS.md`, or a consumer
-plugin ship skill): run that gate instead, never `/create-pr skip-checks`.
+Consumer `prepush`, `push-gate`, and ship skills are **not** ship gates —
+see [consumer-push-scripts](../shared/references/consumer-push-scripts.md).
+Run them only when the user explicitly starts that separate work in chat.
 
-**Other repos:** call `/create-pr skip-checks` — it pushes and opens the PR.
-Validation already ran above. The PR body uses the
-[PR template](references/pr-template.md).
+**Ship:** call `/create-pr` — scoped validation already ran above;
+create-pr re-validates only paths in the final commit if needed. The PR
+body uses the [PR template](references/pr-template.md).
 
 ### Post-Ship
 

@@ -1,8 +1,8 @@
 ---
 name: create-pr
-description: Stage, commit, push, and open a pull request following project conventions and the Conventional Commits spec. Accepts optional skip-checks argument to bypass validation when called from /build.
+description: Stage, commit, push, and open a pull request following project conventions and the Conventional Commits spec. Runs scoped commit validation before commit — never broad pre-push or CI-parity suites.
 when_to_use: Use when user says "create a PR", "open a PR", "ship it", "submit a pull request", or "open a merge request", or when work on a branch is complete and ready to publish for review.
-argument-hint: "[optional: skip-checks | ticket/issue number e.g. VGV-123 | short description]"
+argument-hint: "[optional: ticket/issue number e.g. VGV-123 | short description]"
 disable-model-invocation: true
 allowed-tools: Bash(git push *) Bash(git add *) Bash(git commit *) Bash(gh *) Bash(glab *)
 compatibility: Designed for Claude Code (or similar products with git access)
@@ -26,37 +26,37 @@ Stage uncommitted changes, commit them, push the branch, and open a pull request
 ## Steps checklist
 
 - [ ] Step 0: Parse arguments
-- [ ] Step 1: Validate (skip if `SKIP_CHECKS`)
+- [ ] Step 1: Scoped validation (always)
 - [ ] Step 2: Assess git state and determine base branch
 - [ ] Step 3: Stage and commit
 - [ ] Step 4: Push
-- [ ] Step 5: Run CI checks (skip if `SKIP_CHECKS`)
-- [ ] Step 6: Open PR
+- [ ] Step 5: Open PR
 
 ## Important
 
 - Do not push before the user confirms the commit.
 - Use the current branch as the source; target is `BASE_BRANCH` (determined in Step 2).
+- Never run whole-package tests, `pnpm prepush`, CI-workflow replay, or other broad gates as part of this skill.
 
 ## Context
 
 <context>$ARGUMENTS</context>
 
-This may include `skip-checks`, a ticket number (e.g. `VGV-123`), a short description, or be empty.
+This may include a ticket number (e.g. `VGV-123`), a short description, or be empty.
 
 ## Step 0: Parse arguments
 
-Check whether the argument contains `skip-checks`. Store as `SKIP_CHECKS` (boolean).
+Extract the ticket number or short description from the argument text (if any).
 
-Extract the ticket number or short description from the remaining argument text (if any).
+## Step 1: Scoped validation (always)
 
-## Step 1: Validate (conditional)
+Consult `references/ci-checks.md` and
+[scoped-commit-validation.md](../shared/references/scoped-commit-validation.md).
+Run scoped analyze and directly covering tests on the paths about to be
+committed.
 
-**Skip this step if `SKIP_CHECKS` is true.**
-
-Detect and run the project's formatter, linter, and test runner.
-
-If any command fails, report the error and stop. Do not proceed until all checks pass.
+If any command fails, report the error and stop. Do not widen scope to
+full suites.
 
 ## Step 2: Assess git state and determine base branch
 
@@ -97,19 +97,13 @@ Produce a single conventional commit covering all changes.
 
 Use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code) to confirm before committing (**Yes** / **No** / **Edit**). On confirm, commit with a HEREDOC to preserve formatting. Do not push yet.
 
+Re-run scoped validation from Step 1 on the staged paths if the diff changed during staging.
+
 ## Step 4: Push
 
 Consult `references/push.md` to push the branch and handle any failures.
 
-## Step 5: Run CI checks (conditional)
-
-**Skip this step if `SKIP_CHECKS` is true.**
-
-Consult `references/ci-checks.md` to discover and run checks locally from `.github/workflows/ci.yaml`.
-
-If any check fails, report the errors and stop. Do not proceed until all checks pass.
-
-## Step 6: Open PR
+## Step 5: Open PR
 
 ### Gather commit context
 

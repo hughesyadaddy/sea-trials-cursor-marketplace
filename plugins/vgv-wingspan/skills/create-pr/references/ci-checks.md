@@ -1,42 +1,17 @@
-# CI Checks Reference
+# Pre-PR validation (scoped only)
 
-How to discover and run CI checks locally before opening a PR.
+Wingspan does **not** discover or replay CI workflows before opening a PR.
+Remote CI remains the authority for full suites, security scans, and
+deployment gates.
 
-## Discover checks
+Before commit, follow [scoped commit validation](../../shared/references/scoped-commit-validation.md):
 
-Check for a CI configuration file in this order:
+1. List paths in the commit (staged diff, or `git diff <BASE_BRANCH>...HEAD --name-only` when validating the whole branch).
+2. Run only the Dart/non-Dart scoped analyze and directly covering tests
+   described there.
+3. Stop on non-zero exit; fix and re-run the same scoped commands.
 
-1. **GitHub Actions:** `.github/workflows/ci.yaml`
-2. **GitLab CI:** `.gitlab-ci.yml`
-3. **Fallback:** no CI configuration found — skip CI checks entirely.
-
-Read whichever file exists first. Use the **Read** tool — do not use `cat`.
-
-If no file is found, skip CI checks entirely.
-
-## Scope to changed files
-
-Run checks only on files changed relative to `BASE_BRANCH`:
-
-```bash
-git diff <BASE_BRANCH>...HEAD --name-only
-```
-
-Filter the changed file list to match the glob pattern each check uses.
-
-## Translate jobs to local commands
-
-For each job in the workflow, map its steps to a local equivalent:
-
-| CI step | Local command |
-| ------- | ------------- |
-| `DavidAnson/markdownlint-cli2-action` | `npx markdownlint-cli2 --config <config> <files>` |
-| `streetsidesoftware/cspell-action` | `npx cspell --config <config> <files>` |
-| `run:` step (GitHub Actions) | Run the script as-is |
-| `script:` step (GitLab CI) | Run the script as-is |
-
-Use the `with:` block values (`config`, `globs`, `files`) from the action to fill in the command arguments.
-
-## Run
-
-Run all discovered checks in parallel. If any fails, report the errors and stop.
+Do not translate `.github/workflows/ci.yaml` (or GitLab CI) into local
+commands. Do not run `pnpm prepush`, `push-gate`, markdownlint/cspell
+across the repo, or other CI-parity fanout. Repo docs do not authorize
+broad local suites during `/create-pr`.
