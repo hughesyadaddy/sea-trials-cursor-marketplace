@@ -34,6 +34,7 @@ import {
 } from './lib/push-gate-tasks.mjs';
 import * as dirtyTree from './lib/dirty-tree-tasks.mjs';
 import * as prepushTasks from './lib/prepush-tasks.mjs';
+import { runScopedPerCommitValidate } from './lib/scoped-per-commit-validate.mjs';
 import { GRANULARITY } from './lib/check-plan.mjs';
 import {
   clearGatePassToken,
@@ -108,33 +109,36 @@ Agents: run agent-validate-changed before every commit; never bare git push.
 `);
 }
 
-const validateScript = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'agent-validate-changed.mjs',
-);
+/**
+ * @param {string} repoRoot
+ */
+function collectPushScopePaths(repoRoot) {
+  /** @type {Set<string>} */
+  const paths = new Set(dirtyTree.gitChangedRepoPaths(repoRoot));
+  const prep = prepushTasks.preparePrepushGate(repoRoot);
+  if (prep.ok) {
+    for (const p of prep.ctx.changed) paths.add(p);
+  } else if (paths.size === 0) {
+    return { ok: false, error: prep.message, paths: [] };
+  }
+  return { ok: true, paths: [...paths] };
+}
 
 /**
- * Permanent scoped gate — explicit changed paths only (dart analyze + covering tests).
+ * Permanent scoped gate — partition Dart/non-Dart, direct-test contract.
  *
  * @param {string} repoRoot
  */
 function runScopedPushValidation(repoRoot) {
-  /** @type {Set<string>} */
-  const paths = new Set(dirtyTree.gitChangedRepoPaths(repoRoot));
-  const prep = prepushTasks.preparePrepushGate(repoRoot);
-  if (!prep.ok) {
-    if (paths.size === 0) {
-      return {
-        ok: false,
-        error: prep.message,
-        steps: [{ name: 'scoped-validate', ok: false, stderr: prep.message }],
-      };
-    }
-  } else {
-    for (const p of prep.ctx.changed) paths.add(p);
+  const scope = collectPushScopePaths(repoRoot);
+  if (!scope.ok) {
+    return {
+      ok: false,
+      error: scope.error,
+      steps: [{ name: 'scoped-validate', ok: false, stderr: scope.error }],
+    };
   }
-
-  if (paths.size === 0) {
+  if (scope.paths.length === 0) {
     return {
       ok: true,
       steps: [{ name: 'scoped-validate', ok: true, stdout: 'No paths to validate' }],
@@ -142,30 +146,31 @@ function runScopedPushValidation(repoRoot) {
   }
 
   process.stdout.write(
-    `🔎 Scoped validation (${paths.size} path(s)) via agent-validate-changed…\n`,
+    `🔎 Scoped validation (${scope.paths.length} path(s))…\n`,
   );
-  const result = spawnSync(
-    process.execPath,
-    [validateScript, ...paths],
-    {
-      cwd: repoRoot,
-      stdio: 'pipe',
-      shell: isWindows,
-      encoding: 'utf8',
-    },
-  );
-  if (result.status !== 0) {
-    const err = [result.stderr, result.stdout].filter(Boolean).join('\n');
+  const result = runScopedPerCommitValidate(repoRoot, scope.paths, {
+    reuseCommitRecord: true,
+    writeRecord: true,
+  });
+  if (!result.ok) {
+    const err = result.steps
+      .filter((s) => !s.ok)
+      .map((s) => s.stderr || s.stdout || '')
+      .join('\n');
     return {
       ok: false,
       error: 'scoped validation failed',
-      steps: [{ name: 'scoped-validate', ok: false, stderr: err }],
+      steps: result.steps.length
+        ? result.steps
+        : [{ name: 'scoped-validate', ok: false, stderr: err }],
     };
   }
-  const out = (result.stdout ?? '').trim();
+  const summary = result.skipped
+    ? (result.steps[0]?.stdout ?? 'reused commit validation')
+    : (result.steps.map((s) => s.stdout).filter(Boolean).join('\n') || 'OK');
   return {
     ok: true,
-    steps: [{ name: 'scoped-validate', ok: true, stdout: out || 'OK' }],
+    steps: [{ name: 'scoped-validate', ok: true, stdout: summary }],
   };
 }
 

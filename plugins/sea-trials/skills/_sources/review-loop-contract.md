@@ -26,8 +26,11 @@ temporary fast mode.
    ```
 
    That hook merges `dart analyze --fatal-infos` on those files and runs
-   only the `test/` files the planner ties to the diff (same exits as
-   before — failures block the commit).
+   only `*_test.dart` paths **you list** (lib-only → analyze, **no**
+   auto-discovered package tests). Each changed `lib/` file must have a
+   direct covering `test/*_test.dart` on disk (convention mapping); tests
+   run only when also listed. Non-Dart paths use scoped checks in
+   `scoped-per-commit-validate` — never pass them to `agent-validate-changed`.
 
 2. **Non-Dart** (`functions/`, `web/`, `supabase/`, scripts, …): run only
    the analyzer or test command that **directly applies** to each touched
@@ -336,8 +339,10 @@ with `node "$ST_REVIEW" close`. Silent resolve is forbidden.
    analyzer/tests for non-Dart) on the exact paths in that commit — see
    **Per-commit validation** above.
 2. **Commit only after scoped validation is green.**
-3. Push **only** through `node "$ST_REVIEW_PUSH" --pr <n>`. It re-runs a
-   single scoped pass on the pending diff, records a fresh gate-pass token
+3. Push **only** through `node "$ST_REVIEW_PUSH" --pr <n>`. When the
+   commit-time record (`st-commit-validate.json`) already matches HEAD,
+   tree, and scope, push **reuses** it instead of re-running checks. It
+   still records a fresh gate-pass token
    (`phase: scoped` in `gate-pass-token.mjs` so husky does not duplicate
    work), then runs `git push` with hooks. Exit `8` after push means CI
    still pending — the push succeeded.

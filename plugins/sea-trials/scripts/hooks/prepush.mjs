@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { verifyHooksWiring } from './lib/git-hooks-wiring.mjs';
 import * as prepushTasks from './lib/prepush-tasks.mjs';
 import { PHASE_SCOPED } from './lib/push-gate-tasks.mjs';
+import { runScopedPerCommitValidate } from './lib/scoped-per-commit-validate.mjs';
+import { commitValidateIsTrusted } from './lib/commit-validate-record.mjs';
 import { getRepoRoot } from './lib/pr-review-lib.mjs';
 import { checkGatePassToken } from './lib/gate-pass-token.mjs';
 
@@ -14,10 +15,6 @@ const isWindows = process.platform === 'win32';
 const PREPUSH_LOCK_STALE_MS = 45 * 60 * 1000;
 
 const repoRoot = getRepoRoot();
-const validateScript = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  'agent-validate-changed.mjs',
-);
 
 function parseArgs(argv) {
   return argv.includes('--list-tasks');
@@ -153,16 +150,26 @@ async function main() {
     process.exit(0);
   }
 
-  const result = spawnSync(process.execPath, [validateScript, ...ctx.changed], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-    shell: isWindows,
-  });
-  if (result.status !== 0) {
-    process.stderr.write(
-      '\n🛠️  Fix analyze/test failures on the changed paths, commit, retry.\n',
+  const trust = commitValidateIsTrusted(repoRoot, { scopePaths: ctx.changed });
+  if (trust.ok) {
+    process.stdout.write(
+      `✅ Pre-push: reusing commit validation on unchanged tree.\n`,
     );
-    process.exit(result.status ?? 1);
+    process.exit(0);
+  }
+
+  const result = runScopedPerCommitValidate(repoRoot, ctx.changed, {
+    reuseCommitRecord: false,
+    writeRecord: false,
+  });
+  if (!result.ok) {
+    process.stderr.write(
+      '\n🛠️  Fix failures on the changed paths, commit, retry.\n',
+    );
+    for (const step of result.steps) {
+      if (!step.ok && step.stderr) process.stderr.write(`${step.stderr}\n`);
+    }
+    process.exit(1);
   }
 
   process.stdout.write('✅ Scoped pre-push passed. Proceeding with push...\n');

@@ -66,6 +66,9 @@ import {
   writeLastResult,
 } from './lib/single-flight.mjs';
 import { stateDir } from '../lib/st-state-dir.mjs';
+import { enforceDirectTestContract } from './lib/direct-covering-tests.mjs';
+import { partitionRepoPaths } from './lib/per-commit-paths.mjs';
+import { writeCommitValidateRecord } from './lib/commit-validate-record.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -281,23 +284,15 @@ function resolveExplicitPaths(explicitPaths) {
 
 function printHelp() {
   process.stdout.write(`\
-Fast agent validation (changed Dart files only).
+Per-commit Dart validation (explicit changed lib/test paths).
 
   node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
-  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs flutter/packages/foo/lib/a.dart
-  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs --analyze-only
-  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs --tests-only
+  node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs flutter/packages/foo/lib/a.dart flutter/packages/foo/test/a_test.dart
 
-Absolute paths from git worktrees are supported.
+Tests run only for *_test.dart paths you supply (lib-only → analyze, no tests).
+Non-Dart paths: use scoped-per-commit-validate (prepush / pr-review-push).
 
-Runs in phases (pub get → analyze → test). Analyze is ONE merged
-\`dart analyze --fatal-infos\` per flutter root, and a machine-wide lock
-serialises concurrent runs so parallel agents queue instead of each
-spawning an analysis server. Set ST_AGENT_VALIDATE_LOCK=0 to opt out,
-ST_AGENT_VALIDATE_BUDGET to change the concurrency cap (default 4).
-
-Full gates: prepush hook + CI. Do not run whole-package MCP test during
-iteration unless the user explicitly asks before merge.
+Remote PR Checks on GitHub are the broad gate after push.
 `);
 }
 
@@ -542,6 +537,21 @@ async function main() {
   ];
 
   // ---- cheap collection + l10n + early exits (all before the lock) ---
+  if (explicitPaths.length > 0) {
+    const parts = partitionRepoPaths(
+      explicitPaths.map((p) => p.replace(/\\/g, '/')),
+    );
+    if (parts.nondart.length > 0 || parts.other.length > 0) {
+      const bad = [...parts.nondart, ...parts.other];
+      process.stderr.write(
+        '❌ agent-validate-changed accepts Dart paths only. '
+          + `Non-Dart: ${bad.join(', ')}. `
+          + 'Use pr-review-push / prepush scoped validation for mixed paths.\n',
+      );
+      process.exit(2);
+    }
+  }
+
   const initial = collectChangeSet(explicitPaths);
   if (explicitPaths.length > 0 && initial.resolvedFiles.length === 0) {
     process.stderr.write(
@@ -549,11 +559,29 @@ async function main() {
     );
     process.exit(2);
   }
+
+  const explicitRepoRelPaths = new Set(
+    explicitPaths.map((p) => p.replace(/\\/g, '/')),
+  );
+  const directCheck = enforceDirectTestContract({
+    groups: initial.groups,
+    explicitRepoRelPaths,
+  });
+  if (!directCheck.ok) {
+    process.stderr.write(`❌ ${directCheck.message}\n`);
+    process.exit(2);
+  }
   if (initial.resolvedFiles.length === 0) {
     process.stdout.write('✅ No changed Flutter Dart files to validate.\n');
     process.exit(0);
   }
   if (initial.groups.size === 0) {
+    if (explicitPaths.length > 0) {
+      process.stderr.write(
+        '❌ No analyzable Flutter package for the explicit Dart path(s).\n',
+      );
+      process.exit(2);
+    }
     process.stdout.write('✅ No analyzable Flutter packages in changed set.\n');
     process.exit(0);
   }
@@ -666,19 +694,26 @@ async function main() {
 
   const hasWork = plan.phases.some((phase) => phase.tasks.length > 0);
   if (!hasWork) {
-    process.stdout.write(
-      '✅ Nothing to run (lib-only change with no test files — analyze ' +
-        'skipped with --tests-only, or no lib with --analyze-only).\n',
+    if (testsOnly) {
+      process.stdout.write(
+        '✅ No test paths supplied (--tests-only); nothing to run.\n',
+      );
+      writeLastResult(lastPath, {
+        fingerprint,
+        ok: true,
+        finishedAt: Date.now(),
+        pid: process.pid,
+        summary: 'tests-only empty',
+      });
+      releaseLock();
+      process.stdout.write(`validate-fingerprint=${fingerprint}\n`);
+      process.exit(0);
+    }
+    process.stderr.write(
+      '❌ No analyze tasks for the supplied Dart paths.\n',
     );
-    writeLastResult(lastPath, {
-      fingerprint,
-      ok: true,
-      finishedAt: Date.now(),
-      pid: process.pid,
-      summary: 'nothing to run',
-    });
     releaseLock();
-    process.exit(0);
+    process.exit(2);
   }
 
   const failFast = failFastDefault(env);
@@ -697,17 +732,28 @@ async function main() {
 
   if (failed) {
     process.stderr.write(
-      '\n❌ Agent validation failed. Fix issues above.\n' +
-        'Full gates still run on push via prepush + CI.\n',
+      '\n❌ Agent validation failed. Fix issues above.\n',
     );
     releaseLock();
     process.exit(1);
   }
 
   process.stdout.write(
-    '✅ Agent validation passed (changed files only).\n' +
-      'Run full package tests locally before merge if you changed shared code.\n',
+    '✅ Agent validation passed (scoped Dart paths only).\n' +
+      `validate-fingerprint=${fingerprint}\n`,
   );
+  if ((process.env.ST_AGENT_VALIDATE_WRITE_RECORD ?? '1').trim() !== '0') {
+    const scopePaths = [
+      ...new Set(
+        current.resolvedFiles.map((f) => f.repoRel),
+      ),
+    ];
+    writeCommitValidateRecord(repoRoot, {
+      ok: true,
+      validateFingerprint: fingerprint,
+      scopePaths,
+    });
+  }
   releaseLock();
 }
 
