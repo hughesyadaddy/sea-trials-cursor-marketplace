@@ -110,6 +110,12 @@ node scripts/sync-skill-sources.mjs          # regenerate all copies
 node scripts/sync-skill-sources.mjs --check  # CI: exit 1 on drift
 ```
 
+Sea Trials agent standard (canonical text in
+`plugins/sea-trials/skills/_sources/review-loop-contract.md` →
+**Per-commit validation**): each commit runs
+`agent-validate-changed` on explicit changed code + covering tests;
+`pr-review-push` is scoped validate + push — not local CI-parity fan-out.
+
 ## CI
 
 `.github/workflows/validate-claude-marketplace.yml` runs on every PR and

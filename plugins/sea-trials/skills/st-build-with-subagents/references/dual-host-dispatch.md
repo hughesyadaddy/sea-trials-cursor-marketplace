@@ -54,16 +54,17 @@ record its result and launch whatever became ready. The stderr summary
 (`ready= emitted-now= in-flight= slots=`) tells you when the window
 has room; `COMPLETE` ends the loop.
 
-## Gate lanes (prepush + CI)
+## Per-commit validate (standard push path)
+
+Before each commit:
 
 ```bash
-node "$ST_PLUGIN_ROOT/scripts/hooks/st-parallel-tasks.mjs" --pr <n> --phases prepush,ci
+node "$ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs" [paths…]
 ```
 
-One subagent per line (`run-gate-task`). Fields from `pr-review-push
---list-tasks` are forwarded untouched. After all dirty-tree lanes pass
-the parent runs the serial committed-diff gate through
-`pr-review-push` — never bare `git push`.
+Push once through `pr-review-push` — never bare `git push`. Legacy
+`--phases dirty,prepush,ci --list-tasks` fan-out is opt-in for humans only;
+agents do not use `st-parallel-tasks` for push gates.
 
 ## Concurrency
 

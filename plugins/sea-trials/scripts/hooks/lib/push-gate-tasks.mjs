@@ -12,6 +12,8 @@ import { readCapabilities, resolveModel } from './host-capabilities.mjs';
 
 export const PHASE_DIRTY = 'dirty';
 export const PHASE_PREPUSH = 'prepush';
+/** Per-commit / push-path scoped validation (agent-validate-changed). */
+export const PHASE_SCOPED = 'scoped';
 export const PHASE_CI = 'ci';
 
 /**

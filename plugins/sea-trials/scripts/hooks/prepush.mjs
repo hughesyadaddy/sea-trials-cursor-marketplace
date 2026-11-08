@@ -1,13 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { runParallelLimited } from './lib/parallel.mjs';
 import { verifyHooksWiring } from './lib/git-hooks-wiring.mjs';
 import * as prepushTasks from './lib/prepush-tasks.mjs';
-import {
-  PHASE_PREPUSH,
-  serializePushGateTask,
-} from './lib/push-gate-tasks.mjs';
+import { PHASE_SCOPED } from './lib/push-gate-tasks.mjs';
+import { runScopedPerCommitValidate } from './lib/scoped-per-commit-validate.mjs';
+import { commitValidateIsTrusted } from './lib/commit-validate-record.mjs';
 import { getRepoRoot } from './lib/pr-review-lib.mjs';
 import { checkGatePassToken } from './lib/gate-pass-token.mjs';
 
@@ -106,18 +104,15 @@ acquirePrepushLock();
 async function main() {
   const listTasks = parseArgs(process.argv.slice(2));
 
-  // `node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs` already ran this exact gate on this exact
-  // tree seconds ago and then invoked `git push`, which fired this hook.
-  // Re-running `dart analyze` here doubled every push's wall clock.
   if (!listTasks) {
     const pass = checkGatePassToken(repoRoot, {
-      requiredPhase: PHASE_PREPUSH,
+      requiredPhase: PHASE_SCOPED,
     });
     if (pass.ok) {
       const ageSec = Math.round((pass.ageMs ?? 0) / 1000);
       process.stdout.write(
         `✅ Pre-push: ${pass.reason} (${ageSec}s ago via pr-review-push). ` +
-          'Skipping duplicate gate. ST_PREPUSH_FORCE=1 to re-run.\n',
+          'Skipping duplicate scoped run. ST_PREPUSH_FORCE=1 to re-run.\n',
       );
       process.exit(0);
     }
@@ -138,55 +133,49 @@ async function main() {
   }
 
   process.stdout.write(
-    `🔎 Pre-push checks: ${ctx.changed.length} changed file(s) vs `
-      + `${ctx.baseRef.slice(0, 12)}${
-        ctx.hasFlutterWorkspaceLevelChange
-          ? ' (workspace-level → full analyze)'
-          : ctx.workspacePathHit
-            ? ' (root tooling-only → scoped analyze)'
-            : ''
-      }\n`,
+    `🔎 Pre-push (scoped): ${ctx.changed.length} changed file(s) vs `
+      + `${ctx.baseRef.slice(0, 12)} — agent-validate-changed only\n`,
   );
 
-  const tasks = prepushTasks.buildPrepushTasks(repoRoot, ctx);
-
-  if (tasks.length === 0) {
-    process.stdout.write('✅ No checks needed. Proceeding with push...\n');
-    process.exit(0);
-  }
-
   if (listTasks) {
-    let index = 0;
-    for (const task of tasks) {
-      index += 1;
-      process.stdout.write(
-        `${JSON.stringify(
-          serializePushGateTask({
-            phase: PHASE_PREPUSH,
-            group: 1,
-            parallel: true,
-            task,
-            repoRoot,
-            index,
-          }),
-        )}\n`,
-      );
-    }
+    process.stdout.write(
+      `${JSON.stringify({
+        phase: PHASE_SCOPED,
+        kind: 'scoped-validate',
+        command: `node agent-validate-changed.mjs ${ctx.changed.length} path(s)`,
+        paths: ctx.changed,
+        subagent_type: 'generalPurpose',
+      })}\n`,
+    );
     process.exit(0);
   }
 
-  const { failures } = await runParallelLimited(tasks);
-
-  if (failures.length > 0) {
-    process.stderr.write(
-      '\n🛠️  Most issues are auto-fixable. Run:\n' +
-        '  pnpm precommit\n' +
-        '  git add -u && git commit --amend --no-edit\n\n',
+  const trust = commitValidateIsTrusted(repoRoot, {
+    scopePaths: ctx.changed,
+    requireMode: 'full',
+  });
+  if (trust.ok) {
+    process.stdout.write(
+      `✅ Pre-push: reusing commit validation on unchanged tree.\n`,
     );
+    process.exit(0);
+  }
+
+  const result = runScopedPerCommitValidate(repoRoot, ctx.changed, {
+    reuseCommitRecord: false,
+    writeRecord: false,
+  });
+  if (!result.ok) {
+    process.stderr.write(
+      '\n🛠️  Fix failures on the changed paths, commit, retry.\n',
+    );
+    for (const step of result.steps) {
+      if (!step.ok && step.stderr) process.stderr.write(`${step.stderr}\n`);
+    }
     process.exit(1);
   }
 
-  process.stdout.write('✅ All checks passed. Proceeding with push...\n');
+  process.stdout.write('✅ Scoped pre-push passed. Proceeding with push...\n');
 }
 
 main().catch((err) => {

@@ -1,13 +1,16 @@
 #!/usr/bin/env node
 /**
- * Canonical push gate — one entry point for checks + push.
+ * Canonical push path — scoped validation + push (remote CI is the broad gate).
  *
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>           # full gate + push
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks  # subagent fan-out
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only  # gate without push
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
+ *
+ * Legacy CI-parity fan-out (humans / explicit opt-in only):
+ *   --phases dirty,prepush,ci --list-tasks
  */
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildReviewSnapshot,
   evaluateSnapshot,
@@ -27,7 +30,11 @@ import {
   PHASE_CI,
   PHASE_DIRTY,
   PHASE_PREPUSH,
+  PHASE_SCOPED,
 } from './lib/push-gate-tasks.mjs';
+import * as dirtyTree from './lib/dirty-tree-tasks.mjs';
+import * as prepushTasks from './lib/prepush-tasks.mjs';
+import { runScopedPerCommitValidate } from './lib/scoped-per-commit-validate.mjs';
 import { GRANULARITY } from './lib/check-plan.mjs';
 import {
   clearGatePassToken,
@@ -54,7 +61,7 @@ function parsePushArgs(argv) {
     process.exit(0);
   }
   const base = parsePrArgs(argv);
-  const phases = new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
+  const phases = new Set([PHASE_SCOPED]);
   let listTasks = false;
   let checkOnly = false;
   // Fan-out defaults to fine: each worker owns a few files or one package.
@@ -90,18 +97,90 @@ function parsePushArgs(argv) {
 
 function printHelp() {
   process.stdout.write(`\
-Canonical push gate (one entry point).
+Canonical push path (scoped validation + git push; PR Checks on GitHub).
 
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
-  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
-  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --phases dirty,prepush,ci
-  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks --granularity fine|coarse
 
-Subagents: one Task per JSON line from --list-tasks; run via
-  node $ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs '<json>'
-Parent re-runs pr-review-push after fixes (never bare git push).
+Legacy local CI-parity fan-out (opt-in):
+  --phases dirty,prepush,ci [--list-tasks] [--granularity fine|coarse]
+
+Agents: run agent-validate-changed before every commit; never bare git push.
 `);
+}
+
+/**
+ * @param {string} repoRoot
+ */
+function collectPushScopePaths(repoRoot) {
+  /** @type {Set<string>} */
+  const paths = new Set(dirtyTree.gitChangedRepoPaths(repoRoot));
+  const prep = prepushTasks.preparePrepushGate(repoRoot);
+  if (prep.ok) {
+    for (const p of prep.ctx.changed) paths.add(p);
+  } else if (paths.size === 0) {
+    return { ok: false, error: prep.message, paths: [] };
+  }
+  return { ok: true, paths: [...paths] };
+}
+
+/**
+ * Permanent scoped gate — partition Dart/non-Dart, direct-test contract.
+ *
+ * @param {string} repoRoot
+ */
+function runScopedPushValidation(repoRoot) {
+  const scope = collectPushScopePaths(repoRoot);
+  if (!scope.ok) {
+    return {
+      ok: false,
+      error: scope.error,
+      steps: [{ name: 'scoped-validate', ok: false, stderr: scope.error }],
+    };
+  }
+  if (scope.paths.length === 0) {
+    return {
+      ok: true,
+      steps: [{ name: 'scoped-validate', ok: true, stdout: 'No paths to validate' }],
+    };
+  }
+
+  process.stdout.write(
+    `🔎 Scoped validation (${scope.paths.length} path(s))…\n`,
+  );
+  const result = runScopedPerCommitValidate(repoRoot, scope.paths, {
+    reuseCommitRecord: true,
+    writeRecord: true,
+  });
+  if (!result.ok) {
+    const err = result.steps
+      .filter((s) => !s.ok)
+      .map((s) => s.stderr || s.stdout || '')
+      .join('\n');
+    return {
+      ok: false,
+      error: 'scoped validation failed',
+      steps: result.steps.length
+        ? result.steps
+        : [{ name: 'scoped-validate', ok: false, stderr: err }],
+    };
+  }
+  const summary = result.skipped
+    ? (result.steps[0]?.stdout ?? 'reused commit validation')
+    : (result.steps.map((s) => s.stdout).filter(Boolean).join('\n') || 'OK');
+  return {
+    ok: true,
+    steps: [{ name: 'scoped-validate', ok: true, stdout: summary }],
+  };
+}
+
+/** @param {Set<string>} phases */
+function isLegacyPushGate(phases) {
+  return (
+    phases.has(PHASE_PREPUSH)
+    || phases.has(PHASE_CI)
+    || (phases.has(PHASE_DIRTY) && !phases.has(PHASE_SCOPED))
+  );
 }
 
 async function main() {
@@ -121,6 +200,13 @@ async function main() {
   }
 
   if (listTasks) {
+    if (!isLegacyPushGate(phases)) {
+      process.stderr.write(
+        'ℹ️  Scoped push path: run agent-validate-changed before each commit;\n'
+          + '    no gate fan-out. Legacy: --phases dirty,prepush,ci --list-tasks\n',
+      );
+      process.exit(0);
+    }
     const plan = await buildPushGatePlan({
       repoRoot,
       prNumber,
@@ -136,14 +222,15 @@ async function main() {
   }
 
   const headBeforePush = readHeadOid(repoRoot);
-  process.stdout.write(`PR #${prNumber} push gate (${pr.headRefName})\n`);
+  process.stdout.write(`PR #${prNumber} push (${pr.headRefName})\n`);
 
   // A stale token from an earlier run must never vouch for this tree.
   clearGatePassToken(repoRoot);
-  const local = await runLocalPushGate(repoRoot, {
-    prNumber,
-    phases,
-  });
+
+  const local = isLegacyPushGate(phases)
+    ? await runLocalPushGate(repoRoot, { prNumber, phases })
+    : runScopedPushValidation(repoRoot);
+
   if (!local.ok) {
     for (const step of local.steps) {
       if (!step.ok) {
@@ -166,18 +253,11 @@ async function main() {
     process.stdout.write(`✅ ${step.name}\n`);
   }
 
-  // Record the pass so the pre-push hook fired by `git push` below does
-  // not re-run the committed-diff gate on the identical tree. The hook
-  // re-validates HEAD + tree fingerprint + ST_REVIEW_PUSH before trusting
-  // it (see lib/gate-pass-token.mjs). `--check-only` records it too so a
-  // READY verdict followed by an immediate push is still a single run.
-  if (phases.has(PHASE_PREPUSH)) {
-    writeGatePassToken(repoRoot, {
-      headOid: headBeforePush,
-      phases,
-      prNumber,
-    });
-  }
+  writeGatePassToken(repoRoot, {
+    headOid: headBeforePush,
+    phases: isLegacyPushGate(phases) ? phases : new Set([PHASE_SCOPED]),
+    prNumber,
+  });
 
   if (checkOnly) {
     process.stdout.write('✅ push gate passed (--check-only)\n');

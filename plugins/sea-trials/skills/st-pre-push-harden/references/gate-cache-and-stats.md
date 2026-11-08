@@ -1,7 +1,7 @@
 # Gate cache and worker telemetry
 
 Two speed/observability layers sit under every gate command
-(`pr-review-push`, `prepush`, `agent-validate`, `run-gate-task`).
+(`pr-review-push`, `prepush` scoped mode, `agent-validate-changed`).
 Neither changes what a green verdict means; both are opt-out.
 
 ## What is cached

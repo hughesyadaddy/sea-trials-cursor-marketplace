@@ -55,8 +55,8 @@ export const MESSAGES = {
     + `Run: ${PUSH_GATE_COMMAND}`,
 };
 
-/** Mirrors PHASE_PREPUSH in scripts/hooks/lib/push-gate-tasks.mjs. */
-const REQUIRED_PHASE = 'prepush';
+/** Mirrors PHASE_SCOPED in scripts/hooks/lib/push-gate-tasks.mjs. */
+const REQUIRED_PHASE = 'scoped';
 
 const GATE_MARKER = path.join('.husky', 'st-plugin-run.sh');
 const GATE_SCRIPT = 'pr-review-push';
