@@ -61,9 +61,11 @@ function parsePushArgs(argv) {
     process.exit(0);
   }
   const base = parsePrArgs(argv);
-  const phases = new Set([PHASE_SCOPED]);
+  let phases = new Set([PHASE_SCOPED]);
   let listTasks = false;
   let checkOnly = false;
+  let skipPrepush = false;
+  let full = false;
   // Fan-out defaults to fine: each worker owns a few files or one package.
   let granularity = GRANULARITY.FINE;
 
@@ -71,6 +73,8 @@ function parsePushArgs(argv) {
     const arg = argv[i];
     if (arg === '--list-tasks') listTasks = true;
     else if (arg === '--check-only') checkOnly = true;
+    else if (arg === '--skip-prepush') skipPrepush = true;
+    else if (arg === '--full') full = true;
     else if (arg === '--granularity') {
       const value = (argv[++i] ?? '').trim();
       if (!Object.values(GRANULARITY).includes(value)) {
@@ -92,7 +96,14 @@ function parsePushArgs(argv) {
     }
   }
 
-  return { ...base, listTasks, checkOnly, phases, granularity };
+  if (full) {
+    phases = new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
+  }
+  if (skipPrepush) {
+    phases.delete(PHASE_PREPUSH);
+  }
+
+  return { ...base, listTasks, checkOnly, phases, granularity, skipPrepush };
 }
 
 function printHelp() {
@@ -101,9 +112,15 @@ Canonical push path (scoped validation + git push; PR Checks on GitHub).
 
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --skip-prepush
+      Skip husky prepush (ST_SKIP_PREPUSH=1 on git push).
 
-Legacy local CI-parity fan-out (opt-in):
+  Legacy local CI-parity fan-out (opt-in):
   --phases dirty,prepush,ci [--list-tasks] [--granularity fine|coarse]
+  --full  same as legacy dirty,prepush,ci
+
+Emergency hook skip (human explicit only):
+  ST_ALLOW_PUSH_NO_VERIFY=1 git push --no-verify
 
 Agents: run agent-validate-changed before every commit; never bare git push.
 `);
@@ -185,7 +202,7 @@ function isLegacyPushGate(phases) {
 
 async function main() {
   const repoRoot = getRepoRoot();
-  const { prNumber, listTasks, checkOnly, phases, granularity } =
+  const { prNumber, listTasks, checkOnly, phases, granularity, skipPrepush } =
     parsePushArgs(process.argv.slice(2));
   const pr = fetchPrMeta(repoRoot, prNumber);
   const artifactPaths = reviewPaths(repoRoot, prNumber);
@@ -264,7 +281,7 @@ async function main() {
     process.exit(0);
   }
 
-  const push = runGitPush(repoRoot, pr.headRefName);
+  const push = runGitPush(repoRoot, pr.headRefName, { skipPrepush });
   if (!push.ok) {
     process.stderr.write(push.stderr || push.stdout);
     process.exit(push.status || 1);

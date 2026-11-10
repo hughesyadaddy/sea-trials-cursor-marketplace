@@ -104,6 +104,16 @@ acquirePrepushLock();
 async function main() {
   const listTasks = parseArgs(process.argv.slice(2));
 
+  if (
+    !listTasks &&
+    (process.env.ST_SKIP_PREPUSH ?? '').trim() === '1'
+  ) {
+    process.stdout.write(
+      '✅ Pre-push: skipped (pr-review-push --skip-prepush; user requested).\n',
+    );
+    process.exit(0);
+  }
+
   if (!listTasks) {
     const pass = checkGatePassToken(repoRoot, {
       requiredPhase: PHASE_SCOPED,

@@ -248,7 +248,7 @@ describe('decide', () => {
     );
   });
 
-  test('--no-verify / -n / --dry-run deny regardless of env or repo', async () => {
+  test('--no-verify / -n / --dry-run deny without ST_ALLOW_PUSH_NO_VERIFY', async () => {
     for (const cmd of ['git push --no-verify', 'git push -n origin', 'git push --dry-run']) {
       const d = await decide(cursor(cmd, os.tmpdir()), {
         env: { ...CLEAN_ENV, ST_ALLOW_BARE_PUSH: '1', ST_ALLOW_FORCE_PUSH: '1' },
@@ -256,6 +256,15 @@ describe('decide', () => {
       assert.equal(d.permission, 'deny', cmd);
       assert.equal(d.message, MESSAGES.noVerify);
     }
+  });
+
+  test('ST_ALLOW_PUSH_NO_VERIFY=1 allows --no-verify without bare-push token', async () => {
+    const root = makeRepo({ gate: 'husky' });
+    const d = await decide(cursor('git push --no-verify', root), {
+      env: { ...CLEAN_ENV, ST_ALLOW_PUSH_NO_VERIFY: '1' },
+    });
+    assert.equal(d.permission, 'allow');
+    assert.match(d.note ?? '', /ST_ALLOW_PUSH_NO_VERIFY/);
   });
 
   test('force denies unless ST_ALLOW_FORCE_PUSH=1', async () => {
@@ -271,9 +280,17 @@ describe('decide', () => {
     assert.equal(allowed.permission, 'allow');
   });
 
-  test('no-verify wins over force', async () => {
+  test('no-verify wins over force when force hatch absent', async () => {
     const d = await decide(cursor('git push -nf'), { env: CLEAN_ENV });
     assert.equal(d.message, MESSAGES.noVerify);
+  });
+
+  test('ST_ALLOW_PUSH_NO_VERIFY does not bypass force without ST_ALLOW_FORCE_PUSH', async () => {
+    const d = await decide(cursor('git push -nf'), {
+      env: { ...CLEAN_ENV, ST_ALLOW_PUSH_NO_VERIFY: '1' },
+    });
+    assert.equal(d.permission, 'deny');
+    assert.equal(d.message, MESSAGES.force);
   });
 
   test('bare push in a repo without the gate allows', async () => {
@@ -453,6 +470,10 @@ describe('render', () => {
 
 describe('fallbackFlagDeny', () => {
   test('denies bypass flags from raw text', () => {
+    assert.equal(
+      fallbackFlagDeny('{"command":"ST_ALLOW_PUSH_NO_VERIFY=1 git push --no-verify"}'),
+      null,
+    );
     assert.equal(fallbackFlagDeny('{"command":"git push --no-verify"}')?.message, MESSAGES.noVerify);
     assert.equal(fallbackFlagDeny('{"command":"git push -f"}')?.message, MESSAGES.force);
     assert.equal(fallbackFlagDeny('{"command":"git push"}'), null);

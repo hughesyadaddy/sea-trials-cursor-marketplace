@@ -853,19 +853,23 @@ export async function runLocalPushGate(
   };
 }
 
-export function runGitPush(repoRoot, branch) {
+export function runGitPush(repoRoot, branch, opts = {}) {
   const head = spawnSync('git', ['rev-parse', 'HEAD'], {
     encoding: 'utf8',
     cwd: repoRoot,
     shell: isWindows,
   });
   const headOid = (head.stdout ?? '').trim();
+  const env = { ...process.env, ST_REVIEW_PUSH: headOid };
+  if (opts.skipPrepush) {
+    env.ST_SKIP_PREPUSH = '1';
+  }
   const result = spawnSync('git', ['push', 'origin', `HEAD:${branch}`], {
     encoding: 'utf8',
     cwd: repoRoot,
     shell: isWindows,
     stdio: 'pipe',
-    env: { ...process.env, ST_REVIEW_PUSH: headOid },
+    env,
   });
   return {
     ok: result.status === 0,

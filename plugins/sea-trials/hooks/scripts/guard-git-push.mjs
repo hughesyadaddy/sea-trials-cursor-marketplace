@@ -6,7 +6,9 @@
  *   Claude  PreToolUse (Bash)     stdin {"tool_name", "tool_input":{"command"}, "cwd", ...}
  *
  * Decisions, per `git push` segment in the command:
- *   --no-verify / -n / --dry-run   DENY (never overridable)
+ *   --no-verify / -n / --dry-run   DENY unless ST_ALLOW_PUSH_NO_VERIFY=1
+ *                                  (human explicitly skips hook verification;
+ *                                  also bypasses bare-push token on that push)
  *   --force / -f / --force-with-lease
  *                                  DENY unless ST_ALLOW_FORCE_PUSH=1
  *   bare push in a gated repo      DENY unless a fresh gate-pass token
@@ -45,7 +47,8 @@ export const PUSH_GATE_COMMAND =
 export const MESSAGES = {
   noVerify:
     'Sea Trials: never git push with --no-verify, -n, or --dry-run. '
-    + `Run: ${PUSH_GATE_COMMAND}`,
+    + `Run: ${PUSH_GATE_COMMAND}. `
+    + 'ST_ALLOW_PUSH_NO_VERIFY=1 only when the human explicitly skips verification.',
   force:
     'Sea Trials: force push is blocked (--force, -f, --force-with-lease). '
     + `Run: ${PUSH_GATE_COMMAND}. `
@@ -484,11 +487,19 @@ export async function decide(input, opts = {}) {
     || pushes.every((p) => (p.env[name] ?? '').trim() === '1');
 
   // Flag checks: pure string work, never fail open.
-  if (pushes.some((p) => p.noVerify)) {
+  if (!hatch('ST_ALLOW_PUSH_NO_VERIFY') && pushes.some((p) => p.noVerify)) {
     return { permission: 'deny', message: MESSAGES.noVerify };
   }
   if (!hatch('ST_ALLOW_FORCE_PUSH') && pushes.some((p) => p.force)) {
     return { permission: 'deny', message: MESSAGES.force };
+  }
+
+  if (hatch('ST_ALLOW_PUSH_NO_VERIFY') && pushes.some((p) => p.noVerify)) {
+    return {
+      permission: 'allow',
+      note:
+        'Sea Trials: ST_ALLOW_PUSH_NO_VERIFY=1 — push allowed without git hook verification.',
+    };
   }
 
   if (hatch('ST_ALLOW_BARE_PUSH')) {
@@ -604,6 +615,9 @@ export function fallbackFlagDeny(raw) {
   if (!/\bgit\b[\s\S]*\bpush\b/.test(raw)) return null;
   const end = String.raw`(?=[\s"'}\\]|$)`;
   if (new RegExp(String.raw`--no-verify|--dry-run|\s-[a-z]*n[a-z]*${end}`, 'i').test(raw)) {
+    if (/\bST_ALLOW_PUSH_NO_VERIFY=1\b/.test(raw)) {
+      return null;
+    }
     return { permission: 'deny', message: MESSAGES.noVerify };
   }
   if (new RegExp(String.raw`--force|\s-[a-z]*f[a-z]*${end}`, 'i').test(raw)) {
