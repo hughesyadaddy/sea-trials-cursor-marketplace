@@ -118,8 +118,8 @@ gate fan-outs pin slugs the host actually accepts. See
 
 | Capability | Entry point | Notes |
 | --- | --- | --- |
-| Single push gate (dirty → committed → CI lanes) | `st-run pr-review-push -- --pr N` | Coalesces duplicate tasks across phases, fails fast, writes the gate-pass token so the husky pre-push does not rerun |
-| Fine-grained fan-out | `pr-review-push --list-tasks --granularity fine` | One JSON line per worker; `run-gate-task` honours machine-wide analyzer slots |
+| Push path (scoped validate + push) | `st-run pr-review-push -- --pr N` | `agent-validate-changed` on the pending diff; gate-pass token skips duplicate husky scoped run |
+| Legacy CI-parity fan-out (opt-in) | `pr-review-push --phases dirty,prepush,ci --list-tasks` | Humans only — agents use per-commit scoped validation |
 | Content-hash gate cache | automatic; `ST_GATE_CACHE=0` to disable | Dependency-aware `dart analyze` keys; shared across worktrees |
 | Worker telemetry | `st-run st-gate-stats` | p50/p95 per task kind, slowest packages, cache hit rate |
 | Adaptive PR review loop | `st-run pr-review-loop -- --pr N [--webhook]` | Settled-state machine on AI review (advisory)/Bugbot/CI signals; ETag probes, rate-limit backoff |

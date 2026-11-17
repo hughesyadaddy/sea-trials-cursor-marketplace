@@ -41,6 +41,7 @@ after an upstream sync and keep the two copies identical
 | Spec reference `parallel-execution-map.md` | `skills/shared/references/` (symlinked from plan/build/plan-technical-review) and `cursor/skills/{plan,build,plan-technical-review}/references/` |
 | Map preserve/validate paragraphs | brainstorm, plan-technical-review, refine-approach (both copies); `plan-review.md` copies |
 | Model tiers + rolling-window anti-patterns | `rules/vgv-wingspan-agents.mdc` (Cursor only) |
+| Scoped commit validation standard | `skills/shared/references/scoped-commit-validation.md`, `cursor/skills/shared/references/` (mirror); `rules/vgv-cli-required.mdc`; create-pr/build/hotfix/plan skills (both copies) |
 
 ## Refreshing from upstream
 
