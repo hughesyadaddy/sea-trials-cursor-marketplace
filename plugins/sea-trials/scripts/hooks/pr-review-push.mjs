@@ -5,12 +5,15 @@
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
  *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
  *
- * Legacy CI-parity fan-out (humans / explicit opt-in only):
- *   --phases dirty,prepush,ci --list-tasks
+ * Default: scoped per-commit validation on changed paths (analysis + direct
+ * covering tests). Legacy fan-out (`--full` or `--phases dirty,prepush,ci`)
+ * uses targeted `prepush` when the repo ships `targeted-prepush.mjs`;
+ * local `ci` parity is opt-in only. GitHub CI is the full check.
  */
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import {
   buildReviewSnapshot,
   evaluateSnapshot,
@@ -65,7 +68,7 @@ function parsePushArgs(argv) {
   let listTasks = false;
   let checkOnly = false;
   let skipPrepush = false;
-  let full = false;
+  let full = argv.includes('--full') || process.env.ST_PREPUSH_FULL === '1';
   // Fan-out defaults to fine: each worker owns a few files or one package.
   let granularity = GRANULARITY.FINE;
 
@@ -103,12 +106,39 @@ function parsePushArgs(argv) {
     phases.delete(PHASE_PREPUSH);
   }
 
-  return { ...base, listTasks, checkOnly, phases, granularity, skipPrepush };
+  return { ...base, listTasks, checkOnly, phases, granularity, skipPrepush, full };
+}
+
+/**
+ * The consuming repo's targeted pre-push module, or null when the repo
+ * has none (then the plugin's prepush phase runs as before).
+ *
+ * @param {string} repoRoot
+ */
+async function loadTargetedPrepush(repoRoot) {
+  const file = path.join(repoRoot, 'scripts/hooks/lib/targeted-prepush.mjs');
+  if (!fs.existsSync(file)) return null;
+  return import(pathToFileURL(file).href);
+}
+
+/** Map a targeted task onto the push-gate task shape. */
+function toGateTask(task, repoRoot) {
+  return {
+    label: task.label,
+    cmd: task.cmd,
+    args: task.args,
+    kind: task.kind,
+    options: { cwd: path.join(repoRoot, task.cwd) },
+    weight: 1,
+  };
 }
 
 function printHelp() {
   process.stdout.write(`\
 Canonical push path (scoped validation + git push; PR Checks on GitHub).
+
+Default: scoped validation on changed paths. ST_PREPUSH_FULL=1 (or
+--full) runs legacy dirty + TARGETED prepush (+ optional ci phase).
 
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
@@ -119,8 +149,7 @@ Canonical push path (scoped validation + git push; PR Checks on GitHub).
   --phases dirty,prepush,ci [--list-tasks] [--granularity fine|coarse]
   --full  same as legacy dirty,prepush,ci
 
-Emergency hook skip (human explicit only):
-  ST_ALLOW_PUSH_NO_VERIFY=1 git push --no-verify
+--no-verify git push is allowed when checks already passed (see hooks.md).
 
 Agents: run agent-validate-changed before every commit; never bare git push.
 `);
@@ -202,8 +231,15 @@ function isLegacyPushGate(phases) {
 
 async function main() {
   const repoRoot = getRepoRoot();
-  const { prNumber, listTasks, checkOnly, phases, granularity, skipPrepush } =
+  const { prNumber, listTasks, checkOnly, phases, granularity, skipPrepush, full } =
     parsePushArgs(process.argv.slice(2));
+  const legacy = isLegacyPushGate(phases);
+  const targeted = legacy && !full && phases.has(PHASE_PREPUSH)
+    ? await loadTargetedPrepush(repoRoot)
+    : null;
+  // Plugin phases; the repo's targeted module owns `prepush` when present.
+  const pluginPhases = new Set(phases);
+  if (targeted) pluginPhases.delete(PHASE_PREPUSH);
   const pr = fetchPrMeta(repoRoot, prNumber);
   const artifactPaths = reviewPaths(repoRoot, prNumber);
   const pruned = pruneClosedReviewArtifacts(repoRoot, {
@@ -227,12 +263,28 @@ async function main() {
     const plan = await buildPushGatePlan({
       repoRoot,
       prNumber,
-      phases,
+      phases: pluginPhases,
       granularity,
     });
     if (!plan.ok) {
       process.stderr.write(`❌ ${plan.error}\n`);
       process.exit(2);
+    }
+    if (targeted) {
+      const dry = targeted.runTargetedPrepush(repoRoot, {
+        branch: pr.headRefName,
+        dryRun: true,
+        write: (s) => process.stderr.write(s),
+      });
+      const tasks = (dry.plan?.tasks ?? []).map((t) => toGateTask(t, repoRoot));
+      if (tasks.length > 0) {
+        plan.groups.push({
+          id: `g${plan.groups.length + 1}`,
+          phase: PHASE_PREPUSH,
+          parallel: true,
+          tasks,
+        });
+      }
     }
     emitPushGateTaskLines(plan, repoRoot);
     process.exit(0);
@@ -243,11 +295,11 @@ async function main() {
 
   // A stale token from an earlier run must never vouch for this tree.
   clearGatePassToken(repoRoot);
-
-  const local = isLegacyPushGate(phases)
-    ? await runLocalPushGate(repoRoot, { prNumber, phases })
+  const local = legacy
+    ? (pluginPhases.size > 0
+        ? await runLocalPushGate(repoRoot, { prNumber, phases: pluginPhases })
+        : { ok: true, steps: [] })
     : runScopedPushValidation(repoRoot);
-
   if (!local.ok) {
     for (const step of local.steps) {
       if (!step.ok) {
@@ -270,9 +322,18 @@ async function main() {
     process.stdout.write(`✅ ${step.name}\n`);
   }
 
+  if (targeted) {
+    const result = targeted.runTargetedPrepush(repoRoot, {
+      branch: pr.headRefName,
+      force: true,
+    });
+    if (!result.ok) process.exit(4);
+    process.stdout.write('✅ targeted prepush\n');
+  }
+
   writeGatePassToken(repoRoot, {
     headOid: headBeforePush,
-    phases: isLegacyPushGate(phases) ? phases : new Set([PHASE_SCOPED]),
+    phases: legacy ? phases : new Set([PHASE_SCOPED]),
     prNumber,
   });
 
