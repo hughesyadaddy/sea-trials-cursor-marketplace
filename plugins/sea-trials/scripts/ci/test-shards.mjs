@@ -34,6 +34,12 @@ import {
   mergeTimingPartials,
   parseTimingCache,
 } from './test-shard-timing.mjs';
+import {
+  CI_FULL_TESTS_LABEL,
+  planPrScopedTestMatrix,
+  resolvePrScopedTestsByPackage,
+  wantsFullDartTestPlan,
+} from './pr-scoped-test-plan.mjs';
 
 export {
   FAT_PACKAGE_DIRS,
@@ -297,6 +303,8 @@ async function emitPlan({ base, repoRoot }) {
     repoRoot,
   });
 
+  const fullPlan = wantsFullDartTestPlan();
+
   const cachePath = path.join(repoRoot, PASS_CACHE_FILE);
   const cache = fs.existsSync(cachePath)
     ? parsePassCache(fs.readFileSync(cachePath, 'utf8'))
@@ -309,35 +317,76 @@ async function emitPlan({ base, repoRoot }) {
 
   const hasTestDir = (dir) => fs.existsSync(path.join(repoRoot, 'flutter', dir, 'test'));
 
-  const withTests = filterPackagesWithTests(testPackageDirs, hasTestDir);
-  const lsFilesS = gitStdout(['ls-files', '-s', '--', 'flutter']);
-  const hashes = hashPackagesFromLsFiles({
-    lsFilesS,
-    packageDirs: withTests,
-    graph,
-  });
-  const planned = planTestShards({
-    candidateDirs: withTests,
-    hasTestDir: () => true,
-    hashes,
-    cache,
-    nameByDir: graph.nameByDir,
-    repoRoot,
-    timingCache,
-  });
-  const next = nextPassCache({
-    cache,
-    packageDirs: withTests,
-    hashes,
-  });
+  let planned;
+  let withTests;
+  let hashes = {};
+  let next;
 
-  process.stdout.write(
-    `dart-test-plan: ${changedFiles.length} changed file(s) vs ${base}; ` +
-      `${withTests.length} package(s) with tests; ` +
-      `${planned.toRun.length} to run, ${planned.skipped.length} cached` +
-      (planned.skipLog ? ` (${planned.skipLog})` : '') +
-      '\n',
-  );
+  if (!fullPlan) {
+    const testsByPackage = resolvePrScopedTestsByPackage({
+      repoRoot,
+      changedFiles,
+    });
+    const scoped = planPrScopedTestMatrix({
+      testsByPackage,
+      nameByDir: graph.nameByDir,
+    });
+    planned = {
+      hasWork: scoped.hasWork,
+      skipLog: scoped.skipLog,
+      matrix: scoped.matrix,
+      toRun: scoped.packageDirs,
+      skipped: [],
+      shards: scoped.matrix.include.map((row) =>
+        row.packages.split(',').map((s) => s.trim()).filter(Boolean),
+      ),
+      estimates: undefined,
+    };
+    withTests = scoped.packageDirs;
+    next = cache;
+    process.stdout.write(
+      `dart-test-plan: pull_request scoped plan (cap ${scoped.matrix.include.length} shard row(s)); ` +
+        `escape: push main, schedule, CI_FULL_TESTS=1, label ${CI_FULL_TESTS_LABEL}\n`,
+    );
+    process.stdout.write(
+      `dart-test-plan: ${changedFiles.length} changed file(s) vs ${base}; ` +
+        `${withTests.length} package(s) with direct covering tests` +
+        (planned.skipLog ? ` (${planned.skipLog})` : '') +
+        '\n',
+    );
+  } else {
+    withTests = filterPackagesWithTests(testPackageDirs, hasTestDir);
+    const lsFilesS = gitStdout(['ls-files', '-s', '--', 'flutter']);
+    hashes = hashPackagesFromLsFiles({
+      lsFilesS,
+      packageDirs: withTests,
+      graph,
+    });
+    planned = planTestShards({
+      candidateDirs: withTests,
+      hasTestDir: () => true,
+      hashes,
+      cache,
+      nameByDir: graph.nameByDir,
+      repoRoot,
+      timingCache,
+    });
+    next = nextPassCache({
+      cache,
+      packageDirs: withTests,
+      hashes,
+    });
+    process.stdout.write(
+      `dart-test-plan: full workspace package plan\n`,
+    );
+    process.stdout.write(
+      `dart-test-plan: ${changedFiles.length} changed file(s) vs ${base}; ` +
+        `${withTests.length} package(s) with tests; ` +
+        `${planned.toRun.length} to run, ${planned.skipped.length} cached` +
+        (planned.skipLog ? ` (${planned.skipLog})` : '') +
+        '\n',
+    );
+  }
   if (workspaceLevel) {
     process.stdout.write('dart-test-plan: workspace-level diff; sample, not proof.\n');
   }
@@ -373,8 +422,11 @@ async function emitPlan({ base, repoRoot }) {
   }
   for (const [i, shard] of planned.shards.entries()) {
     const shardSeconds = shard.reduce((sum, dir) => sum + estimateFn(dir), 0);
+    const row = planned.matrix.include[i];
+    const pathsNote =
+      row?.test_paths?.trim() ? `; files: ${row.test_paths}` : '';
     process.stdout.write(
-      `  shard ${i} (${formatDuration(shardSeconds)} est): ${shard.join(', ')}\n`,
+      `  shard ${i} (${formatDuration(shardSeconds)} est): ${shard.join(', ')}${pathsNote}\n`,
     );
   }
   for (const dir of planned.skipped) {
