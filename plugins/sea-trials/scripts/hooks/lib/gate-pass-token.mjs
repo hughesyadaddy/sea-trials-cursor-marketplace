@@ -2,18 +2,16 @@
  * Push-gate pass token — lets the pre-push hook skip a gate that
  * `pr-review-push` just ran on the very same tree.
  *
- * `pr-review-push` runs dirty + committed-diff + CI lanes, then calls
- * `git push`, which fires the husky pre-push hook, which re-ran the
- * committed-diff gate from scratch: the same `dart analyze` twice in a
- * row, minutes apart, on an unchanged tree. The token records what was
- * verified; the hook honours it only when HEAD, the working-tree
- * fingerprint and `ST_REVIEW_PUSH` all still match and the token is
- * fresh. Anything else falls through to the full gate.
+ * `pr-review-push` runs scoped validation (`agent-validate-changed`), then
+ * `git push`, which fires the husky pre-push hook. The token lets the hook
+ * skip a duplicate scoped run on the same tree. The hook honours it only
+ * when HEAD, the working-tree fingerprint and `ST_REVIEW_PUSH` all still
+ * match and the token is fresh. Anything else re-runs scoped validation.
  */
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { workingTreeByteFingerprint } from './scope-tree-fingerprint.mjs';
 
 const isWindows = process.platform === 'win32';
 
@@ -40,22 +38,9 @@ export function gatePassTokenPath(repoRoot) {
     : path.join(repoRoot, '.git', TOKEN_FILE);
 }
 
-/**
- * Fingerprint of the working tree relative to HEAD: `git status`
- * porcelain plus a hash of the unstaged/staged diff. Changes to any
- * tracked file (or a new untracked one) change it.
- *
- * @param {string} repoRoot
- */
+/** Byte + index accurate tree fingerprint (all dirty paths). */
 export function workingTreeFingerprint(repoRoot) {
-  const status = git(repoRoot, ['status', '--porcelain=v1', '-uall']) ?? '';
-  const diff = git(repoRoot, ['diff', 'HEAD', '--stat=200']) ?? '';
-  return crypto
-    .createHash('sha256')
-    .update(status)
-    .update('\n--\n')
-    .update(diff)
-    .digest('hex');
+  return workingTreeByteFingerprint(repoRoot);
 }
 
 /**

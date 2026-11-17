@@ -131,8 +131,8 @@ node "$ST_FLAKE" quarantine --file <path> --test "<name>" \
 
 Then rejoin the review loop exactly where it left off:
 
-1. Re-run the single gate (`pr-review-push --list-tasks` fan-out) — a
-   skip changes the tree, so the gate runs again in full.
+1. Re-run scoped validation on the skip + test paths (`agent-validate-changed`)
+   — a skip changes the tree.
 2. Commit: `test: quarantine flaky <test or file> (#<issue-number>)`.
 3. Push only through `node "$ST_REVIEW_PUSH" -- --pr <n>`. Never bare
    `git push`.
@@ -181,7 +181,7 @@ Triagers never edit files, never open issues, never push.
 - Entry conditions in Phase 0 not met — report, do nothing.
 - Rule 3 question answered **Fix instead** or unanswered.
 - `gh issue create` fails — do not skip without an issue.
-- The quarantine commit fails the single gate — revert the skip, real
+- The quarantine commit fails scoped validation — revert the skip, real
   failure.
 
 ## Final report

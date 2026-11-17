@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 /**
- * Canonical push gate — one entry point for checks + push.
+ * Canonical push path — scoped validation + push (remote CI is the broad gate).
  *
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>           # full gate + push
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks  # subagent fan-out
- *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only  # gate without push
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
+ *   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
+ *
+ * Default: scoped per-commit validation on changed paths (analysis + direct
+ * covering tests). Legacy fan-out (`--full` or `--phases dirty,prepush,ci`)
+ * uses targeted `prepush` when the repo ships `targeted-prepush.mjs`;
+ * local `ci` parity is opt-in only. GitHub CI is the full check.
  */
 import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   buildReviewSnapshot,
   evaluateSnapshot,
@@ -27,7 +33,11 @@ import {
   PHASE_CI,
   PHASE_DIRTY,
   PHASE_PREPUSH,
+  PHASE_SCOPED,
 } from './lib/push-gate-tasks.mjs';
+import * as dirtyTree from './lib/dirty-tree-tasks.mjs';
+import * as prepushTasks from './lib/prepush-tasks.mjs';
+import { runScopedPerCommitValidate } from './lib/scoped-per-commit-validate.mjs';
 import { GRANULARITY } from './lib/check-plan.mjs';
 import {
   clearGatePassToken,
@@ -54,9 +64,11 @@ function parsePushArgs(argv) {
     process.exit(0);
   }
   const base = parsePrArgs(argv);
-  const phases = new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
+  let phases = new Set([PHASE_SCOPED]);
   let listTasks = false;
   let checkOnly = false;
+  let skipPrepush = false;
+  let full = argv.includes('--full') || process.env.ST_PREPUSH_FULL === '1';
   // Fan-out defaults to fine: each worker owns a few files or one package.
   let granularity = GRANULARITY.FINE;
 
@@ -64,6 +76,8 @@ function parsePushArgs(argv) {
     const arg = argv[i];
     if (arg === '--list-tasks') listTasks = true;
     else if (arg === '--check-only') checkOnly = true;
+    else if (arg === '--skip-prepush') skipPrepush = true;
+    else if (arg === '--full') full = true;
     else if (arg === '--granularity') {
       const value = (argv[++i] ?? '').trim();
       if (!Object.values(GRANULARITY).includes(value)) {
@@ -85,29 +99,147 @@ function parsePushArgs(argv) {
     }
   }
 
-  return { ...base, listTasks, checkOnly, phases, granularity };
+  if (full) {
+    phases = new Set([PHASE_DIRTY, PHASE_PREPUSH, PHASE_CI]);
+  }
+  if (skipPrepush) {
+    phases.delete(PHASE_PREPUSH);
+  }
+
+  return { ...base, listTasks, checkOnly, phases, granularity, skipPrepush, full };
+}
+
+/**
+ * The consuming repo's targeted pre-push module, or null when the repo
+ * has none (then the plugin's prepush phase runs as before).
+ *
+ * @param {string} repoRoot
+ */
+async function loadTargetedPrepush(repoRoot) {
+  const file = path.join(repoRoot, 'scripts/hooks/lib/targeted-prepush.mjs');
+  if (!fs.existsSync(file)) return null;
+  return import(pathToFileURL(file).href);
+}
+
+/** Map a targeted task onto the push-gate task shape. */
+function toGateTask(task, repoRoot) {
+  return {
+    label: task.label,
+    cmd: task.cmd,
+    args: task.args,
+    kind: task.kind,
+    options: { cwd: path.join(repoRoot, task.cwd) },
+    weight: 1,
+  };
 }
 
 function printHelp() {
   process.stdout.write(`\
-Canonical push gate (one entry point).
+Canonical push path (scoped validation + git push; PR Checks on GitHub).
+
+Default: scoped validation on changed paths. ST_PREPUSH_FULL=1 (or
+--full) runs legacy dirty + TARGETED prepush (+ optional ci phase).
 
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>
-  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks
   node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --check-only
-  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --phases dirty,prepush,ci
-  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --list-tasks --granularity fine|coarse
+  node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> --skip-prepush
+      Skip husky prepush (ST_SKIP_PREPUSH=1 on git push).
 
-Subagents: one Task per JSON line from --list-tasks; run via
-  node $ST_PLUGIN_ROOT/scripts/hooks/run-gate-task.mjs '<json>'
-Parent re-runs pr-review-push after fixes (never bare git push).
+  Legacy local CI-parity fan-out (opt-in):
+  --phases dirty,prepush,ci [--list-tasks] [--granularity fine|coarse]
+  --full  same as legacy dirty,prepush,ci
+
+--no-verify git push is allowed when checks already passed (see hooks.md).
+
+Agents: run agent-validate-changed before every commit; never bare git push.
 `);
+}
+
+/**
+ * @param {string} repoRoot
+ */
+function collectPushScopePaths(repoRoot) {
+  /** @type {Set<string>} */
+  const paths = new Set(dirtyTree.gitChangedRepoPaths(repoRoot));
+  const prep = prepushTasks.preparePrepushGate(repoRoot);
+  if (prep.ok) {
+    for (const p of prep.ctx.changed) paths.add(p);
+  } else if (paths.size === 0) {
+    return { ok: false, error: prep.message, paths: [] };
+  }
+  return { ok: true, paths: [...paths] };
+}
+
+/**
+ * Permanent scoped gate — partition Dart/non-Dart, direct-test contract.
+ *
+ * @param {string} repoRoot
+ */
+function runScopedPushValidation(repoRoot) {
+  const scope = collectPushScopePaths(repoRoot);
+  if (!scope.ok) {
+    return {
+      ok: false,
+      error: scope.error,
+      steps: [{ name: 'scoped-validate', ok: false, stderr: scope.error }],
+    };
+  }
+  if (scope.paths.length === 0) {
+    return {
+      ok: true,
+      steps: [{ name: 'scoped-validate', ok: true, stdout: 'No paths to validate' }],
+    };
+  }
+
+  process.stdout.write(
+    `🔎 Scoped validation (${scope.paths.length} path(s))…\n`,
+  );
+  const result = runScopedPerCommitValidate(repoRoot, scope.paths, {
+    reuseCommitRecord: true,
+    writeRecord: true,
+  });
+  if (!result.ok) {
+    const err = result.steps
+      .filter((s) => !s.ok)
+      .map((s) => s.stderr || s.stdout || '')
+      .join('\n');
+    return {
+      ok: false,
+      error: 'scoped validation failed',
+      steps: result.steps.length
+        ? result.steps
+        : [{ name: 'scoped-validate', ok: false, stderr: err }],
+    };
+  }
+  const summary = result.skipped
+    ? (result.steps[0]?.stdout ?? 'reused commit validation')
+    : (result.steps.map((s) => s.stdout).filter(Boolean).join('\n') || 'OK');
+  return {
+    ok: true,
+    steps: [{ name: 'scoped-validate', ok: true, stdout: summary }],
+  };
+}
+
+/** @param {Set<string>} phases */
+function isLegacyPushGate(phases) {
+  return (
+    phases.has(PHASE_PREPUSH)
+    || phases.has(PHASE_CI)
+    || (phases.has(PHASE_DIRTY) && !phases.has(PHASE_SCOPED))
+  );
 }
 
 async function main() {
   const repoRoot = getRepoRoot();
-  const { prNumber, listTasks, checkOnly, phases, granularity } =
+  const { prNumber, listTasks, checkOnly, phases, granularity, skipPrepush, full } =
     parsePushArgs(process.argv.slice(2));
+  const legacy = isLegacyPushGate(phases);
+  const targeted = legacy && !full && phases.has(PHASE_PREPUSH)
+    ? await loadTargetedPrepush(repoRoot)
+    : null;
+  // Plugin phases; the repo's targeted module owns `prepush` when present.
+  const pluginPhases = new Set(phases);
+  if (targeted) pluginPhases.delete(PHASE_PREPUSH);
   const pr = fetchPrMeta(repoRoot, prNumber);
   const artifactPaths = reviewPaths(repoRoot, prNumber);
   const pruned = pruneClosedReviewArtifacts(repoRoot, {
@@ -121,29 +253,53 @@ async function main() {
   }
 
   if (listTasks) {
+    if (!isLegacyPushGate(phases)) {
+      process.stderr.write(
+        'ℹ️  Scoped push path: run agent-validate-changed before each commit;\n'
+          + '    no gate fan-out. Legacy: --phases dirty,prepush,ci --list-tasks\n',
+      );
+      process.exit(0);
+    }
     const plan = await buildPushGatePlan({
       repoRoot,
       prNumber,
-      phases,
+      phases: pluginPhases,
       granularity,
     });
     if (!plan.ok) {
       process.stderr.write(`❌ ${plan.error}\n`);
       process.exit(2);
     }
+    if (targeted) {
+      const dry = targeted.runTargetedPrepush(repoRoot, {
+        branch: pr.headRefName,
+        dryRun: true,
+        write: (s) => process.stderr.write(s),
+      });
+      const tasks = (dry.plan?.tasks ?? []).map((t) => toGateTask(t, repoRoot));
+      if (tasks.length > 0) {
+        plan.groups.push({
+          id: `g${plan.groups.length + 1}`,
+          phase: PHASE_PREPUSH,
+          parallel: true,
+          tasks,
+        });
+      }
+    }
     emitPushGateTaskLines(plan, repoRoot);
     process.exit(0);
   }
 
   const headBeforePush = readHeadOid(repoRoot);
-  process.stdout.write(`PR #${prNumber} push gate (${pr.headRefName})\n`);
+  process.stdout.write(`PR #${prNumber} push (${pr.headRefName})\n`);
 
   // A stale token from an earlier run must never vouch for this tree.
   clearGatePassToken(repoRoot);
-  const local = await runLocalPushGate(repoRoot, {
-    prNumber,
-    phases,
-  });
+  const local = legacy
+    ? (pluginPhases.size > 0
+        ? await runLocalPushGate(repoRoot, { prNumber, phases: pluginPhases })
+        : { ok: true, steps: [] })
+    : runScopedPushValidation(repoRoot);
   if (!local.ok) {
     for (const step of local.steps) {
       if (!step.ok) {
@@ -166,25 +322,27 @@ async function main() {
     process.stdout.write(`✅ ${step.name}\n`);
   }
 
-  // Record the pass so the pre-push hook fired by `git push` below does
-  // not re-run the committed-diff gate on the identical tree. The hook
-  // re-validates HEAD + tree fingerprint + ST_REVIEW_PUSH before trusting
-  // it (see lib/gate-pass-token.mjs). `--check-only` records it too so a
-  // READY verdict followed by an immediate push is still a single run.
-  if (phases.has(PHASE_PREPUSH)) {
-    writeGatePassToken(repoRoot, {
-      headOid: headBeforePush,
-      phases,
-      prNumber,
+  if (targeted) {
+    const result = targeted.runTargetedPrepush(repoRoot, {
+      branch: pr.headRefName,
+      force: true,
     });
+    if (!result.ok) process.exit(4);
+    process.stdout.write('✅ targeted prepush\n');
   }
+
+  writeGatePassToken(repoRoot, {
+    headOid: headBeforePush,
+    phases: legacy ? phases : new Set([PHASE_SCOPED]),
+    prNumber,
+  });
 
   if (checkOnly) {
     process.stdout.write('✅ push gate passed (--check-only)\n');
     process.exit(0);
   }
 
-  const push = runGitPush(repoRoot, pr.headRefName);
+  const push = runGitPush(repoRoot, pr.headRefName, { skipPrepush });
   if (!push.ok) {
     process.stderr.write(push.stderr || push.stdout);
     process.exit(push.status || 1);

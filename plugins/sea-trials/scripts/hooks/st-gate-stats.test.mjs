@@ -178,11 +178,11 @@ test('main: --file + --json emits the stats object; missing file is graceful', (
 
 test('CLI: runs end to end, rejects a bad --kind', () => {
   const { file } = tmpLedger(SAMPLE);
-  const ok = spawnSync(process.execPath, [script, '--file', file, '--since', '30d'], {
+  const ok = spawnSync(process.execPath, [script, '--file', file, '--since', '365d'], {
     encoding: 'utf8',
   });
   assert.equal(ok.status, 0, ok.stderr);
-  assert.match(ok.stdout, /gate telemetry: \d+ run\(s\) \(since 30d\)/);
+  assert.match(ok.stdout, /gate telemetry: \d+ run\(s\) \(since 365d\)/);
   assert.match(ok.stdout, /by task kind/);
 
   const bad = spawnSync(process.execPath, [script, '--kind', 'bogus'], { encoding: 'utf8' });

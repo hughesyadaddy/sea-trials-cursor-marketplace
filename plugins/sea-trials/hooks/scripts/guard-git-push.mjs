@@ -6,12 +6,18 @@
  *   Claude  PreToolUse (Bash)     stdin {"tool_name", "tool_input":{"command"}, "cwd", ...}
  *
  * Decisions, per `git push` segment in the command:
- *   --no-verify / -n / --dry-run   DENY (never overridable)
- *   --force / -f / --force-with-lease
+ *   --no-verify / -n / --dry-run   ALLOW (targeted/scoped pre-push rule:
+ *                                  changed-code checks + CI; git hooks may
+ *                                  be skipped on push)
+ *   --force / -f / --force-with-lease / +<refspec>
  *                                  DENY unless ST_ALLOW_FORCE_PUSH=1
- *   bare push in a gated repo      DENY unless a fresh gate-pass token
+ *   bare push in a gated repo whose .husky/pre-push runs the targeted
+ *   gate (`targeted-prepush`)      ALLOW (the git hook runs the checks)
+ *   bare push in an older gated repo
+ *                                  DENY unless a fresh gate-pass token
  *                                  (written by pr-review-push) exists
  *                                  or ST_ALLOW_BARE_PUSH=1
+ *   (`gh pr merge --admin` is denied by guard-gh-merge.mjs.)
  *   push in a repo without gate    ALLOW
  *   sprint docs only               ALLOW when every commit being pushed
  *                                  touches only sprint_planning/** (no PR
@@ -27,7 +33,7 @@
  *           deny  -> hookSpecificOutput JSON on stdout + reason on stderr,
  *                    exit 2 (exit 2 blocks even if stdout is ignored)
  *
- * Flag checks are pure string work and never fail open. Anything that
+ * The force check is pure string work and never fails open. Anything that
  * needs git (repo root, token) fails open with a note on stderr.
  *
  * Try it:  echo '{"command":"git push"}' | node hooks/scripts/guard-git-push.mjs
@@ -43,11 +49,9 @@ export const PUSH_GATE_COMMAND =
   'node "$ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs" --pr <n>';
 
 export const MESSAGES = {
-  noVerify:
-    'Sea Trials: never git push with --no-verify, -n, or --dry-run. '
-    + `Run: ${PUSH_GATE_COMMAND}`,
   force:
-    'Sea Trials: force push is blocked (--force, -f, --force-with-lease). '
+    'Sea Trials: force push is blocked (--force, -f, --force-with-lease, '
+    + '+refspec). '
     + `Run: ${PUSH_GATE_COMMAND}. `
     + 'ST_ALLOW_FORCE_PUSH=1 only for an explicitly approved rewrite.',
   barePush:
@@ -55,8 +59,8 @@ export const MESSAGES = {
     + `Run: ${PUSH_GATE_COMMAND}`,
 };
 
-/** Mirrors PHASE_PREPUSH in scripts/hooks/lib/push-gate-tasks.mjs. */
-const REQUIRED_PHASE = 'prepush';
+/** Mirrors PHASE_SCOPED in scripts/hooks/lib/push-gate-tasks.mjs. */
+const REQUIRED_PHASE = 'scoped';
 
 const GATE_MARKER = path.join('.husky', 'st-plugin-run.sh');
 const GATE_SCRIPT = 'pr-review-push';
@@ -260,6 +264,9 @@ export function classifyPushFlags(args) {
     } else if (/^-[A-Za-z]+$/.test(arg)) {
       if (arg.includes('n')) noVerify = true;
       if (arg.includes('f')) force = true;
+    } else if (/^\+./.test(arg)) {
+      // `git push origin +HEAD:main` forces that refspec.
+      force = true;
     }
   }
   return { noVerify, force };
@@ -405,6 +412,21 @@ export function repoHasGate(repoRoot) {
 }
 
 /**
+ * True when the repo's git pre-push hook runs the targeted gate, so a
+ * bare `git push` is already checked by git itself.
+ *
+ * @param {string} repoRoot
+ */
+export function repoHasTargetedPrepush(repoRoot) {
+  try {
+    const hook = fs.readFileSync(path.join(repoRoot, '.husky', 'pre-push'), 'utf8');
+    return /targeted-prepush/.test(hook);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Fresh gate-pass token for HEAD + tree, ignoring ST_REVIEW_PUSH: the
  * agent shell is not the pr-review-push child process, so that env var
  * is never set here. HEAD, tree fingerprint, phase and age still apply.
@@ -483,12 +505,16 @@ export async function decide(input, opts = {}) {
     (env[name] ?? '').trim() === '1'
     || pushes.every((p) => (p.env[name] ?? '').trim() === '1');
 
-  // Flag checks: pure string work, never fail open.
-  if (pushes.some((p) => p.noVerify)) {
-    return { permission: 'deny', message: MESSAGES.noVerify };
-  }
   if (!hatch('ST_ALLOW_FORCE_PUSH') && pushes.some((p) => p.force)) {
     return { permission: 'deny', message: MESSAGES.force };
+  }
+
+  if (pushes.some((p) => p.noVerify)) {
+    return {
+      permission: 'allow',
+      note:
+        'Sea Trials: --no-verify allowed (scoped/targeted pre-push rule; git hooks skipped).',
+    };
   }
 
   if (hatch('ST_ALLOW_BARE_PUSH')) {
@@ -517,6 +543,10 @@ export async function decide(input, opts = {}) {
     }
     if (!repoRoot) continue; // not a repo (push would fail anyway)
     if (!repoHasGate(repoRoot)) continue;
+    if (repoHasTargetedPrepush(repoRoot)) {
+      notes.push('Sea Trials push guard: targeted pre-push hook gates this push.');
+      continue;
+    }
     if (pushTouchesOnlySprintDocs(repoRoot)) {
       notes.push('Sea Trials push guard: sprint_planning/** only; no gate needed.');
       continue;
@@ -595,7 +625,7 @@ function readStdin() {
 
 /**
  * Last line of defence if the parser itself throws: a crude scan of the
- * raw input so hook-bypassing flags are still denied.
+ * raw input so force pushes are still denied.
  *
  * @param {string} raw
  * @returns {Decision | null}
@@ -603,10 +633,7 @@ function readStdin() {
 export function fallbackFlagDeny(raw) {
   if (!/\bgit\b[\s\S]*\bpush\b/.test(raw)) return null;
   const end = String.raw`(?=[\s"'}\\]|$)`;
-  if (new RegExp(String.raw`--no-verify|--dry-run|\s-[a-z]*n[a-z]*${end}`, 'i').test(raw)) {
-    return { permission: 'deny', message: MESSAGES.noVerify };
-  }
-  if (new RegExp(String.raw`--force|\s-[a-z]*f[a-z]*${end}`, 'i').test(raw)) {
+  if (new RegExp(String.raw`--force|\s-[a-z]*f[a-z]*${end}|\s\+[^\s"']`, 'i').test(raw)) {
     return { permission: 'deny', message: MESSAGES.force };
   }
   return null;

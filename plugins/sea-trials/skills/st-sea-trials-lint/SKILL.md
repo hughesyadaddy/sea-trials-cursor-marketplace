@@ -3,7 +3,7 @@ name: st-sea-trials-lint
 description: >-
   Run sea-trials-lint and dart architecture rules on changed files,
   explain tier violations (client/repo/vgv-bloc isolation, widget_function,
-  forbidden APIs). Use when prepush or agent-prepush fails custom lint.
+  forbidden APIs). Use when agent-validate-changed or scoped custom lint fails.
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -21,8 +21,7 @@ user-invocable: true
 
 # Sea Trials lint
 
-Scoped custom lint — not full-tree analyze. Use **AskQuestion** (Cursor) / **AskUserQuestion** (Claude Code)
-when a fix requires a product/API decision.
+Scoped custom lint on **changed files only** — not full-tree analyze.
 
 ## Phase 1 — Scope
 
@@ -36,13 +35,12 @@ Collect changed Dart paths from git diff (staged + unstaged).
 ## Phase 2 — Run
 
 ```bash
-# Rust linter (architecture + design system tiers)
+# Rust linter (architecture + design system tiers) on explicit paths
 tools/st-sea-trials-lint/bin/st-sea-trials-lint check <files...>
-
-# Or via hook parity
-node $ST_PLUGIN_ROOT/scripts/hooks/prepush.mjs   # when committed diff is the target
-node $ST_PLUGIN_ROOT/scripts/hooks/agent-prepush.mjs  # when dirty tree
 ```
+
+`agent-validate-changed` already invokes custom lint for Dart paths in the
+diff. Use the binary directly when you need a focused re-run on one file.
 
 See `docs/runbooks/LINT_STAGES.md` for tier definitions.
 
@@ -59,7 +57,7 @@ See `docs/runbooks/LINT_STAGES.md` for tier definitions.
 ## Phase 4 — Re-validate
 
 ```bash
-node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs
+node $ST_PLUGIN_ROOT/scripts/hooks/agent-validate-changed.mjs <fixed paths…>
 ```
 
-Do not push until prepush-tier lint is clean.
+Do not commit until scoped validation is clean.
