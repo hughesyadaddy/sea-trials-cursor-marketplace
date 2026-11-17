@@ -1,79 +1,70 @@
 ---
-description: Agent validation — scoped script during iteration; MCP full test only before merge.
+description: Agent validation — scoped analyze + directly covering tests only (permanent standard).
 alwaysApply: true
 ---
 
-# Agent validation tiers (Flutter)
+# Agent validation (permanent standard)
 
-Three tiers. Use the **lightest tier that fits** — never default to
-whole-package MCP test during iteration.
+One standard for every commit, phase, and PR prep. **Not** a fast iteration
+mode — agents never default to broad pre-push, CI-parity, golden, or
+whole-package suites before commit or push.
 
-## Tier 1 — During edits (default)
+## Dart / Flutter
 
-- **ReadLints** on changed files only.
-- No MCP `analyze_files`, no MCP `test`, no `packages_get`.
+On each changed path in the commit or uncommitted chunk:
 
-## Tier 2 — End of chunk (`/build`, `/hotfix`, before summarizing)
-
-Run the scoped hook script while changes are uncommitted:
-
-```bash
-pnpm agent-validate
-```
-
-Or pass explicit paths when git diff is incomplete or clean (for example,
-right after committing):
+- **`lib/` / `bin/`** — `dart analyze --fatal-infos` on that file only
+  (or MCP `analyze_files` with explicit paths).
+- **Directly covering tests** — only test files that exercise the changed
+  code (`flutter test <path>` or explicit-path `pnpm agent-validate`).
 
 ```bash
 pnpm agent-validate -- flutter/packages/foo/lib/a.dart flutter/packages/foo/test/a_test.dart
 ```
 
-Flags: `--analyze-only`, `--tests-only`.
+`pnpm agent-validate` without paths may inspect uncommitted changes in
+some consumer repos — still scoped to the diff, never whole-package.
+Always prefer passing explicit paths.
 
-Without explicit paths, `pnpm agent-validate` only inspects uncommitted
-changes (`git diff`, staged, and untracked files).
+## Non-Dart
 
-This runs `dart analyze --fatal-infos` on changed **lib** files
-(same severity as pre-push/CI) and `flutter test` on changed **test**
-files only — typically seconds, not minutes.
+Run only analyzers and tests that directly apply to the changed paths.
 
-**Do not** use very-good-cli MCP `test` at Tier 2 — it runs the entire
-package test suite.
+## During edits
 
-## Tier 3 — Before merge / user explicitly asks
+- **ReadLints** on changed files is sufficient between scoped runs.
+- Do **not** run MCP `test` on a whole package, `pnpm prepush`,
+  `push-gate`, or unscoped `very_good test` / `flutter test` as a
+  commit gate.
 
-- Full package: `cd flutter/packages/<pkg> && very_good test -j 4`
-- Or very-good-cli MCP `test` with package root as `directory`.
-- MCP `packages_get` **only** when `pubspec.yaml` changed.
+## Optional full suites (explicit only)
 
-Tell the user to run Tier 3 locally when agent session time is limited.
+Full package test, `/green-gate`, goldens, and plan `VERIFICATION COMMAND`
+runs are for **CI, humans, or explicit user request** — not automatic
+agent gates before commit.
 
-## Shell vs MCP
+## Shell vs MCP (Dart)
 
 | Command | When |
 | --- | --- |
-| `pnpm agent-validate` | Tier 2 — **preferred** for agents |
-| `ReadLints` | Tier 1 |
-| MCP `analyze_files` (scoped paths) | Tier 3 only, or when ReadLints is empty |
-| MCP `test` (whole package) | Tier 3 only |
-| Shell `dart test` / `flutter test` / `very_good test` | **Never** directly — use `pnpm agent-validate` or Tier 3 instructions |
-
-## Full-project gates (not agent iteration)
-
-Pre-push (`pnpm prepush`) runs format, analyze, and custom lint on changed
-packages. CI runs full test suites. Agents rely on these for full coverage.
+| `pnpm agent-validate` with explicit paths | Scoped validation before commit |
+| `ReadLints` | Between scoped runs on touched files |
+| MCP `analyze_files` (scoped paths) | When ReadLints is empty or paths need URI roots |
+| MCP `test` (whole package) | Only when user explicitly asks for full package |
+| Shell `dart test` / `flutter test` / `very_good test` unscoped | **Never** as a commit gate — use scoped `pnpm agent-validate` |
 
 ## MCP bootstrap
 
-`~/.cursor/mcp.json` must include `very-good-cli` for Tier 3 and scaffolding.
-Setup: enable **vgv-ai-flutter-plugin** in Team Marketplace; Flutter
-plugin ships `dart` and `very-good-cli` MCP (no hand `~/.cursor/mcp.json`).
+`~/.cursor/mcp.json` includes `very-good-cli` when **vgv-ai-flutter-plugin**
+is enabled. Scoped validation does not require whole-package MCP `test`.
+
+## Hooks
+
+If hooks block scoped analyze or scoped test commands, report the blocker
+and repair hooks — never bypass with `prepush`, whole-package MCP `test`,
+or other broad commands.
 
 ## MCP `test` exit code 66
 
-Known cwd bug — user runs Tier 3 locally:
-
-```bash
-cd flutter/packages/<package_name>
-very_good test -j 4
-```
+Known cwd bug for whole-package MCP `test` — only when the user
+explicitly requests that separate work (not a commit gate).

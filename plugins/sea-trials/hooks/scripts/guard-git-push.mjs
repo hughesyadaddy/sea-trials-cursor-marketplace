@@ -6,10 +6,9 @@
  *   Claude  PreToolUse (Bash)     stdin {"tool_name", "tool_input":{"command"}, "cwd", ...}
  *
  * Decisions, per `git push` segment in the command:
- *   --no-verify / -n / --dry-run   ALLOW (2026-10-26 targeted pre-push
- *                                  rule: once targeted tests + lint pass on
- *                                  the changed code the full hook may be
- *                                  skipped; CI is the full check)
+ *   --no-verify / -n / --dry-run   ALLOW (targeted/scoped pre-push rule:
+ *                                  changed-code checks + CI; git hooks may
+ *                                  be skipped on push)
  *   --force / -f / --force-with-lease / +<refspec>
  *                                  DENY unless ST_ALLOW_FORCE_PUSH=1
  *   bare push in a gated repo whose .husky/pre-push runs the targeted
@@ -60,8 +59,8 @@ export const MESSAGES = {
     + `Run: ${PUSH_GATE_COMMAND}`,
 };
 
-/** Mirrors PHASE_PREPUSH in scripts/hooks/lib/push-gate-tasks.mjs. */
-const REQUIRED_PHASE = 'prepush';
+/** Mirrors PHASE_SCOPED in scripts/hooks/lib/push-gate-tasks.mjs. */
+const REQUIRED_PHASE = 'scoped';
 
 const GATE_MARKER = path.join('.husky', 'st-plugin-run.sh');
 const GATE_SCRIPT = 'pr-review-push';
@@ -506,10 +505,16 @@ export async function decide(input, opts = {}) {
     (env[name] ?? '').trim() === '1'
     || pushes.every((p) => (p.env[name] ?? '').trim() === '1');
 
-  // Force check: pure string work, never fails open. --no-verify is
-  // allowed (targeted pre-push rule, 2026-10-26).
   if (!hatch('ST_ALLOW_FORCE_PUSH') && pushes.some((p) => p.force)) {
     return { permission: 'deny', message: MESSAGES.force };
+  }
+
+  if (pushes.some((p) => p.noVerify)) {
+    return {
+      permission: 'allow',
+      note:
+        'Sea Trials: --no-verify allowed (scoped/targeted pre-push rule; git hooks skipped).',
+    };
   }
 
   if (hatch('ST_ALLOW_BARE_PUSH')) {

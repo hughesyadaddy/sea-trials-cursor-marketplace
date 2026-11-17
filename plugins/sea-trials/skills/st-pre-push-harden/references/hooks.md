@@ -52,10 +52,10 @@ misread.
 
 | Command shape | Decision | Exact message |
 | --- | --- | --- |
-| `git push --no-verify`, `git push -n`, `git push --dry-run` | ALLOW (targeted pre-push rule: use it only after the targeted checks passed on this change) | — |
+| `git push --no-verify`, `git push -n`, `git push --dry-run` | ALLOW (scoped/targeted pre-push rule: use only after checks passed on this change) | — |
 | `git push --force`, `-f`, `--force-with-lease[=…]`, `+<refspec>`, bundled `-nf` | DENY unless `ST_ALLOW_FORCE_PUSH=1` | `Sea Trials: force push is blocked (--force, -f, --force-with-lease, +refspec). Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n>. ST_ALLOW_FORCE_PUSH=1 only for an explicitly approved rewrite.` |
 | Bare `git push …` in a gated repo whose `.husky/pre-push` runs `targeted-prepush` | ALLOW (stderr note `targeted pre-push hook gates this push`; git runs the targeted checks) | — |
-| Bare `git push …` in an **older gated** repo (full pre-push hook), no fresh gate-pass token | DENY unless `ST_ALLOW_BARE_PUSH=1` | `Sea Trials: bare git push is blocked here. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> (<reason>)` where reason is `no gate token`, `gate token is for a different HEAD`, `working tree changed since the gate ran`, `gate token is stale`, or `gate token lacks phase prepush` |
+| Bare `git push …` in an **older gated** repo (full pre-push hook), no fresh gate-pass token | DENY unless `ST_ALLOW_BARE_PUSH=1` | `Sea Trials: bare git push is blocked here. Run: node $ST_PLUGIN_ROOT/scripts/hooks/pr-review-push.mjs --pr <n> (<reason>)` where reason is `no gate token`, `gate token is for a different HEAD`, `working tree changed since the gate ran`, `gate token is stale`, or `gate token lacks phase scoped` |
 | Bare `git push …` in a gated repo **with** a fresh token | ALLOW (stderr note `gate already passed for this HEAD`) | — |
 | `git push …` in a repo **without** the gate (e.g. this marketplace) | ALLOW | — |
 | `git push …` outside any git repo | ALLOW (the push fails on its own) | — |
@@ -72,7 +72,8 @@ input's `cwd` plus any `git -C` segments in the command.
 **Fresh token** = `.git/st-push-gate-pass.json` written by
 `pr-review-push` (also with `--check-only`) whose `headOid` matches
 `HEAD`, whose tree fingerprint matches the working tree, whose `phases`
-include `prepush`, and which is younger than 20 minutes
+include `scoped` (or legacy `prepush` when using `--phases prepush`), and
+which is younger than 20 minutes
 (`scripts/hooks/lib/gate-pass-token.mjs`). The guard deliberately skips
 the `ST_REVIEW_PUSH` env check that the husky pre-push hook applies:
 that variable only exists inside the `pr-review-push` child process.

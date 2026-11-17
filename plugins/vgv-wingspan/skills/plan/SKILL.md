@@ -135,7 +135,12 @@ Surface every rejected or rewritten criterion to the user with **AskUserQuestion
 
 These criteria populate the `success-criteria` block defined in [success-criteria.md](references/success-criteria.md); fill it in when you write the plan file in Step 6. That reference shows the block's shape and the `verify:` convention.
 
-`verify:` commands reflect the project's own toolchain. If the project has a companion verification skill available, its gates are the canonical `verify:` commands.
+`verify:` commands document **CI and human acceptance** — they are not
+agent commit gates. Agents use
+[scoped commit validation](../shared/references/scoped-commit-validation.md)
+during `/build` and `/create-pr`. Prefer project toolchain commands in
+`verify:` lines so CI can run them; do not instruct agents to replay
+full suites locally before every commit.
 
 ### 5. Select implementation detail template
 
