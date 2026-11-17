@@ -18,7 +18,7 @@ Preferred tiers when a human dispatches by hand:
 
 | Tier | Cursor | Claude Code | Use for |
 | --- | --- | --- | --- |
-| mechanical | `composer-2.5-fast` | `haiku` | l10n, codegen, renames |
+| mechanical | `composer-2.5` | `haiku` | l10n, codegen, renames |
 | code | `composer-2.5` | `sonnet` | normal lib + test work |
 | reasoning | `inherit` | `inherit` | rare; the parent's model |
 

@@ -25,7 +25,7 @@ export const DEFAULT_TIER = 'code';
  * resolver only uses these as the *preferred* pick, never as truth.
  */
 export const TIER_DEFAULTS = Object.freeze({
-  mechanical: { cursor: 'composer-2.5-fast', claude: 'haiku' },
+  mechanical: { cursor: 'composer-2.5', claude: 'haiku' },
   code: { cursor: 'composer-2.5', claude: 'sonnet' },
   reasoning: { cursor: 'inherit', claude: 'inherit' },
 });
@@ -33,15 +33,13 @@ export const TIER_DEFAULTS = Object.freeze({
 /**
  * Cursor Task-tool slugs seen in a real session schema on 2026-09-22.
  * Used only when no probe file exists or the probe could not list
- * models; always reported with `verified: false`.
+ * models; Fast variants are intentionally excluded. Always reported
+ * with `verified: false`.
  */
 export const STATIC_CURSOR_MODELS = Object.freeze([
   'inherit',
   'composer-2.5',
-  'composer-2.5-fast',
-  'cursor-grok-4.6-high-fast',
   'gpt-5.6-sol-medium',
-  'grok-4.7-high-fast',
 ]);
 
 /** Claude Code model aliases (stable across CLI versions) + `inherit`. */
@@ -166,10 +164,11 @@ export function probedModels(caps, host) {
 /**
  * Pick the best slug for a tier from an available list.
  *
- *   mechanical: tier default -> any `*-fast` slug -> `composer-2.5` -> inherit
+ *   mechanical: tier default -> `composer-2.5` -> inherit
  *   code:       tier default -> `composer-2.5` -> inherit
  *   reasoning:  inherit
  *
+ * Fast variants are never selected automatically.
  * `inherit` is always accepted (the Task tool never rejects it).
  *
  * @param {string} tier
@@ -190,11 +189,6 @@ export function pickFromList(tier, list, host) {
         : ['sonnet', 'opus', 'haiku'];
     return ladder.find(has) ?? 'inherit';
   }
-  if (t === 'mechanical') {
-    const fast = list.filter((s) => /-fast$/i.test(s) && s !== 'inherit');
-    if (fast.includes('composer-2.5-fast')) return 'composer-2.5-fast';
-    if (fast.length > 0) return [...fast].sort()[0];
-  }
   if (has('composer-2.5')) return 'composer-2.5';
   return 'inherit';
 }
@@ -212,7 +206,7 @@ function envOverride(env, tier, host) {
 }
 
 /**
- * Resolve one host's model.
+ * Resolve one host's model. Explicit env overrides may deliberately select Fast.
  *
  * @param {{
  *   tier: string, host: 'cursor'|'claude',

@@ -62,7 +62,7 @@ test('serializePushGateTask emits subagent-runnable JSON', () => {
   // Fan-out workers are mechanical: cheap tier on both hosts. With no
   // probe file the static default is used and flagged unverified.
   assert.equal(line.subagent_type, 'generalPurpose');
-  assert.equal(line.model, 'composer-2.5-fast');
+  assert.equal(line.model, 'composer-2.5');
   assert.equal(line.claudeModel, 'haiku');
   assert.equal(line.modelVerified, false);
   assert.equal(line.modelSource, 'static-fallback');
@@ -92,7 +92,7 @@ test('serializePushGateTask uses the probe list when present', () => {
     env: {},
     caps,
   });
-  assert.equal(line.model, 'grok-4.7-high-fast', 'closest *-fast slug');
+  assert.equal(line.model, 'composer-2.5', 'standard model');
   assert.equal(line.claudeModel, 'haiku');
   assert.equal(line.modelVerified, true);
   assert.equal(line.modelSource, 'probe');
@@ -115,7 +115,7 @@ test('workerModelHints honours env overrides and reads the probe file', () => {
     },
   );
   assert.deepEqual(workerModelHints({}, null), {
-    model: 'composer-2.5-fast',
+    model: 'composer-2.5',
     claudeModel: 'haiku',
     modelVerified: false,
     modelSource: 'static-fallback',
@@ -130,14 +130,14 @@ test('workerModelHints honours env overrides and reads the probe file', () => {
     JSON.stringify({
       host: 'cursor',
       cursor: {
-        models: ['inherit', 'composer-2.5-fast'],
+        models: ['inherit', 'composer-2.5'],
         source: 'agent --list-models',
         verified: true,
       },
     }),
   );
   const fromDisk = workerModelHints({ ST_STATE_DIR: root });
-  assert.equal(fromDisk.model, 'composer-2.5-fast');
+  assert.equal(fromDisk.model, 'composer-2.5');
   assert.equal(fromDisk.modelVerified, true);
   assert.equal(fromDisk.modelSource, 'probe');
   fs.rmSync(root, { recursive: true, force: true });
