@@ -7,8 +7,10 @@ import test from 'node:test';
 import {
   CI_FULL_TESTS_LABEL,
   packageDirFromTestRepoRel,
+  parseTestPathsMap,
   planPrScopedTestMatrix,
   PR_TEST_SHARD_CAP,
+  scopedTestPathsMapForBin,
   wantsFullDartTestPlan,
 } from './pr-scoped-test-plan.mjs';
 
@@ -54,11 +56,38 @@ test('planPrScopedTestMatrix caps shards and sets test_paths for solo bins', () 
   assert.ok(planned.matrix.include.length <= PR_TEST_SHARD_CAP);
   assert.ok(planned.matrix.include.length >= 1);
   for (const row of planned.matrix.include) {
+    assert.ok(row.test_paths_map);
+    const map = parseTestPathsMap(row.test_paths_map);
     const pkgs = row.packages.split(',').map((s) => s.trim());
+    assert.deepEqual(Object.keys(map).sort(), pkgs.sort());
     if (pkgs.length === 1) {
-      assert.ok(row.test_paths);
+      assert.equal(row.test_paths, map[pkgs[0]]);
     }
   }
+});
+
+test('multi-package bin carries per-package test_paths_map', () => {
+  /** @type {Map<string, string[]>} */
+  const testsByPackage = new Map([
+    ['packages/a', ['test/a_test.dart']],
+    ['packages/b', ['test/b_test.dart', 'test/b_extra_test.dart']],
+  ]);
+  const map = scopedTestPathsMapForBin(
+    ['packages/a', 'packages/b'],
+    testsByPackage,
+  );
+  assert.deepEqual(map, {
+    'packages/a': 'test/a_test.dart',
+    'packages/b': 'test/b_test.dart test/b_extra_test.dart',
+  });
+
+  const planned = planPrScopedTestMatrix({ testsByPackage, maxShards: 1 });
+  assert.equal(planned.matrix.include.length, 1);
+  const row = planned.matrix.include[0];
+  assert.equal(row.packages, 'packages/a,packages/b');
+  assert.ok(row.test_paths_map);
+  assert.deepEqual(parseTestPathsMap(row.test_paths_map), map);
+  assert.equal(row.test_paths, undefined);
 });
 
 test('empty scoped plan → nothing_to_test', () => {

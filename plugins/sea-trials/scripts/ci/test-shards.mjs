@@ -423,8 +423,11 @@ async function emitPlan({ base, repoRoot }) {
   for (const [i, shard] of planned.shards.entries()) {
     const shardSeconds = shard.reduce((sum, dir) => sum + estimateFn(dir), 0);
     const row = planned.matrix.include[i];
-    const pathsNote =
-      row?.test_paths?.trim() ? `; files: ${row.test_paths}` : '';
+    const pathsNote = row?.test_paths_map
+      ? `; test_paths_map: ${row.test_paths_map}`
+      : row?.test_paths?.trim()
+        ? `; files: ${row.test_paths}`
+        : '';
     process.stdout.write(
       `  shard ${i} (${formatDuration(shardSeconds)} est): ${shard.join(', ')}${pathsNote}\n`,
     );

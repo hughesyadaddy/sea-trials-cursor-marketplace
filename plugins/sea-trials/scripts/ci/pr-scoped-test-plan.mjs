@@ -119,6 +119,58 @@ export function estimateScopedPackageSeconds(inPkgTests) {
 }
 
 /**
+ * @param {string[]} packages flutter-relative package dirs (sorted)
+ * @param {Map<string, string[]>} testsByPackage
+ * @returns {Record<string, string>} packageDir → space-separated in-package test paths
+ */
+export function scopedTestPathsMapForBin(packages, testsByPackage) {
+  /** @type {Record<string, string>} */
+  const map = {};
+  for (const pkg of packages) {
+    const rels = testsByPackage.get(pkg) ?? [];
+    if (rels.length === 0) {
+      throw new Error(`scoped shard missing planned tests for ${pkg}`);
+    }
+    map[pkg] = rels.join(' ');
+  }
+  return map;
+}
+
+/**
+ * @param {Record<string, string>} map
+ * @returns {string}
+ */
+export function stringifyTestPathsMap(map) {
+  return JSON.stringify(map);
+}
+
+/**
+ * @param {string} text
+ * @returns {Record<string, string> | null}
+ */
+export function parseTestPathsMap(text) {
+  if (!text?.trim()) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error('test_paths_map is not valid JSON');
+  }
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('test_paths_map must be a JSON object');
+  }
+  /** @type {Record<string, string>} */
+  const map = {};
+  for (const [pkg, paths] of Object.entries(parsed)) {
+    if (typeof pkg !== 'string' || !pkg || typeof paths !== 'string' || !paths.trim()) {
+      throw new Error(`invalid test_paths_map entry for ${String(pkg)}`);
+    }
+    map[pkg] = paths.trim();
+  }
+  return map;
+}
+
+/**
  * @param {{
  *   testsByPackage: Map<string, string[]>,
  *   nameByDir?: Map<string, string>,
@@ -161,16 +213,15 @@ export function planPrScopedTestMatrix({
     const scopes = packages
       .map((dir) => nameByDir?.get(dir) ?? dir.split('/').pop())
       .join(',');
+    const pathsMap = scopedTestPathsMapForBin(packages, testsByPackage);
     const row = {
       shard: String(shardIndex),
       packages: packages.join(','),
       scopes,
+      test_paths_map: stringifyTestPathsMap(pathsMap),
     };
     if (packages.length === 1) {
-      const testRels = testsByPackage.get(packages[0]) ?? [];
-      if (testRels.length > 0) {
-        row.test_paths = testRels.join(' ');
-      }
+      row.test_paths = pathsMap[packages[0]];
     }
     include.push(row);
   }
