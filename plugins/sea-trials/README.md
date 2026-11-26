@@ -18,7 +18,7 @@ Shared components (loaded by both hosts):
 - **Skills:** `st-*` skills including `st-pr-review-monitor` (24h Cursor
   background PR watch), `st-pr-promote` (promotion PRs), `st-pr-ship`,
   `st-pr-review-loop-*`, `st-pre-push-harden`, `st-build-with-subagents`, …
-  under `skills/`
+  plus `new-chat-icon` (mandatory bot avatar workflow) under `skills/`
 - **Scripts:** push gate, PR review, parallel fan-out under `scripts/hooks/`
 - **Entry:** `scripts/st-run.mjs <hook> [-- args]` (or `pnpm` shortcuts in
   app repos that delegate via `.husky/st-plugin-run.sh`)
