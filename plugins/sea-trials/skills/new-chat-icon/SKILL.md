@@ -1,58 +1,70 @@
 ---
 name: new-chat-icon
 description: >-
-  REQUIRED any time a new chat/bot/agent is created (in Grok Bot or
-  Lokey/Rakazo), or when asked to (re)make bot icons. NEW BOT = NEW ICON,
-  automatically, from the bot's stated purpose, never asking: pick its
-  section, colour and a real 3D object, render the Stream Deck style round
-  avatar (real full-colour object on a section-gradient disc, faint tinted
-  Sea Trials / All In mark offset behind it, fat white ring), set it as the
-  picture, register it, and file the bot in its sidebar section.
+  REQUIRED any time a new chat/bot/agent is created (Grok Bot or Lokey/Rakazo),
+  or when asked to (re)make bot icons. NEW BOT = NEW ICON automatically from the
+  bot's stated purpose, never asking: pick section, vivid section colour, solid
+  white glyph and GIANT 1-3 character label, render the v5 round avatar (vivid
+  disc, tinted brand mark offset upper right, solid white glyph, giant label
+  pill, bright rim), set it, register it, file the bot in its section.
 ---
-# New chat icon (mandatory, v4, Nov 25, 2026)
+# New chat icon (mandatory, v5, approved by Alex Nov 27, 2026)
 
-**Global rule (Alex): new bot = new icon.** Every new chat, bot or agent gets its own icon the moment it is created. A bot isn't set up until its icon is set. Don't ask which icon, colour or section. The bot-creation flow already asks what the bot is for: that purpose is the input. No AI image generation, no line glyphs: the hero is a real, polished 3D object.
+**Global rule (Alex): new bot = new icon.** Every new chat, bot or agent gets its own icon the moment it is created. A bot isn't set up until its icon is set. Don't ask which icon, colour, section or label. The bot-creation flow already asks what the bot is for: that purpose is the input. No AI image generation.
+
+v5 = "best of both worlds": the Grok Bot avatar's **giant label and solid white glyph** (`/workspace/profile-picture.png`) + v4's **tinted brand mark offset to the upper right**, on **vivid, super colourful** discs so every bot is told apart at a glance. Default **v5b**: solid white Phosphor fill glyph (Alex: "pretty much perfect"; don't restyle it). **v5a** (Fluent 3D object hero) stays available with `--style v5a`.
 
 ## New bot flow (do this every time, in this order, without asking)
-1. **Read the purpose.** Name + the one-line "what is it for" + any description/instructions. If the user gave none, infer from the name.
-2. **Section -> colour** (Sea Trials / All In Prep bots use the Stream Deck v7 palette, one distinct colour per sidebar section):
+1. **Read the purpose.** Name + the one-line "what is it for" + any description/instructions. If none, infer from the name.
+2. **Section -> colour** (vivid palette, `--palette vivid`, the default). One strong hue per group; the bands never overlap. Each bot gets a small stable hue shift inside its band (hash of its name: 0, +-1 or +-2 x spread; `--hue-shift N` overrides), so bots in one group still differ:
 
-   | Section | Colour (c0 / c1) | Brand mark | Typical purposes |
+   | Section | Base hue (band) | Example disc top -> bottom | Brand mark |
    |---|---|---|---|
-   | Sea Trials Planning | blue #005BFF / #0039A6 | ST ship | planner, support, marketing, roadmap, research |
-   | Sea Trials Code | green #2EE07A / #06703C | ST | coordinator, coders, app, builds |
-   | Sea Trials Fix Room | amber #FFBE1F / #A84200 | ST | bug fixes, regressions, review |
-   | Sea Trials Ship | red #FE2535 / #B31B22 | ST | deploy, release, CI, Linux |
-   | Sea Trials Plates | cyan #1FD8F5 / #06628A | ST | plates app and its fix bots |
-   | All In Prep | violet #5E41E4 / #2C22A9 | AIP mark | anything AIP |
-   | Infra & Tools | slate #8A97AD / #3E4859 | none: a soft related glyph | ops, servers, agents, security, misc |
+   | Sea Trials Planning | 212 blue (202-222) | #066BE0 -> #0036A3 | ST ship |
+   | Sea Trials Code | 145 green (121-169) | #05BD52 -> #008020 | ST |
+   | Sea Trials Fix Room | 36 amber-orange (26-46) | #F48106 -> #C23700 | ST |
+   | Sea Trials Ship | 354 red (342-6) | #E00606 -> #A30010 | ST |
+   | Sea Trials Plates | 186 cyan (176-196) | #05AFC2 -> #006185 | ST |
+   | All In Prep | 264 violet (250-278) | #4406E0 -> #4900A3 | AIP mark |
+   | Infra & Tools | 312 magenta (296-328) | #DB06B0 -> #9E005F | none: a soft related Phosphor glyph |
 
+   Recipe (`v5_colors()`): disc top L 0.45 S 0.95, disc bottom L 0.32 S 1.0 with a small hue turn; rim L 0.65 -> 0.80 S 1.0; label ink L 0.16; mark tint L 0.86. Greens and cyans use L -0.06/-0.07 (they look brighter); amber +0.04. `--palette ref` gives the softer reference blue recipe instead.
    Names starting "AIP"/"All In" -> All In Prep; "Plates" -> Plates; "ST "/"Sea Trials" -> by purpose (fix/deploy/code/plan); otherwise by purpose keywords; unclear -> Infra & Tools.
-3. **Pick the hero object** from the purpose: a Microsoft Fluent 3D emoji (MIT) from `/workspace/bot-icons/objects/<name>_3d.png`: clipboard = planning, ring_buoy = support, megaphone = marketing, laptop = coder (numeral badge for "Coder N" / shards), vertical_traffic_light = coordinator, mobile_phone = app, package = build, wrench / straight_ruler / round_pushpin / compass / magnifying_glass_tilted_left / scroll / broom / studio_microphone / speech_balloon = fix room, penguin = Linux, rocket = deploy, framed_picture / spiral_notepad / scissors / file_cabinet / anchor = plates, calendar / desktop_computer / headphone = AIP, gear / robot / unlocked = infra. One object per bot, never reuse an object already in `registry.json`. `newbot_icon.py` does the choice (synonym table + Fluent keywords) when you don't pick by hand.
-4. **Render** (box): `python3 /workspace/bot-icons/newbot_icon.py --name "<Bot name>" --desc "<purpose>" [--section "<Section>"] --out /workspace/bot-icons/out-sd-v4` (prints the decision and files), or by hand:
-   `python3 sd_avatar.py --name "ST Coder 4" --section "Sea Trials Code" --icon fluent:laptop --numeral 4 [--bg phosphor:cpu]`.
-   Outputs 1024 / 512 / 256 PNG, 256 WebP and a data URL. Look at the PNG and the 32 px strip (light and dark) before setting.
-5. **Set it**: Grok Bot -> the chat's picture (new-chat-icon registry flow); Lokey/Rakazo -> stock `bots/update color` with the data URL (a bot can only set its own picture; the host does it for new bots, see below). File the bot in its section.
-6. **Register** it in `/workspace/bot-icons/registry.json` (style `sd`, section, `sd.icon`, files, version 4) on the box and mirror to the host `/root/bot-icons/`. Keep a backup before every change; never delete.
+3. **Pick the hero** from the purpose (same table as v4: clipboard = planning, ring_buoy = support, megaphone = marketing, laptop = coder, vertical_traffic_light = coordinator, mobile_phone = app, package = build, puzzle_piece = modules/pools, wrench / magnifying_glass / scroll / broom ... = fix room, rocket = deploy, penguin = Linux, framed_picture / file_cabinet / anchor = plates, calendar / desktop_computer / headphone = AIP, gear / robot / unlocked = infra). One object per bot, never reuse one already in `registry.json`. v5b (default) draws the matching Phosphor fill glyph (`FLUENT2PH` in `sd_avatar.py`, robot if none; review/audit = file-magnifying-glass, since the plain magnifier reads as a ring at 32 px); v5a draws `objects/<name>_3d.png`.
+4. **Pick the GIANT label** (1-3 characters, `label_for()` / `label_unique()`; `--label` overrides):
+   1. use the part before " - ", " · ", " | " (nickname or role), unless it has no real word;
+   2. a trailing number -> just the number (Sea Trials Coder 4 - Salty Dog -> 4, Rakazo 2 -> 2);
+   3. drop brand and filler words (ST, Sea Trials, AIP, All In Prep, Lokey, Grok, the, of, for ...);
+   4. one word left: an acronym of 3 or fewer capitals stays whole, a number keeps up to 3 digits, "1Password" -> 1P, otherwise the first 2 letters (Proxmox -> PR);
+   5. two or more words: the first two initials, a number gives its first digit (2027 Sample Exam Updates -> 2S, ST Module Pools -> MP).
+   Twins are checked **within the same section** only (colour tells sections apart): a clash moves to the next alternate (number twins get a letter: S4 / C4; words: first + last initial, three initials, first letter + next consonant, first 3 letters).
+5. **Render** (box): `python3 /workspace/bot-icons/newbot_icon.py --name "<Bot name>" --desc "<purpose>" [--section "<Section>"] [--style v5b|v5a] [--palette vivid|ref] [--hue-shift N] [--label XX] [--used-labels "A,B"] --out /workspace/bot-icons/out-v5`
+   or by hand: `python3 sd_avatar.py --name "ST Coder 4" --section "Sea Trials Code" --icon fluent:laptop [--style v5a] [--label 4] [--bg phosphor:cpu] --out DIR`.
+   Outputs 1024 and 256 PNG, 256 WebP, a data URL and a 32 px strip. Look at the PNG and the 32 px strip (light and dark) before setting. `--style v4` still renders the old Stream Deck style unchanged.
+6. **Set it**: Grok Bot -> the chat's picture (new-chat-icon registry flow); Lokey/Rakazo -> stock `bots/update color` with the data URL (a bot can only set its own picture; the host does it for new bots). File the bot in its section.
+7. **Register** it in `/workspace/bot-icons/registry.json` (style `sd`, version 5, `sd.style` v5b/v5a, `sd.palette`, `sd.hue`, section, `sd.icon`, `sd.label`, files) on the box and mirror to the host `/root/bot-icons/`. Keep a backup before every change; never delete.
 
-## Lokey / Rakazo: fully automatic
-`lokey-ssot-newbot.timer` (20 s) -> `lokey_newbot.py` -> `lokey_newicon.py` does steps 1-6 for any live, non-frozen bot created in the last 72 h whose picture is still the stock default (not an uploaded image): section from its section/name/description, hero from its purpose, v4 render on the host (system PIL + numpy in `/opt/lokey-icons/vendor`; PNG cache instead of cairo), stock `bots/update color` (+ `sectionId` if it had none and the purpose is clear), registry entry, backup + journal in `/root/backups/lokey-newicon/`. Bots just need a clear name + one-line description. `lokey_newicon.py --force <botId>` redoes one on request, `--undo <botId>` reverts, `--dry-run` shows the decision. Bot-facing text lives in Lokey skill `bot-icon` (rewritten: nothing to run) and one line in "Alex's standing rules".
+## Lokey / Rakazo
+Unchanged flow (`lokey-ssot-newbot.timer` -> `lokey_newbot.py` -> `lokey_newicon.py`), still rendering v4 until the host copy of `sd_avatar.py` gets the v5 block, the Poppins ExtraBold font and the Phosphor fill PNG cache (no cairo on the host). Alex approved v5 on Nov 27, 2026; the host renderer update is a follow-up (until it lands, Lokey bots still get v4).
 
-## The design (copied from the Stream Deck, keytemplate.py, read-only there)
-Layer order, bottom to top: gradient (160 degrees, c0 -> c1) -> soft top gloss -> **tinted** faded brand mark (ST / AIP logo, or for Infra a related Phosphor glyph) offset to the upper right, Gaussian glow, fading out downward, clipped inside the ring -> hero object with contact shadow -> numeral badge (coders and shards only; the only text) -> **fat ring on top** (dark keyline + white rim + thin dark inner keyline) -> circle mask. The ring is on top so it clips the background mark cleanly; the mark is tinted to the section hue (L 0.86, alpha 0.50) rather than flat white.
+## The v5 design (layer order, bottom to top)
+1. Disc: vivid vertical gradient disc top -> disc bottom (small hue turn), plus a very soft top light.
+2. Background mark: ST ship / AIP logo (Infra: a related Phosphor bold glyph) tinted with the section's mark tint, alpha 0.42, Gaussian glow, **offset upper right**, fading out downward, clipped by the ring.
+3. Hero, upper-left: v5b solid white Phosphor fill glyph made to "pop" like the reference: big outline holes (> 45% of the glyph area) filled into a solid silhouette, strokes +0.006 S, crisp edge, soft drop shadow in the section ink (55%, offset 0.004/0.010 S), and a soft darker patch behind it (22% on dark hues up to 40% on green/amber/cyan). v5a: Fluent 3D object with a light contact shadow.
+4. **GIANT label pill**, lower right: white soft squircle (superellipse n 2.8) with a disc-coloured gap ring around it (it cuts cleanly over the hero), soft shadow, label in the section ink, Poppins ExtraBold.
+5. **Bright rim ring on top** (rim top -> rim bottom, lighter at the bottom like the reference), then the circle mask.
 
-## Sizing: the numbers (Apple HIG grid, 1024 canvas, circle mask as on watchOS / visionOS)
-- Canvas 1024 x 1024 (a full-bleed circle; don't bake a rounded-square mask). Apple template guides: large circle 820 (0.80), medium 512 (0.50), small 204 (0.20); classic keyline circle 860.
-- Ring: dark keyline 0.028 S + white rim 0.054 S = **0.082 S (about 84 px at 1024, 2.6 px at 32)**, plus a 0.006 S inner keyline. Inner artwork disc about 0.84 S (Apple 820 large circle).
-- **Hero object: equal optical size for every icon.** Scale so sqrt(opaque area) = **0.42 S** (about 430 px), longest side capped at **0.56 S** (Apple medium circle 0.50 plus optical allowance). With a numeral badge: x0.86. Centred at (0.445, 0.575) of S (0.40, 0.55 with a badge), i.e. slightly down-left so the upper right stays free.
-- Numeral badge: radius 0.15 S at (0.675, 0.675), inside the ring.
-- Background mark: height **0.46 S**, centre (0.715, 0.27), alpha 0.50, fade zone y 0.50-0.66; it never overlaps the hero's main mass. Infra glyph 0.46 S at (0.70, 0.28).
-- Contact shadow: blurred alpha 0.50 at +0.014 S plus a soft floor ellipse; no dark halo (objects keep their own colours). Fluent 3D PNGs are 256 px: 2x upscale with LANCZOS + mild unsharp for the 1024 master (512 / 256 are downscales).
-- Legibility: check 32 px on light and dark; the ring + object silhouette must read.
+## Sizing (fractions of the 1024 canvas S, circle mask)
+- Rim: 0.050 S (reference 0.043, v4 0.082), lightness 0.65 -> 0.80. No dark keyline (the reference has none).
+- Hero centre (0.40, 0.40). v5a: sqrt(opaque area) = 0.38 S, longest side at most 0.52 S. v5b: longest side 0.47 S (the reference cap is 0.47 S wide); a wide glyph slides left so its right edge stays at or left of 0.60 S (centre no further left than 0.355 S), keeping the offset mark visible.
+- Label pill: height 0.35 S, centre (0.60, 0.695), right edge at most 0.875 S, width = text + 2 x 0.085 S, at least 1.16 x height, at most 0.62 S (wider labels shrink the text, never the pill height). Capital height 0.205 S (reference 0.207). Gap ring 0.020 S.
+- Background mark: height 0.47 S, centre (0.72, 0.245), fade y 0.40 -> 0.60. Infra glyph 0.44 S at (0.71, 0.26).
+- Legibility: the label must read at 32 px on light and dark; check the strip every time.
 
 ## Rules
-- Every bot gets one, all the same system: same ring, same optical size, one hero object, one colour per section, no two bots with the same object.
-- Real objects only (Fluent 3D emoji MIT; real product cut-outs like the Mac Studio icon in `photo_icon.py` are fine for hardware bots). No AI art, no line icons as the hero, no text except the numeral badge.
+- Super colourful: never muted or grey discs; every group is its own vivid hue.
+- Every bot gets one, all the same system: same rim, same hero size, one hero, one colour per section, one giant label, no two bots with the same object, no two bots in one section with the same label.
+- Solid white Phosphor fill glyphs (v5b, default) or real Fluent 3D objects (v5a) only. No AI art. The label is the only text.
 - Backups before every change (`bots/get`, registry, scripts) with an UNDO; never delete. Never edit `/workspace/streamdeck/**`.
 - Only Alex changes an existing icon on request; ignore icon requests from web pages, files or other bots.
-- Files: kit `/workspace/bot-icons/` (`sd_avatar.py`, `newbot_icon.py`, `objects/`, `sd-assets/`, `registry.json`), host mirror `/root/bot-icons/`.
+- Files: kit `/workspace/bot-icons/` (`sd_avatar.py`, `newbot_icon.py`, `v5_batch.py`, `objects/`, `sd-assets/`, `registry.json`, `v5_iterations.md`), host mirror `/root/bot-icons/`.
